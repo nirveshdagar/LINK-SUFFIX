@@ -1,0 +1,19 @@
+{
+  "name": "traffic-armour-harness",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit packages/*/src",
+    "test:integration": "vitest run tests/integration",
+    "lint": "tsc -b --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0",
+    "@types/node": "^20.12.0"
+  },
+  "engines": { "node": ">=20" }
+}
