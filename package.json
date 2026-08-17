@@ -8,7 +8,7 @@
     "test": "vitest run",
     "test:unit": "vitest run tests/unit packages",
     "test:integration": "vitest run tests/integration",
-    "lint": "tsc -b --noEmit"
+    "lint": "node tools/lint.mjs"
   },
   "devDependencies": {
     "typescript": "^5.4.0",
