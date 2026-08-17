@@ -1,0 +1,31 @@
+id: mumbai-human-pricing-journey
+tier: human
+seed_url: https://example.com/
+device_pool:
+  - android-pixel-chrome
+geo:
+  country: IN
+  state: Maharashtra
+  city: Mumbai
+proxy_mode: sticky-residential
+session:
+  pages:
+    min: 4
+    max: 6
+  internal_link_probability: 0.6
+concurrent: 1
+repeats: 3
+expected_verdict: allow
+verdict_detection:
+  http_status: true
+  challenge_html: true
+  challenge_signatures:
+    - cloudflare
+    - hcaptcha
+    - datadome
+    - perimeterx
+    - akamai
+    - generic
+  header_signals: true
+  cookies: true
+  timing: true

@@ -1,0 +1,26 @@
+id: berlin-stealth-funnel
+tier: stealth
+seed_url: https://example.com/
+device_pool:
+  - desktop-windows-chrome
+geo:
+  country: DE
+  state: Berlin
+  city: Berlin
+proxy_mode: sticky-residential
+concurrent: 1
+repeats: 3
+expected_verdict: challenge
+verdict_detection:
+  http_status: true
+  challenge_html: true
+  challenge_signatures:
+    - cloudflare
+    - hcaptcha
+    - datadome
+    - perimeterx
+    - akamai
+    - generic
+  header_signals: true
+  cookies: true
+  timing: true

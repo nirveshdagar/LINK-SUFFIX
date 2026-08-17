@@ -1,0 +1,22 @@
+id: trivial-burst-homepage
+tier: trivial-http
+seed_url: https://example.com/
+geo:
+  country: US
+proxy_mode: rotating-residential
+concurrent: 16
+repeats: 50
+expected_verdict: allow
+verdict_detection:
+  http_status: true
+  challenge_html: true
+  challenge_signatures:
+    - cloudflare
+    - hcaptcha
+    - datadome
+    - perimeterx
+    - akamai
+    - generic
+  header_signals: true
+  cookies: true
+  timing: true

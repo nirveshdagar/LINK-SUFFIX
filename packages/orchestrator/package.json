@@ -4,15 +4,26 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "tah": "dist/cli.js"
+  },
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run"
+    "test": "vitest run",
+    "run": "node dist/cli.js"
   },
   "dependencies": {
+    "@tah/dashboard": "*",
+    "@tah/headless-browser": "*",
+    "@tah/human-sim": "*",
+    "@tah/profiles": "*",
     "@tah/proxy": "*",
+    "@tah/stealth-browser": "*",
+    "@tah/trivial-http": "*",
     "@tah/verdict": "*",
     "ajv": "^8.12.0",
     "ajv-formats": "^3.0.1",
+    "commander": "^12.1.0",
     "yaml": "^2.4.0"
   },
   "devDependencies": {
