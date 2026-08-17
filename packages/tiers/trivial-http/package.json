@@ -1,0 +1,20 @@
+{
+  "name": "@tah/trivial-http",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tah/orchestrator": "*",
+    "@tah/proxy": "*",
+    "@tah/verdict": "*",
+    "undici": "^6.20.0"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0"
+  }
+}
