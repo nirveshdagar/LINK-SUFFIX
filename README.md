@@ -213,7 +213,7 @@ Shape:
   "repeat_index": 0,
   "tier": "human",
   "geo_requested": { "country": "IN", "state": "Maharashtra", "city": "Mumbai" },
-  "geo_resolved": undefined,           // populated only by post-run verify_geo.py
+  "geo_resolved": undefined,           // reserved; see Troubleshooting §8.8
   "proxy_mode": "sticky-residential",
   "session_id": "mumbai-human-pricing-journey-...-0",
   "started_at": "2026-08-17T...",
@@ -526,10 +526,12 @@ python tooling/py/build_replay.py runs/<ts>
 
 `verify_geo.py` reads `scenarios.jsonl`, looks up every event's
 `geo_resolved.ip` in the MaxMind DB, and writes a row to
-`mismatches.csv` for each `(requested != resolved)` triple. The
-orchestrator does not currently populate `geo_resolved` itself; the
-field is reserved for future per-event egress lookup. Today, the
-tooling operates on a placeholder.
+`mismatches.csv` for each `(requested != resolved)` triple. **The
+orchestrator does not currently populate `geo_resolved`** (the field
+is declared in the `RequestEvent` type but no tier or post-step sets
+it), so the tool silently skips every event today — `mismatches.csv`
+ends up empty. The hook for it is in place; wiring an `ipify.org`
+lookup per session is a follow-up.
 
 `build_replay.py` zips each `replay/<scenario_id>/` subtree (Playwright
 trace + HAR + screenshots) into a single bundle. The replay directory
