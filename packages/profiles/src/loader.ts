@@ -1,4 +1,4 @@
-import data from './devices.json' assert { type: 'json' };
+import data from './devices.json' with { type: 'json' };
 
 export interface DeviceProfile {
   id: string;
