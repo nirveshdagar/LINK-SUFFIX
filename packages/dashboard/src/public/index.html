@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Traffic Armour Harness</title>
+<style>
+  body { background: #0e1116; color: #ddd; font: 13px/1.4 -apple-system, sans-serif; margin: 24px; }
+  h1 { font-size: 16px; margin: 0 0 16px; }
+  .matrix { display: grid; grid-template-columns: 120px repeat(4, 1fr); gap: 1px; background: #222; }
+  .matrix > div { background: #161b22; padding: 8px; }
+  .cell-allow { color: #4ec9b0; }
+  .cell-block { color: #f48771; }
+  .cell-challenge { color: #dcdcaa; }
+  .cell-unsure { color: #888; }
+  pre { background: #0a0d12; padding: 8px; overflow: auto; max-height: 200px; }
+</style>
+</head>
+<body>
+<h1>Traffic Armour Harness — Run <span id="runid">…</span></h1>
+<div class="matrix" id="matrix"></div>
+<h2>Recent requests</h2>
+<pre id="stream"></pre>
+<script>
+  const es = new EventSource('/events');
+  es.onmessage = (m) => {
+    const o = JSON.parse(m.data);
+    if (o.kind === 'state') render(o.state);
+    if (o.kind === 'request') {
+      const s = document.getElementById('stream');
+      s.textContent = JSON.stringify(o.event, null, 2) + '\n' + s.textContent;
+    }
+  };
+  function render(s) {
+    const m = document.getElementById('matrix');
+    const tiers = ['trivial-http','headless','stealth','human'];
+    const v = ['allow','challenge','block','unsure'];
+    m.innerHTML = '<div></div>' + v.map(x => `<div>${x}</div>`).join('') +
+      tiers.map(t => `<div>${t}</div>` + v.map(c => `<div class="cell-${c}">${s.byTierVerdict[t][c] ?? 0}</div>`).join('')).join('');
+    document.getElementById('runid').textContent = '— total: ' + s.totalRequests;
+  }
+</script>
+</body>
+</html>

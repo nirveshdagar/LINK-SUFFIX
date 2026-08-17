@@ -1,0 +1,19 @@
+{
+  "name": "@tah/dashboard",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/static": "^7.0.4",
+    "@tah/orchestrator": "*",
+    "fastify": "^4.27.0"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0"
+  }
+}
