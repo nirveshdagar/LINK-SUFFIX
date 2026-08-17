@@ -26,12 +26,10 @@ async function main(): Promise<void> {
   const runId = new Date().toISOString().replace(/[:.]/g, '-');
   const runDir = path.resolve(`runs/${runId}`);
 
-  const bus = new EventBus();
-  if (opts.dashboard) {
-    const url = await startDashboard({ port: Number(opts.dashboardPort), bus, runDir });
-    console.log(`dashboard at ${url}`);
-  }
-
+  // Check credentials first so a missing-env failure does not also leave a
+  // dashboard listener bound to the port. (Otherwise `startDashboard` would
+  // return, then process.exit(1) would tear the process down while the
+  // server is still listening on 7474 — confusing on retry.)
   const creds = {
     user: process.env.IPROYAL_USER ?? '',
     pass: process.env.IPROYAL_PASS ?? '',
@@ -39,6 +37,12 @@ async function main(): Promise<void> {
   if (!creds.user || !creds.pass) {
     console.error('IPROYAL_USER and IPROYAL_PASS must be set in env');
     process.exit(1);
+  }
+
+  const bus = new EventBus();
+  if (opts.dashboard) {
+    const url = await startDashboard({ port: Number(opts.dashboardPort), bus, runDir });
+    console.log(`dashboard at ${url}`);
   }
 
   await runScenario({

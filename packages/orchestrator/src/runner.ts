@@ -57,55 +57,89 @@ export async function runScenario(opts: {
     ? loadProfile(scenario.device_pool[0])
     : loadProfile(DEFAULT_PROFILE);
 
-  for (let i = 0; i < scenario.repeats; i++) {
-    const sessionId = `${scenario.id}-${Date.now()}-${i}`;
-    let proxyUrl: URL;
-    try {
-      proxyUrl = buildProxyEndpoint(scenario.geo, scenario.proxy_mode, opts.creds, sessionId).url;
-    } catch (e: any) {
-      await skippedSink.write({ scenario_id: scenario.id, repeat: i, reason: e.message });
-      continue;
-    }
-
-    const iter = tierFn(scenario, proxyUrl, profile) as AsyncIterable<RequestEvent>;
-
-    for await (const evt of iter) {
-      const last = evt.events.at(-1);
-      if (last) {
-        // Note: tier request events don't currently capture response body, so
-        // body-based challenge signatures can't actually match. Body capture is
-        // a follow-up to Tasks 9-12; until then we pass an empty snippet and
-        // rely on headers/cookies/status for classification.
-        const out = aggregateVerdict(
-          {
-            url: last.url,
-            status: last.status,
-            responseHeaders: last.headers,
-            responseBodySnippet: '',
-            setCookies: Object.entries(last.headers)
-              .filter(([k]) => k.toLowerCase() === 'set-cookie')
-              .map(([, v]) => String(v)),
-          },
-          enabledNames as unknown as string[],
-          strategies,
-        );
-
-        // Sub-100ms responses are suspicious: a successful allow with no
-        // challenge signatures and an implausibly fast response is usually a
-        // sign of a honeypot / shadow ban. Override to 'unsure' and record
-        // the event separately.
-        let verdict: Vote = out.final;
-        if (verdict === 'allow' && last.time_ms < 100) {
-          verdict = 'unsure';
-          await unsureSink.write(evt);
-        }
-        evt.final_verdict = verdict;
-      }
-      opts.bus.emit('request', evt);
-      await sink.write(evt);
+  if (opts.parallel) {
+    // Fire all repeats concurrently. Cap is implicit at scenario.repeats.
+    // Each repeat is an isolated coroutine that talks to the shared bus +
+    // JSONL sink; the sink serialises writes so concurrency is safe.
+    await Promise.all(
+      Array.from({ length: scenario.repeats }, (_, i) =>
+        runOneRepeat(i, scenario, opts.creds, tierFn, profile, opts.bus, sink, unsureSink, skippedSink),
+      ),
+    );
+  } else {
+    for (let i = 0; i < scenario.repeats; i++) {
+      await runOneRepeat(i, scenario, opts.creds, tierFn, profile, opts.bus, sink, unsureSink, skippedSink);
     }
   }
   await sink.close();
+}
+
+async function runOneRepeat(
+  i: number,
+  scenario: Scenario,
+  creds: { user: string; pass: string },
+  tierFn: TierRunner,
+  profile: any,
+  bus: EventBus,
+  sink: JsonlSink,
+  unsureSink: AppendOnlyJsonl,
+  skippedSink: AppendOnlyJsonl,
+): Promise<void> {
+  const sessionId = `${scenario.id}-${Date.now()}-${i}`;
+  let proxyUrl: URL;
+  try {
+    proxyUrl = buildProxyEndpoint(scenario.geo, scenario.proxy_mode, creds, sessionId).url;
+  } catch (e: any) {
+    await skippedSink.write({ scenario_id: scenario.id, repeat: i, reason: e.message });
+    return;
+  }
+
+  const iter = tierFn(scenario, proxyUrl, profile) as AsyncIterable<RequestEvent>;
+  // Pull out the per-event strategy list from the surrounding closure by
+  // reading it from the scenario (re-derived here to keep the helper
+  // self-contained; cheap because no I/O).
+  const sigNames = (scenario.verdict_detection?.challenge_signatures ?? [
+    'cloudflare', 'hcaptcha', 'datadome', 'perimeterx', 'akamai', 'generic',
+  ]) as any;
+  const strategies = defaultStrategies(sigNames);
+  const enabledNames = (['http_status', 'challenge_html', 'header_signals', 'cookies', 'timing'] as const)
+    .filter((n) => (scenario.verdict_detection as any)?.[n] !== false);
+
+  for await (const evt of iter) {
+    const last = evt.events.at(-1);
+    if (last) {
+      // Note: tier request events don't currently capture response body, so
+      // body-based challenge signatures can't actually match. Body capture is
+      // a follow-up to Tasks 9-12; until then we pass an empty snippet and
+      // rely on headers/cookies/status for classification.
+      const out = aggregateVerdict(
+        {
+          url: last.url,
+          status: last.status,
+          responseHeaders: last.headers,
+          responseBodySnippet: '',
+          setCookies: Object.entries(last.headers)
+            .filter(([k]) => k.toLowerCase() === 'set-cookie')
+            .map(([, v]) => String(v)),
+        },
+        enabledNames as unknown as string[],
+        strategies,
+      );
+
+      // Sub-100ms responses are suspicious: a successful allow with no
+      // challenge signatures and an implausibly fast response is usually a
+      // sign of a honeypot / shadow ban. Override to 'unsure' and record
+      // the event separately.
+      let verdict: Vote = out.final;
+      if (verdict === 'allow' && last.time_ms < 100) {
+        verdict = 'unsure';
+        await unsureSink.write(evt);
+      }
+      evt.final_verdict = verdict;
+    }
+    bus.emit('request', evt);
+    await sink.write(evt);
+  }
 }
 
 function pickTier(scenario: Scenario): TierRunner {
@@ -114,5 +148,10 @@ function pickTier(scenario: Scenario): TierRunner {
     case 'headless': return runHeadless as unknown as TierRunner;
     case 'stealth': return runStealth as unknown as TierRunner;
     case 'human': return runHuman as unknown as TierRunner;
+    default:
+      // Defensive: schema validation should catch this first, but if a
+      // scenario slips through (e.g. a new tier was added without updating
+      // this switch) fail loudly rather than returning `undefined`.
+      throw new Error(`unsupported scenario.tier: ${(scenario as Scenario).tier}`);
   }
 }
