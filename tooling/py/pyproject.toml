@@ -1,0 +1,9 @@
+[project]
+name = "tah-tooling"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["maxminddb>=2.5.0", "rich>=13.0.0"]
+
+[project.scripts]
+tah-verify-geo = "tooling.py.verify_geo:main"
+tah-build-replay = "tooling.py.build_replay:main"
