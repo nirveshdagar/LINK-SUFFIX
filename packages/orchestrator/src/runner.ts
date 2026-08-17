@@ -94,7 +94,6 @@ async function runOneRepeat(
     return;
   }
 
-  const iter = tierFn(scenario, proxyUrl, profile) as AsyncIterable<RequestEvent>;
   // Pull out the per-event strategy list from the surrounding closure by
   // reading it from the scenario (re-derived here to keep the helper
   // self-contained; cheap because no I/O).
@@ -105,41 +104,74 @@ async function runOneRepeat(
   const enabledNames = (['http_status', 'challenge_html', 'header_signals', 'cookies', 'timing'] as const)
     .filter((n) => (scenario.verdict_detection as any)?.[n] !== false);
 
-  for await (const evt of iter) {
-    const last = evt.events.at(-1);
-    if (last) {
-      // Note: tier request events don't currently capture response body, so
-      // body-based challenge signatures can't actually match. Body capture is
-      // a follow-up to Tasks 9-12; until then we pass an empty snippet and
-      // rely on headers/cookies/status for classification.
-      const out = aggregateVerdict(
-        {
-          url: last.url,
-          status: last.status,
-          responseHeaders: last.headers,
-          responseBodySnippet: '',
-          setCookies: Object.entries(last.headers)
-            .filter(([k]) => k.toLowerCase() === 'set-cookie')
-            .map(([, v]) => String(v)),
-        },
-        enabledNames as unknown as string[],
-        strategies,
-      );
+  // Spec §9: retry the whole request once on a single request error before
+  // logging `error`. We run the iteration in a closure so the retry replays
+  // it from the start; on the second failure we emit a synthetic event
+  // tagged `final_verdict: 'error'`.
+  const attemptOnce = async (): Promise<void> => {
+    const iter = tierFn(scenario, proxyUrl, profile) as AsyncIterable<RequestEvent>;
+    for await (const evt of iter) {
+      const last = evt.events.at(-1);
+      if (last) {
+        // Pass through any captured body snippet so body-based challenge
+        // signatures (cf-challenge, h-captcha, px-captcha, akamai bot
+        // manager, access denied, etc.) can match.
+        const out = aggregateVerdict(
+          {
+            url: last.url,
+            status: last.status,
+            responseHeaders: last.headers,
+            responseBodySnippet: last.body_snippet ?? '',
+            setCookies: Object.entries(last.headers)
+              .filter(([k]) => k.toLowerCase() === 'set-cookie')
+              .map(([, v]) => String(v)),
+          },
+          enabledNames as unknown as string[],
+          strategies,
+        );
 
-      // Sub-100ms responses are suspicious: a successful allow with no
-      // challenge signatures and an implausibly fast response is usually a
-      // sign of a honeypot / shadow ban. Override to 'unsure' and record
-      // the event separately.
-      let verdict: Vote = out.final;
-      if (verdict === 'allow' && last.time_ms < 100) {
-        verdict = 'unsure';
-        await unsureSink.write(evt);
+        // Sub-100ms responses are suspicious: a successful allow with no
+        // challenge signatures and an implausibly fast response is usually a
+        // sign of a honeypot / shadow ban. Override to 'unsure' and record
+        // the event separately.
+        let verdict: Vote = out.final;
+        if (verdict === 'allow' && last.time_ms < 100) {
+          verdict = 'unsure';
+          await unsureSink.write(evt);
+        }
+        evt.final_verdict = verdict;
       }
-      evt.final_verdict = verdict;
+      bus.emit('request', evt);
+      await sink.write(evt);
     }
-    bus.emit('request', evt);
-    await sink.write(evt);
+  };
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await attemptOnce();
+      return;
+    } catch (e) {
+      lastErr = e;
+    }
   }
+  // Two failures — emit a synthetic error event so downstream consumers
+  // (sink, dashboard) still see a record for this repeat.
+  const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  const errEvt: RequestEvent = {
+    scenario_id: scenario.id,
+    repeat_index: i,
+    tier: scenario.tier,
+    geo_requested: scenario.geo,
+    proxy_mode: scenario.proxy_mode,
+    started_at: new Date().toISOString(),
+    events: [],
+    final_verdict: 'error',
+    timing: { total_ms: 0 },
+    error: msg,
+  };
+  bus.emit('request', errEvt);
+  await sink.write(errEvt);
 }
 
 function pickTier(scenario: Scenario): TierRunner {

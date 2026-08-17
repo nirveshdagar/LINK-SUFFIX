@@ -37,6 +37,7 @@ export async function fireOne(url: URL, proxyUrl: URL, ua: string, lang: string)
     time_ms: Date.now() - start,
     headers: res.headers as Record<string, string>,
     ta_signal: {},
+    body_snippet: body.slice(0, 65536),
     body,
   };
 }
@@ -58,6 +59,7 @@ export async function* run(scenario: Scenario, proxyUrl: URL, concurrency = scen
       events: [{
         url: r.url, method: r.method, status: r.status, time_ms: r.time_ms,
         headers: r.headers, ta_signal: r.ta_signal,
+        body_snippet: r.body_snippet,
       }],
       final_verdict: 'unsure',  // tier does not classify; orchestrator does
       timing: { total_ms: r.time_ms },

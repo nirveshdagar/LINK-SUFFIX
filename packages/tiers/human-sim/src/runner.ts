@@ -27,8 +27,11 @@ async function visitPage(page: Page, url: URL): Promise<VisitResult> {
   const events: RawRequestRecord[] = [];
   const handler = async (res: Response): Promise<void> => {
     const start = Date.now();
+    let snippet = '';
     try {
-      await res.body();
+      const buf = await res.body();
+      // Capture up to 64KB once so body-based challenge signatures can match.
+      snippet = buf.subarray(0, 65536).toString('utf8');
     } catch {
       /* body may be unavailable for streaming responses; ignore */
     }
@@ -39,6 +42,7 @@ async function visitPage(page: Page, url: URL): Promise<VisitResult> {
       time_ms: Date.now() - start,
       headers: res.headers(),
       ta_signal: {},
+      body_snippet: snippet,
     });
   };
   page.on('response', handler);

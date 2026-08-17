@@ -26,9 +26,13 @@ export async function* run(
   const events: RequestEvent['events'] = [];
   page.on('response', async (res: Response) => {
     const start = Date.now();
+    let snippet = '';
     try {
-      await res.body();
-    } catch { /* ignore */ }
+      const buf = await res.body();
+      // Capture up to 64KB once so we can attach it to the request record
+      // without re-consuming the stream.
+      snippet = buf.subarray(0, 65536).toString('utf8');
+    } catch { /* body may be unavailable for streaming responses */ }
     events.push({
       url: res.url(),
       method: res.request().method(),
@@ -36,6 +40,7 @@ export async function* run(
       time_ms: Date.now() - start,
       headers: res.headers(),
       ta_signal: {},
+      body_snippet: snippet,
     });
   });
   const start = Date.now();

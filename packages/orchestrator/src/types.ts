@@ -8,6 +8,7 @@ export interface RawRequestRecord {
   time_ms: number;
   headers: Record<string, string>;
   ta_signal: Record<string, string>;
+  body_snippet?: string;
 }
 
 export type Tier = 'trivial-http' | 'headless' | 'stealth' | 'human';
