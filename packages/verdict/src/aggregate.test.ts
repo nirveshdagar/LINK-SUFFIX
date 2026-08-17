@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { aggregateVerdict } from './aggregate.js';
+import { defaultStrategies } from './index.js';
 import type { VerdictInput, VerdictStrategy } from './types.js';
 
 const base: VerdictInput = {
@@ -54,5 +55,16 @@ describe('aggregateVerdict', () => {
   it('treats missing strategy as abstain', () => {
     const v = aggregateVerdict(base, [], [stubStatus(), stubCookies()]);
     expect(v.final).toBe('allow');
+  });
+
+  it('defaultStrategies votes challenge on a Cloudflare interstitial', () => {
+    const input: VerdictInput = {
+      ...base,
+      setCookies: ['cf_clearance=abc; Path=/'],
+      responseHeaders: { server: 'cloudflare' },
+      responseBodySnippet: '<html>cf-chl-bypass</html>',
+    };
+    const out = aggregateVerdict(input, ['http_status', 'challenge_html', 'cookies'], defaultStrategies());
+    expect(out.final).toBe('challenge');
   });
 });
