@@ -187,6 +187,8 @@ Every run writes to a fresh `runs/<ISO-timestamp>/` directory (the
 | `unsure.jsonl` | Events whose final verdict was overridden to `unsure` by the sub-100ms timing override. | When a request returned in <100ms **and** the verdict aggregator otherwise said `allow`. |
 | `skipped.jsonl` | One line per repeat that was skipped — currently only happens when `buildProxyEndpoint` throws `InvalidProxyGeoError` (i.e. a scenario's `geo` or `sessionid` violates the IP Royal grammar). | When grammar validation fails. |
 | `mismatches.csv` | Egress IP vs requested city mismatches, written by `tooling/py/verify_geo.py`. | Post-run, when the operator invokes the verification tool. |
+| `geo_resolved.jsonl` | One JSON object per event with `{scenario_id, repeat_index, ip, country, state, city, verified}` written by `verify_geo.py`. | Post-run, when `MAXMIND_DB_PATH` is set so an offline lookup is possible. |
+| `summary.json` | Aggregate run summary: by-tier-verdict counts, by-geo counts, latency p50/p95/p99, error count. Written by the CLI at end-of-run. | Post-run, always. |
 | `replay/<scenario_id>/` | Per-repeat Playwright trace, HAR, screenshots. | Post-run, human tier only, when `tooling/py/build_replay.py` is invoked. |
 
 The dashboard's `GET /summary` HTTP endpoint
@@ -352,7 +354,7 @@ The orchestrator currently returns:
 |---|---|---|
 | `0` | Run completed. | Normal end of `runScenario`. |
 | `1` | Invalid scenario, missing required env var, or invalid CLI args. | `cli.ts` (missing `IPROYAL_USER`/`IPROYAL_PASS`), `loadScenario` (schema violation), or `commander` (e.g. `--scenario` not provided). |
-| `2` | City pool exhausted. | Spec target: three egress-IP mismatches in a row for the same city. **Not yet wired in the orchestrator code**; the design spec calls for it. Today, an exhausted city shows up as repeated `block` events in `scenarios.jsonl` plus rows in `mismatches.csv` after `verify_geo.py` runs. |
+| `2` | City pool exhausted. | Three egress-IP mismatches in a row for the same requested city. Detected by `tooling/py/check_pool_exhaustion.py`, which the CLI invokes after `verify_geo.py` finishes. |
 | `4` | Disk full (JSONL write failed). | Spec target. Today, a write error throws and the unhandled-rejection handler in `cli.ts` falls through to exit 99. |
 | `99` | Unhandled exception. | The `main().catch(...)` tail of `cli.ts`. Any other crash lands here. |
 
