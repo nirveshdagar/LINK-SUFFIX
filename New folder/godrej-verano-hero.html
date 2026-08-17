@@ -1,0 +1,4102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Godrej Verano — Sector 63A, Golf Course Road, Gurgaon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-cream: #f8f3ec;
+    --bg-cream-2: #f1e9da;
+    --accent: #d8af72;
+    --accent-dark: #c39a5c;
+    --accent-soft: #e6c896;
+    --ink: #14110f;
+    --ink-soft: #4a443f;
+    --muted: #7a726a;
+    --line: #e6dcc7;
+    --white: #ffffff;
+    --shadow: 0 14px 40px rgba(20, 17, 15, 0.08);
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', sans-serif;
+  }
+  html, body { background: var(--bg-cream); color: #15151A; }
+  body {
+    font-family: 'Inter', sans-serif;
+    font-size: 16px;
+    font-weight: 400;
+    color: rgb(60, 60, 60);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ---------- NAVBAR ---------- */
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: var(--white);
+    border-bottom: 1px solid #ece6dc;
+  }
+  .nav-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 18px 36px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+    color: var(--ink);
+    flex-shrink: 0;
+  }
+  .logo-img {
+    display: block;
+    height: 56px;
+    width: auto;
+    object-fit: contain;
+  }
+  .footer .logo-img {
+    filter: invert(1) brightness(1.4);
+  }
+
+  .nav-left {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex: 1;
+    justify-content: center;
+  }
+  .nav-link {
+    text-decoration: none;
+    color: rgb(60, 60, 60);
+    font-family: 'Inter', sans-serif;
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: 0.2px;
+    transition: color 0.2s ease;
+    white-space: nowrap;
+  }
+  .nav-link.active { color: var(--accent-dark); }
+  .nav-link:hover { color: var(--accent-dark); }
+
+  .nav-right { display: flex; align-items: center; flex-shrink: 0; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 18px;
+    background: var(--accent);
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 1.3px;
+    text-transform: uppercase;
+    text-decoration: none;
+    border-radius: 4px;
+    transition: background 0.25s ease, color 0.25s ease, transform 0.25s ease;
+    cursor: pointer;
+    border: none;
+    line-height: 1;
+  }
+  .btn:hover {
+    background: var(--ink);
+    color: var(--accent);
+  }
+  .btn .arrow {
+    width: 26px; height: 26px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 2px;
+    background: var(--white);
+    color: var(--ink);
+    transition: transform 0.25s ease, background 0.25s ease;
+  }
+  .btn:hover .arrow {
+    background: var(--white);
+    transform: translateX(3px);
+  }
+  .btn .arrow svg {
+    width: 12px; height: 12px;
+    display: block;
+  }
+
+  .hamburger {
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    width: 40px;
+    height: 40px;
+    background: #15151A;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    padding: 0;
+    align-items: center;
+    transition: background 0.2s ease;
+  }
+  .hamburger:hover { background: #2a2a30; }
+  .hamburger-line {
+    display: block;
+    width: 18px;
+    height: 1.8px;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+  }
+  .hamburger.open .hamburger-line:nth-child(1) { transform: translateY(6.8px) rotate(45deg); }
+  .hamburger.open .hamburger-line:nth-child(2) { opacity: 0; }
+  .hamburger.open .hamburger-line:nth-child(3) { transform: translateY(-6.8px) rotate(-45deg); }
+
+  /* Mobile drawer */
+  .mobile-drawer {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #15151A;
+    color: #ffffff;
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    border-top: 1px solid rgba(216, 175, 114, 0.2);
+    z-index: 1;
+  }
+  .mobile-drawer.open { max-height: 600px; }
+  .mobile-nav {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 28px 32px;
+    gap: 0;
+  }
+  .mobile-link {
+    color: #ffffff;
+    text-decoration: none;
+    font-family: 'Inter', sans-serif;
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    padding: 16px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    transition: color 0.2s ease, padding-left 0.2s ease;
+  }
+  .mobile-link:hover {
+    color: var(--accent);
+    padding-left: 6px;
+  }
+  .mobile-link.active { color: var(--accent); }
+  .btn-mobile {
+    margin-top: 24px;
+    justify-content: center;
+    width: 100%;
+    padding: 14px 18px;
+    font-size: 13px;
+  }
+
+  /* ---------- HERO ---------- */
+  .hero {
+    background:
+      radial-gradient(ellipse 70% 55% at 18% 28%, rgba(216,175,114,0.22), transparent 65%),
+      radial-gradient(ellipse 60% 50% at 92% 78%, rgba(216,175,114,0.16), transparent 60%),
+      radial-gradient(ellipse 45% 40% at 60% 12%, rgba(216,175,114,0.10), transparent 70%),
+      linear-gradient(180deg, #fbf6ee 0%, var(--bg-cream) 60%, #f1e9da 100%);
+    padding: 80px 48px 120px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    top: -120px;
+    right: -140px;
+    width: 520px;
+    height: 520px;
+    background:
+      radial-gradient(circle, rgba(216,175,114,0.35) 0%, rgba(216,175,114,0.12) 38%, transparent 70%);
+    border-radius: 50%;
+    filter: blur(50px);
+    pointer-events: none;
+    z-index: 0;
+    animation: heroGlow 14s ease-in-out infinite;
+  }
+  .hero::after {
+    content: "VERANO";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: 'Inter', sans-serif;
+    font-weight: 900;
+    font-size: clamp(220px, 28vw, 460px);
+    letter-spacing: -10px;
+    color: rgba(216, 175, 114, 0.06);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 0;
+    user-select: none;
+    line-height: 1;
+  }
+  @keyframes heroGlow {
+    0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.9; }
+    50% { transform: translate(-30px, 20px) scale(1.08); opacity: 1; }
+  }
+  .hero-inner { position: relative; z-index: 2; }
+  .hero-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    gap: 80px;
+    align-items: center;
+  }
+  .hero-copy { padding-right: 12px; }
+  .rera-strip {
+    grid-column: 1 / -1;
+    margin: 0 0 28px;
+    padding: 14px 22px;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.55);
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+  }
+  .rera-strip strong { color: var(--ink); font-weight: 700; }
+  .rera-strip .rera-num {
+    font-family: 'Inter', monospace;
+    font-weight: 700;
+    color: var(--ink);
+    background: rgba(216,175,114,0.12);
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+  .rera-strip a {
+    color: var(--accent-dark);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(216,175,114,0.4);
+    margin-left: 4px;
+    white-space: nowrap;
+  }
+  .rera-strip a:hover { border-bottom-color: var(--accent-dark); }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--ink);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 2.4px;
+    text-transform: uppercase;
+    margin-bottom: 26px;
+    padding: 8px 16px;
+    border: 1px solid var(--ink);
+    border-radius: 999px;
+    background: var(--white);
+    animation: pulseTag 2.6s ease-in-out infinite;
+  }
+  @keyframes pulseTag {
+    0%, 100% { transform: translateY(0); box-shadow: 0 0 0 0 rgba(20, 17, 15, 0.0); }
+    50% { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(20, 17, 15, 0.08); }
+  }
+  .eyebrow .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: inline-block;
+    animation: blink 1.4s ease-in-out infinite;
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  .hero-eyebrow {
+    display: inline-block;
+    color: var(--accent-dark);
+    font-family: 'Inter', sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 3.2px;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    position: relative;
+  }
+  .hero-eyebrow::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 36px;
+    height: 2px;
+    background: var(--accent);
+  }
+  .hero h1 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    line-height: 1.05;
+    color: rgb(21, 21, 26);
+    margin-bottom: 24px;
+  }
+  .hero h1 .hero-line {
+    display: block;
+    white-space: nowrap;
+  }
+  .hero h1 .brand-line {
+    color: var(--accent-dark);
+    font-weight: 900;
+    font-style: normal;
+    letter-spacing: -2px;
+    font-size: clamp(42px, 5.6vw, 72px);
+    line-height: 0.98;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+  .hero h1 .sub-line {
+    font-size: clamp(28px, 3.8vw, 48px);
+    font-weight: 600;
+    letter-spacing: -1px;
+    color: rgb(21, 21, 26);
+  }
+  .hero h1 .accent { color: var(--accent-dark); font-style: italic; font-weight: 700; }
+  .hero-icon {
+    width: 44px; height: 44px;
+    color: var(--accent-dark);
+    margin: 8px 0 28px;
+  }
+  .hero p {
+    color: rgb(21, 21, 26);
+    font-family: 'Inter', sans-serif;
+    font-size: 18px;
+    font-weight: 400;
+    line-height: 1.65;
+    max-width: 520px;
+    margin-bottom: 40px;
+  }
+  .hero-meta {
+    display: flex;
+    gap: 36px;
+    margin-bottom: 44px;
+    flex-wrap: wrap;
+  }
+  .meta-item .meta-label {
+    display: block;
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .meta-item .meta-value {
+    font-weight: 700;
+    font-size: 20px;
+    color: var(--ink);
+  }
+  .price-disclaimer {
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--muted);
+    margin: -28px 0 36px;
+    max-width: 560px;
+  }
+  .hero-cta { display: inline-flex; gap: 14px; flex-wrap: wrap; }
+
+  /* Image side */
+  .hero-media {
+    position: relative;
+    aspect-ratio: 4 / 5;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg-cream-2);
+    box-shadow: var(--shadow);
+  }
+  .hero-media img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .hero-media .placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background:
+      linear-gradient(135deg, rgba(184,150,104,0.18), rgba(184,150,104,0.05)),
+      repeating-linear-gradient(45deg, #efe6d2 0 12px, #e8dcc1 12px 24px);
+    color: var(--accent-dark);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    gap: 12px;
+  }
+  .placeholder-icon {
+    width: 56px; height: 56px;
+    border: 1.5px dashed var(--accent);
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+  }
+  .hero-media .corner-badge {
+    position: absolute;
+    right: 18px;
+    bottom: 18px;
+    background: rgba(255,255,255,0.92);
+    backdrop-filter: blur(8px);
+    padding: 12px 16px;
+    border-radius: 4px;
+    font-size: 18px;
+    color: var(--ink-soft);
+    font-weight: 500;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.06);
+  }
+  .hero-media .corner-badge strong {
+    display: block;
+    color: var(--accent-dark);
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 2px;
+  }
+
+  /* Subtle peach accent band on right (matches screenshot) */
+  .hero::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 38%;
+    height: 100%;
+    background: linear-gradient(180deg, rgba(232, 184, 142, 0.18) 0%, rgba(232, 184, 142, 0) 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .hero-inner > * { position: relative; z-index: 1; }
+
+  /* ---------- ABOUT ---------- */
+  .about {
+    background: var(--white);
+    padding: 100px 48px 110px;
+  }
+  .about-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 80px;
+    align-items: center;
+  }
+  .about-media {
+    position: relative;
+    aspect-ratio: 4 / 5;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg-cream);
+    box-shadow: var(--shadow);
+  }
+  .about-media img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .about-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background:
+      linear-gradient(135deg, rgba(216, 175, 114, 0.18), rgba(216, 175, 114, 0.05)),
+      repeating-linear-gradient(45deg, #f7f1e6 0 12px, #efe6d2 12px 24px);
+    color: var(--ink);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    gap: 12px;
+  }
+  .about-placeholder .ph-icon {
+    width: 56px; height: 56px;
+    border: 1.5px dashed var(--accent);
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    color: var(--accent-dark);
+  }
+  .corner-tag {
+    position: absolute;
+    width: 26px; height: 26px;
+    border: 2px solid var(--accent);
+  }
+  .corner-tag.tl { top: 14px; left: 14px; border-right: none; border-bottom: none; }
+  .corner-tag.tr { top: 14px; right: 14px; border-left: none; border-bottom: none; }
+  .corner-tag.bl { bottom: 14px; left: 14px; border-right: none; border-top: none; }
+  .corner-tag.br { bottom: 14px; right: 14px; border-left: none; border-top: none; }
+
+  .about-copy { padding-right: 12px; }
+  .section-label {
+    display: inline-block;
+    color: var(--ink);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 2.4px;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  .about h2 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: clamp(32px, 4.6vw, 60px);
+    line-height: 1.05;
+    letter-spacing: -1.4px;
+    color: rgb(21, 21, 26);
+    margin-bottom: 22px;
+  }
+  .about h2 .accent { color: var(--accent-dark); font-style: italic; font-weight: 600; }
+  .about-lead {
+    color: var(--ink);
+    font-size: 18px;
+    line-height: 1.7;
+    max-width: 520px;
+    margin-bottom: 28px;
+  }
+  .about-features {
+    list-style: none;
+    margin: 0 0 36px;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 24px;
+    max-width: 540px;
+  }
+  .about-features li {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    color: var(--ink);
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1.5;
+  }
+  .about-features .bullet {
+    width: 8px; height: 8px;
+    margin-top: 8px;
+    background: var(--accent);
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .about-cta { display: inline-flex; }
+
+  /* ---------- DEVELOPER (DARK SECTION) ---------- */
+  .developer {
+    background: #15151A;
+    color: #ffffff;
+    padding: 100px 48px 90px;
+    position: relative;
+    overflow: hidden;
+  }
+  .developer::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      repeating-linear-gradient(45deg, rgba(216,175,114,0.04) 0 1px, transparent 1px 28px),
+      repeating-linear-gradient(-45deg, rgba(216,175,114,0.04) 0 1px, transparent 1px 28px);
+    pointer-events: none;
+    opacity: 0.6;
+  }
+  .dev-top { position: relative; z-index: 1; }
+  .dev-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 80px;
+    align-items: center;
+  }
+  .dev-copy { padding-right: 12px; }
+  .dev-label {
+    display: inline-block;
+    color: var(--accent);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 2.4px;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  .dev-copy h2 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: clamp(32px, 4.6vw, 60px);
+    line-height: 1.05;
+    letter-spacing: -1.4px;
+    color: #ffffff;
+    margin-bottom: 22px;
+  }
+  .dev-copy h2 .dev-accent {
+    color: var(--accent);
+    font-style: italic;
+    font-weight: 700;
+  }
+  .dev-lead {
+    color: #c8c5c0;
+    font-size: 18px;
+    line-height: 1.7;
+    max-width: 520px;
+    margin-bottom: 32px;
+  }
+  .dev-cta { display: inline-flex; }
+  .btn-on-dark {
+    background: var(--accent);
+    color: var(--ink);
+  }
+  .btn-on-dark:hover {
+    background: var(--white);
+    color: var(--ink);
+  }
+  .btn-on-dark .arrow {
+    background: var(--white);
+    color: var(--ink);
+  }
+
+  .dev-media {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #1f1f25;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.4);
+  }
+  .dev-media img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .dev-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background:
+      linear-gradient(135deg, rgba(216,175,114,0.18), rgba(216,175,114,0.05)),
+      repeating-linear-gradient(45deg, #23232a 0 12px, #1c1c22 12px 24px);
+    color: #ffffff;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    gap: 12px;
+  }
+  .dev-placeholder .ph-icon {
+    width: 56px; height: 56px;
+    border: 1.5px dashed var(--accent);
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    color: var(--accent);
+  }
+  .dev-frame {
+    position: absolute;
+    width: 28px; height: 28px;
+    border: 2px solid var(--accent);
+  }
+  .dev-frame.tl { top: 16px; left: 16px; border-right: none; border-bottom: none; }
+  .dev-frame.tr { top: 16px; right: 16px; border-left: none; border-bottom: none; }
+  .dev-frame.bl { bottom: 16px; left: 16px; border-right: none; border-top: none; }
+  .dev-frame.br { bottom: 16px; right: 16px; border-left: none; border-top: none; }
+
+  /* Milestones */
+  .dev-milestones {
+    position: relative;
+    z-index: 1;
+    margin-top: 90px;
+    padding-top: 60px;
+    border-top: 1px solid rgba(216,175,114,0.18);
+  }
+  .milestones-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+  }
+  .milestones-title {
+    font-weight: 800;
+    font-size: clamp(24px, 2.4vw, 30px);
+    color: #ffffff;
+    margin-bottom: 36px;
+    letter-spacing: -0.4px;
+  }
+  .milestones-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 28px 36px;
+  }
+  .ms-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .ms-bullet {
+    width: 10px; height: 10px;
+    background: var(--accent);
+    border-radius: 2px;
+    margin-bottom: 6px;
+  }
+  .ms-label {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    color: #8a8780;
+  }
+  .ms-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.4;
+  }
+
+  /* ---------- AMENITIES ---------- */
+  .amenities {
+    background: var(--white);
+    padding: 110px 48px 110px;
+  }
+  .amenities-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+  }
+  .amenities-head {
+    text-align: center;
+    max-width: 720px;
+    margin: 0 auto 70px;
+  }
+  .amenities-head .section-label { display: inline-block; }
+  .amenities-head h2 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: clamp(32px, 4.6vw, 60px);
+    line-height: 1.05;
+    letter-spacing: -1.4px;
+    color: rgb(21, 21, 26);
+    margin-bottom: 18px;
+  }
+  .amenities-head h2 .accent {
+    color: var(--accent-dark);
+    font-style: italic;
+    font-weight: 700;
+  }
+  .amenities-lead {
+    color: var(--ink);
+    font-size: 18px;
+    line-height: 1.7;
+    max-width: 580px;
+    margin: 0 auto;
+    opacity: 0.75;
+  }
+
+  .amenities-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+  }
+  .am-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 44px 18px;
+    border-right: 1px solid #ece6dc;
+    border-bottom: 1px solid #ece6dc;
+    transition: background 0.3s ease, transform 0.3s ease;
+    position: relative;
+  }
+  .am-card:nth-child(4n) { border-right: none; }
+  .am-card:nth-last-child(-n+4) { border-bottom: none; }
+  .am-card:hover {
+    background: var(--bg-cream);
+  }
+  .am-card:hover .am-icon {
+    color: var(--accent-dark);
+    transform: translateY(-4px) scale(1.04);
+  }
+  .am-icon {
+    width: 64px;
+    height: 64px;
+    color: var(--ink);
+    transition: color 0.3s ease, transform 0.3s ease;
+    margin-bottom: 18px;
+  }
+  .am-icon svg { width: 100%; height: 100%; }
+  /* Dual-tone: black stroke + accent fills */
+  .am-icon .dot,
+  .am-icon .play,
+  .am-icon .bolt {
+    color: var(--accent-dark);
+    fill: var(--accent-dark);
+  }
+  /* Animations */
+  .am-card:hover .wave-1 { animation: waveMove 1.6s ease-in-out infinite; }
+  .am-card:hover .wave-2 { animation: waveMove 1.6s ease-in-out infinite 0.4s; }
+  @keyframes waveMove {
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(2px); }
+  }
+  .am-card:hover .bolt { animation: boltFlash 1.2s ease-in-out infinite; }
+  @keyframes boltFlash {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .am-card:hover .play { animation: playPulse 1.4s ease-in-out infinite; transform-origin: center; }
+  @keyframes playPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.15); }
+  }
+  .am-card:hover .dot { animation: dotPulse 1.4s ease-in-out infinite; }
+  @keyframes dotPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+  .am-card:hover .smoke,
+  .am-card:hover .smoke-2 { animation: smokeRise 2s ease-in-out infinite; opacity: 0.6; }
+  @keyframes smokeRise {
+    0% { transform: translateY(2px); opacity: 0.4; }
+    50% { transform: translateY(-2px); opacity: 0.8; }
+    100% { transform: translateY(2px); opacity: 0.4; }
+  }
+  .am-card:hover .breath { animation: breath 2.4s ease-in-out infinite; transform-origin: 32px 26px; }
+  @keyframes breath {
+    0%, 100% { transform: scaleY(1); }
+    50% { transform: scaleY(1.4); }
+  }
+  .am-card:hover .hand { animation: handMove 1.6s ease-in-out infinite; transform-origin: 46px 20px; }
+  @keyframes handMove {
+    0%, 100% { transform: rotate(0deg); }
+    50% { transform: rotate(-12deg); }
+  }
+  .am-card:hover .line { animation: lineGlow 1.4s ease-in-out infinite; }
+  @keyframes lineGlow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .am-label {
+    color: var(--ink);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+  }
+
+  /* ---------- TYPOLOGY ---------- */
+  .typology {
+    background: var(--bg-cream);
+    padding: 110px 48px 120px;
+  }
+  .typ-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+  }
+  .typ-head {
+    text-align: center;
+    max-width: 720px;
+    margin: 0 auto 50px;
+  }
+  .typ-head .section-label { display: inline-block; }
+  .typ-head h2 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: clamp(32px, 4.6vw, 60px);
+    line-height: 1.05;
+    letter-spacing: -1.4px;
+    color: rgb(21, 21, 26);
+    margin-bottom: 18px;
+  }
+  .typ-head h2 .accent {
+    color: var(--accent-dark);
+    font-style: italic;
+    font-weight: 700;
+  }
+  .typ-lead {
+    color: var(--ink);
+    font-size: 18px;
+    line-height: 1.7;
+    max-width: 600px;
+    margin: 0 auto;
+    opacity: 0.75;
+  }
+
+  /* Tabs */
+  .typ-tabs {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin: 0 auto 50px;
+    background: var(--white);
+    padding: 8px;
+    border-radius: 999px;
+    width: fit-content;
+    border: 1px solid #ece6dc;
+    box-shadow: 0 4px 14px rgba(20,17,15,0.04);
+  }
+  .typ-tab {
+    background: transparent;
+    border: none;
+    color: var(--ink-soft);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    padding: 10px 22px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color 0.25s ease;
+    position: relative;
+    z-index: 1;
+  }
+  .typ-tab:hover { color: var(--ink); }
+  .typ-tab.active {
+    background: var(--ink);
+    color: var(--white);
+  }
+  .typ-tab-glow {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60%;
+    height: 50%;
+    background: radial-gradient(closest-side, rgba(216,175,114,0.25), transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Card */
+  .typ-card {
+    background: var(--white);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(20,17,15,0.08);
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: 0.85fr 1.15fr;
+    border: 1px solid #ece6dc;
+  }
+
+  /* Specs */
+  .typ-specs {
+    padding: 50px 48px;
+    background: var(--white);
+    position: relative;
+  }
+  .typ-specs::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0;
+    width: 6px; height: 100%;
+    background: linear-gradient(180deg, var(--accent), var(--accent-dark));
+  }
+  .spec-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 0;
+    border-bottom: 1px dashed #ece6dc;
+  }
+  .spec-label {
+    color: var(--ink-soft);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+  }
+  .spec-value {
+    color: var(--ink);
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .price-row {
+    margin-top: 12px;
+    border-bottom: none;
+    border-top: 1px solid #ece6dc;
+    padding-top: 22px;
+  }
+  .spec-price {
+    color: var(--accent-dark);
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.3px;
+  }
+  .spec-cta {
+    margin-top: 28px;
+  }
+
+  /* Plan */
+  .typ-plan {
+    padding: 36px;
+    background:
+      radial-gradient(circle at 30% 30%, rgba(216,175,114,0.10), transparent 50%),
+      repeating-linear-gradient(0deg, #fafafa 0 1px, transparent 1px 20px),
+      repeating-linear-gradient(90deg, #fafafa 0 1px, transparent 1px 20px),
+      var(--white);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .plan-svg {
+    width: 100%;
+    height: auto;
+    max-height: 480px;
+  }
+  .plan-wall {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 4;
+    stroke-linejoin: round;
+  }
+  .plan-wall-inner {
+    stroke: var(--ink);
+    stroke-width: 3;
+    stroke-linecap: round;
+  }
+  .plan-door {
+    fill: none;
+    stroke: var(--accent-dark);
+    stroke-width: 1.4;
+    stroke-dasharray: 3 2;
+  }
+  .plan-entrance {
+    fill: var(--accent-dark);
+    stroke: var(--accent-dark);
+  }
+  .plan-room {
+    fill: var(--ink);
+    font-family: 'Inter', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-anchor: middle;
+  }
+  .plan-furniture rect,
+  .plan-furniture line,
+  .plan-furniture circle {
+    fill: none;
+    stroke: var(--accent-dark);
+    stroke-width: 1.6;
+  }
+  .plan-furniture circle {
+    fill: var(--accent);
+    stroke: var(--accent-dark);
+  }
+  .plan-dim line {
+    stroke: var(--ink-soft);
+    stroke-width: 0.6;
+  }
+  .plan-dim text {
+    fill: var(--ink-soft);
+    font-family: 'Inter', sans-serif;
+    font-size: 8px;
+    font-weight: 600;
+  }
+  .plan-north circle {
+    fill: var(--white);
+    stroke: var(--accent-dark);
+    stroke-width: 1.4;
+  }
+  .plan-north path {
+    fill: var(--accent-dark);
+    stroke: var(--accent-dark);
+  }
+  .plan-north text {
+    fill: var(--ink);
+    font-family: 'Inter', sans-serif;
+    font-size: 8px;
+    font-weight: 700;
+  }
+
+  /* Unit mix cards */
+  .unit-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 22px;
+    margin-top: 16px;
+  }
+  .unit-card {
+    position: relative;
+    background: var(--white);
+    border: 1px solid #ece6dc;
+    border-radius: 10px;
+    padding: 32px 26px 28px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+  }
+  .unit-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 20px 50px rgba(20,17,15,0.10);
+    border-color: var(--accent);
+  }
+  .unit-card.featured {
+    border-color: var(--ink);
+    background: var(--ink);
+    color: var(--white);
+  }
+  .unit-card.featured .unit-sub,
+  .unit-card.featured .unit-tag,
+  .unit-card.featured .stat-label { color: var(--accent); }
+  .unit-card.featured .unit-title { color: var(--white); }
+  .unit-card.featured .stat-value,
+  .unit-card.featured .stat-value small { color: var(--white); }
+  .unit-card.featured .unit-icon { color: var(--accent); }
+  .unit-card.featured .price-amt { color: var(--accent); }
+
+  .unit-card.limited {
+    background: var(--ink);
+    color: var(--white);
+  }
+  .unit-card.limited .unit-sub,
+  .unit-card.limited .unit-tag,
+  .unit-card.limited .stat-label { color: var(--accent); }
+  .unit-card.limited .unit-title { color: var(--white); }
+  .unit-card.limited .stat-value,
+  .unit-card.limited .stat-value small { color: var(--white); }
+  .unit-card.limited .unit-icon { color: var(--accent); }
+  .unit-card.limited .price-amt { color: var(--accent); }
+
+  .unit-ribbon {
+    position: absolute;
+    top: -1px; right: 18px;
+    background: var(--accent);
+    color: var(--ink);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    padding: 6px 12px 8px;
+    border-radius: 0 0 6px 6px;
+  }
+  .unit-ribbon::before {
+    content: "";
+    position: absolute;
+    top: 0; right: -10px;
+    border: 5px solid transparent;
+    border-top-color: var(--accent);
+    border-right-color: var(--accent);
+  }
+
+  .unit-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+  .unit-tag {
+    color: var(--ink-soft);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .unit-icon {
+    width: 36px; height: 36px;
+    color: var(--ink);
+  }
+  .unit-icon svg { width: 100%; height: 100%; }
+
+  .unit-title {
+    font-weight: 800;
+    font-size: 28px;
+    color: var(--ink);
+    line-height: 1.1;
+    margin-bottom: 6px;
+  }
+  .unit-sub {
+    color: var(--ink-soft);
+    font-size: 18px;
+    font-weight: 500;
+    margin-bottom: 22px;
+  }
+  .unit-stats {
+    padding: 16px 0;
+    border-top: 1px dashed #ece6dc;
+    border-bottom: 1px dashed #ece6dc;
+    margin-bottom: 22px;
+  }
+  .unit-card.featured .unit-stats,
+  .unit-card.limited .unit-stats {
+    border-color: rgba(255,255,255,0.18);
+  }
+  .unit-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .stat-label {
+    color: var(--ink-soft);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .stat-value {
+    color: var(--ink);
+    font-size: 22px;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .stat-value small {
+    color: var(--ink-soft);
+    font-size: 18px;
+    font-weight: 600;
+    margin-left: 4px;
+    letter-spacing: 0.6px;
+  }
+  .unit-price {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 22px;
+  }
+  .price-from {
+    color: var(--ink-soft);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+  }
+  .price-amt {
+    color: var(--ink);
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.4px;
+  }
+  .unit-cta {
+    margin-top: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--accent);
+    color: var(--ink);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    padding: 12px 16px;
+    border-radius: 4px;
+    text-decoration: none;
+    transition: background 0.25s ease, color 0.25s ease;
+  }
+  .unit-cta:hover {
+    background: var(--ink);
+    color: var(--white);
+  }
+  .unit-card.featured .unit-cta,
+  .unit-card.limited .unit-cta {
+    background: var(--accent);
+    color: var(--ink);
+  }
+  .unit-card.featured .unit-cta:hover,
+  .unit-card.limited .unit-cta:hover {
+    background: var(--white);
+    color: var(--ink);
+  }
+  .unit-cta svg {
+    width: 14px; height: 14px;
+    transition: transform 0.25s ease;
+  }
+  .unit-cta:hover svg { transform: translateX(3px); }
+
+  /* ---------- GALLERY ---------- */
+  .gallery {
+    background: #15151A;
+    padding: 100px 0 110px;
+    position: relative;
+    overflow: hidden;
+  }
+  .gallery::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 20% 0%, rgba(216,175,114,0.08), transparent 50%),
+      radial-gradient(circle at 80% 100%, rgba(216,175,114,0.06), transparent 50%);
+    pointer-events: none;
+  }
+  .gal-top { position: relative; z-index: 1; padding: 0 48px; }
+  .gal-inner {
+    max-width: 1320px;
+    margin: 0 auto 60px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 40px;
+    color: var(--white);
+  }
+  .gal-label {
+    display: inline-block;
+    color: var(--accent);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 2.4px;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  .gal-copy h2 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: clamp(32px, 4.6vw, 60px);
+    line-height: 1.05;
+    letter-spacing: -1.4px;
+    color: var(--white);
+  }
+  .gal-copy h2 .gal-accent {
+    color: var(--accent);
+    font-style: italic;
+    font-weight: 700;
+  }
+
+  /* Marquee */
+  .gal-marquee {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    padding: 30px 0;
+  }
+  .gal-marquee::before,
+  .gal-marquee::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 120px;
+    z-index: 2;
+    pointer-events: none;
+  }
+  .gal-marquee::before {
+    left: 0;
+    background: linear-gradient(90deg, #15151A, transparent);
+  }
+  .gal-marquee::after {
+    right: 0;
+    background: linear-gradient(-90deg, #15151A, transparent);
+  }
+
+  .gal-track {
+    display: flex;
+    gap: 28px;
+    width: max-content;
+    animation: galScroll 38s linear infinite;
+    padding-left: 28px;
+  }
+  .gal-marquee:hover .gal-track {
+    animation-play-state: paused;
+  }
+  @keyframes galScroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(calc(-50% - 14px)); }
+  }
+
+  .gal-card {
+    flex-shrink: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+  }
+  .gal-card.pos-a { width: 320px; height: 240px; margin-top: 0; }
+  .gal-card.pos-b { width: 320px; height: 240px; margin-top: 60px; }
+  .gal-card.pos-c { width: 380px; height: 240px; margin-top: 20px; }
+  .gal-card.pos-d { width: 320px; height: 240px; margin-top: 80px; }
+  .gal-card.pos-e { width: 360px; height: 240px; margin-top: 10px; }
+
+  .gal-ph {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    padding: 18px;
+    transition: transform 0.4s ease;
+    overflow: hidden;
+    background: var(--bg-cream-2);
+  }
+  .gal-ph img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 0;
+  }
+  .gal-card:hover .gal-ph { transform: scale(1.04); }
+  .gal-card:hover .gal-ph img { transform: scale(1.04); }
+  .gal-ph img { transition: transform 0.6s ease; }
+  .gal-ph-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+  }
+  .gal-ph-label {
+    position: relative;
+    z-index: 2;
+    color: var(--white);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    background: rgba(0,0,0,0.45);
+    backdrop-filter: blur(8px);
+    padding: 6px 12px;
+    border-radius: 3px;
+    border-left: 2px solid var(--accent);
+  }
+
+  /* Themed placeholders (replace with real images) */
+  .gal-ph[data-theme="living"] {
+    background:
+      radial-gradient(circle at 30% 60%, rgba(255,200,140,0.4), transparent 50%),
+      linear-gradient(135deg, #6b4a2b 0%, #3d2a18 60%, #1f1409 100%);
+  }
+  .gal-ph[data-theme="living"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(0deg, transparent 60%, rgba(216,175,114,0.2)),
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.04) 0 2px, transparent 2px 14px);
+  }
+  .gal-ph[data-theme="living"]::after {
+    content: "▤";
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: rgba(255,255,255,0.18);
+    font-size: 64px;
+  }
+
+  .gal-ph[data-theme="gym"] {
+    background:
+      radial-gradient(circle at 70% 30%, rgba(216,175,114,0.35), transparent 60%),
+      linear-gradient(135deg, #2a2a30 0%, #15151A 70%);
+  }
+  .gal-ph[data-theme="gym"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(90deg, rgba(216,175,114,0.08) 0%, transparent 50%, rgba(216,175,114,0.08) 100%);
+  }
+  .gal-ph[data-theme="gym"]::after {
+    content: "●";
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: rgba(216,175,114,0.4);
+    font-size: 48px;
+  }
+
+  .gal-ph[data-theme="aerial"] {
+    background:
+      radial-gradient(circle at 50% 80%, rgba(216,175,114,0.3), transparent 60%),
+      linear-gradient(180deg, #1f2937 0%, #0f172a 100%);
+  }
+  .gal-ph[data-theme="aerial"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      repeating-linear-gradient(90deg, rgba(216,175,114,0.1) 0 1px, transparent 1px 40px),
+      repeating-linear-gradient(0deg, rgba(216,175,114,0.1) 0 1px, transparent 1px 40px);
+  }
+  .gal-ph[data-theme="aerial"]::after {
+    content: "";
+    position: absolute;
+    top: 30%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 14px; height: 60px;
+    background: rgba(216,175,114,0.55);
+    box-shadow:
+      -30px 0 0 rgba(216,175,114,0.45),
+      30px 0 0 rgba(216,175,114,0.45),
+      -60px 5px 0 rgba(216,175,114,0.3),
+      60px 5px 0 rgba(216,175,114,0.3);
+  }
+
+  .gal-ph[data-theme="lifestyle"] {
+    background:
+      radial-gradient(circle at 40% 40%, rgba(255,200,140,0.4), transparent 55%),
+      linear-gradient(135deg, #5a3a22 0%, #2a1a0e 100%);
+  }
+  .gal-ph[data-theme="lifestyle"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 70% 70%, rgba(216,175,114,0.25), transparent 50%);
+  }
+  .gal-ph[data-theme="lifestyle"]::after {
+    content: "✦";
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: rgba(255,255,255,0.25);
+    font-size: 56px;
+  }
+
+  .gal-ph[data-theme="patio"] {
+    background:
+      radial-gradient(circle at 50% 100%, rgba(216,175,114,0.35), transparent 60%),
+      linear-gradient(180deg, #3d4a3a 0%, #1a221a 100%);
+  }
+  .gal-ph[data-theme="patio"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 20% 30%, rgba(255,255,255,0.1), transparent 40%),
+      radial-gradient(circle at 80% 50%, rgba(255,255,255,0.08), transparent 40%);
+  }
+  .gal-ph[data-theme="patio"]::after {
+    content: "☘";
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: rgba(216,175,114,0.5);
+    font-size: 60px;
+  }
+
+  /* ---------- LOCATION ---------- */
+  .location {
+    background: var(--bg-cream);
+    padding: 110px 48px 110px;
+  }
+  .loc-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 0.85fr 1.15fr;
+    gap: 70px;
+    align-items: start;
+  }
+  .loc-hero {
+    position: sticky;
+    top: 100px;
+  }
+  .loc-hero h2 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: clamp(32px, 4.6vw, 60px);
+    line-height: 1.05;
+    letter-spacing: -1px;
+    color: var(--ink);
+    margin: 14px 0 22px;
+  }
+  .loc-hero h2 .accent {
+    color: var(--accent-dark);
+    font-style: italic;
+    font-weight: 700;
+  }
+  .loc-lead {
+    color: var(--ink);
+    font-size: 18px;
+    line-height: 1.7;
+    opacity: 0.75;
+    margin-bottom: 36px;
+  }
+  .loc-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding-top: 28px;
+    border-top: 1px solid #e6dcc7;
+  }
+  .loc-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+  .loc-meta-num {
+    font-weight: 800;
+    font-size: 32px;
+    color: var(--ink);
+    letter-spacing: -1px;
+    line-height: 1;
+    min-width: 64px;
+  }
+  .loc-meta-lbl {
+    color: var(--ink-soft);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    line-height: 1.4;
+  }
+
+  /* Location card grid */
+  .loc-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px;
+  }
+  .loc-card {
+    display: grid;
+    grid-template-columns: 80px 1fr auto;
+    align-items: center;
+    gap: 18px;
+    padding: 22px 22px;
+    background: var(--white);
+    border: 1px solid #ece6dc;
+    border-radius: 10px;
+    transition: border-color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
+    cursor: pointer;
+  }
+  .loc-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-3px);
+    box-shadow: 0 14px 36px rgba(20,17,15,0.08);
+  }
+  .loc-card-icon {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    overflow: hidden;
+    transition: transform 0.3s ease;
+  }
+  .loc-card-icon svg { width: 100%; height: 100%; display: block; }
+  .loc-card:hover .loc-card-icon {
+    transform: scale(1.06) rotate(-3deg);
+  }
+  .loc-card-cat {
+    display: inline-block;
+    color: var(--accent-dark);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .loc-card-name {
+    color: var(--ink);
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-bottom: 4px;
+  }
+  .loc-card-desc {
+    color: var(--ink-soft);
+    font-size: 18px;
+    font-weight: 500;
+    opacity: 0.8;
+  }
+  .loc-card-time {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-cream);
+    border-radius: 8px;
+    padding: 12px 14px;
+    min-width: 60px;
+    transition: background 0.25s ease, color 0.25s ease;
+  }
+  .loc-card:hover .loc-card-time {
+    background: var(--ink);
+    color: var(--white);
+  }
+  .loc-time-num {
+    font-weight: 800;
+    font-size: 24px;
+    line-height: 1;
+    color: var(--ink);
+    letter-spacing: -1px;
+  }
+  .loc-card:hover .loc-time-num { color: var(--accent); }
+  .loc-time-unit {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-top: 2px;
+  }
+  .loc-card:hover .loc-time-unit { color: rgba(255,255,255,0.7); }
+
+  /* ---------- CONTACT ---------- */
+  .contact {
+    background: #ffffff;
+    padding: 110px 48px 120px;
+    position: relative;
+    overflow: hidden;
+    color: #15151A;
+  }
+  .contact::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 80% 15%, rgba(216, 175, 114, 0.18), transparent 55%),
+      radial-gradient(circle at 18% 85%, rgba(216, 175, 114, 0.10), transparent 50%),
+      radial-gradient(circle at 50% 50%, rgba(216, 175, 114, 0.04), transparent 70%);
+    pointer-events: none;
+  }
+  .contact-inner {
+    position: relative;
+    max-width: 1320px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1.15fr;
+    gap: 80px;
+    align-items: start;
+  }
+  .contact-label {
+    display: inline-block;
+    color: var(--accent-dark);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 2.4px;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  .contact-copy h2 {
+    font-weight: 800;
+    font-size: clamp(36px, 4.4vw, 60px);
+    line-height: 1.05;
+    letter-spacing: -1px;
+    color: #15151A;
+    margin-bottom: 22px;
+  }
+  .contact-copy h2 .contact-accent {
+    color: var(--accent-dark);
+    font-style: italic;
+    font-weight: 700;
+  }
+  .contact-lead {
+    color: rgb(60, 60, 60);
+    font-size: 18px;
+    line-height: 1.7;
+    margin-bottom: 32px;
+    max-width: 460px;
+  }
+  .contact-perks {
+    list-style: none;
+    margin: 0 0 40px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .contact-perks li {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    color: #15151A;
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1.5;
+  }
+  .perk-icon {
+    width: 22px; height: 22px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #15151A;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+  }
+  .perk-icon svg { width: 14px; height: 14px; }
+  .contact-alt {
+    padding-top: 24px;
+    border-top: 1px solid rgba(21, 21, 26, 0.12);
+  }
+  .alt-label {
+    display: block;
+    color: #6a6760;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .alt-phone {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    color: #15151A;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.3px;
+    text-decoration: none;
+    transition: color 0.25s ease;
+  }
+  .alt-phone:hover { color: var(--accent-dark); }
+  .alt-phone svg {
+    width: 22px; height: 22px;
+    padding: 6px;
+    background: rgba(216, 175, 114, 0.18);
+    border-radius: 50%;
+    color: var(--accent-dark);
+  }
+
+  /* Form */
+  .contact-form {
+    background: #ffffff;
+    border: 1px solid rgba(21, 21, 26, 0.12);
+    border-radius: 14px;
+    padding: 38px;
+    box-shadow: 0 18px 50px rgba(20, 17, 15, 0.10);
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .form-field-full { width: 100%; }
+  .form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .form-field label {
+    color: rgb(60, 60, 60);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+  }
+  .form-input {
+    position: relative;
+    display: flex;
+    align-items: center;
+    background: #f8f3ec;
+    border: 1px solid rgba(21, 21, 26, 0.12);
+    border-radius: 8px;
+    transition: border-color 0.25s ease, background 0.25s ease;
+  }
+  .form-input:focus-within {
+    border-color: var(--accent);
+    background: #ffffff;
+    box-shadow: 0 0 0 3px rgba(216, 175, 114, 0.15);
+  }
+  .input-icon {
+    width: 46px;
+    height: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-dark);
+    flex-shrink: 0;
+  }
+  .input-icon svg { width: 19px; height: 19px; }
+  .input-icon-top {
+    align-items: flex-start;
+    padding-top: 16px;
+    align-self: flex-start;
+    height: auto;
+  }
+  .form-input input,
+  .form-input select,
+  .form-input textarea {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #15151A;
+    font-family: inherit;
+    font-size: 18px;
+    font-weight: 500;
+    padding: 14px 16px 14px 0;
+    width: 100%;
+  }
+  .form-input textarea {
+    padding: 14px 16px;
+    resize: vertical;
+    min-height: 120px;
+    line-height: 1.6;
+  }
+  .form-input input::placeholder,
+  .form-input textarea::placeholder {
+    color: #8a8780;
+  }
+  .form-input select {
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+  }
+  .form-input select option {
+    background: #ffffff;
+    color: #15151A;
+  }
+  .select-caret,
+  .code-caret {
+    position: absolute;
+    right: 14px;
+    width: 14px; height: 14px;
+    color: var(--accent-dark);
+    pointer-events: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .select-caret svg,
+  .code-caret svg { width: 14px; height: 14px; }
+
+  .phone-input { padding: 0; }
+  .phone-code {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    border-right: 1px solid rgba(21, 21, 26, 0.12);
+    height: 100%;
+    flex-shrink: 0;
+    cursor: pointer;
+    min-width: 56px;
+  }
+  .flag-in {
+    display: none;
+  }
+  .flag-in svg { width: 100%; height: 100%; display: block; }
+  .code-text {
+    color: #15151A;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+  }
+  .code-caret { display: none; }
+  .phone-input input {
+    padding-left: 12px;
+  }
+
+  .select-input { padding-right: 40px; }
+  .select-input .input-icon { padding-left: 0; }
+
+  /* Consent */
+  .consent {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .consent input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .consent-mark {
+    width: 20px; height: 20px;
+    border-radius: 4px;
+    border: 1.4px solid rgba(21, 21, 26, 0.25);
+    background: #f8f3ec;
+    color: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  }
+  .consent-mark svg { width: 12px; height: 12px; }
+  .consent input:checked + .consent-mark {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #15151A;
+  }
+  .consent-text {
+    color: #6a6760;
+    font-size: 18px;
+    line-height: 1.55;
+    font-weight: 500;
+  }
+
+  /* Submit */
+  .form-submit {
+    margin-top: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 16px 22px;
+    background: var(--accent);
+    color: #15151A;
+    border: none;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.25s ease, color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
+    box-shadow: 0 8px 24px rgba(216, 175, 114, 0.28);
+  }
+  .form-submit:hover {
+    background: var(--accent-dark);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 30px rgba(216, 175, 114, 0.38);
+  }
+  .submit-arrow {
+    width: 26px; height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #15151A;
+    color: var(--accent);
+    border-radius: 3px;
+    transition: transform 0.25s ease, background 0.25s ease, color 0.25s ease;
+  }
+  .submit-arrow svg { width: 14px; height: 14px; }
+  .form-submit:hover .submit-arrow {
+    background: #ffffff;
+    color: #15151A;
+    transform: translateX(4px);
+  }
+
+  /* ---------- FOOTER ---------- */
+  .footer {
+    background: #0c0c10;
+    color: #c8c5c0;
+    padding: 70px 48px 30px;
+    border-top: 1px solid rgba(216,175,114,0.15);
+  }
+  .footer-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1.6fr 1fr 1fr 1fr;
+    gap: 48px;
+    padding-bottom: 50px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .brand-footer { color: #ffffff; }
+  .brand-footer .brand-name { color: #ffffff; font-weight: 800; font-size: 22px; letter-spacing: 1.6px; text-transform: uppercase; }
+  /* legacy class kept as no-op so old markup still renders if reused */
+  .footer-tag {
+    color: #8a8780;
+    font-size: 18px;
+    line-height: 1.6;
+    margin-top: 16px;
+    max-width: 360px;
+  }
+  .footer-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .footer-col p { color: #c8c5c0; font-size: 18px; line-height: 1.6; }
+  .footer-col a {
+    color: #c8c5c0;
+    font-size: 18px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: color 0.2s ease;
+  }
+  .footer-col a:hover { color: var(--accent); }
+  .footer-label {
+    display: block;
+    color: var(--accent);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .footer-bottom {
+    max-width: 1320px;
+    margin: 24px auto 0;
+    display: flex;
+    justify-content: space-between;
+    color: #6a6760;
+    font-size: 18px;
+    font-weight: 500;
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+
+  /* ---------- STATS ---------- */
+  .stats {
+    background: var(--white);
+    padding: 110px 48px 120px;
+  }
+  .stats-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+  }
+  .stats-head {
+    text-align: center;
+    max-width: 720px;
+    margin: 0 auto 60px;
+  }
+  .stats-head h2 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: clamp(32px, 4.6vw, 60px);
+    line-height: 1.05;
+    letter-spacing: -1px;
+    color: var(--ink);
+    margin-top: 14px;
+  }
+  .stats-head h2 .accent {
+    color: var(--accent-dark);
+    font-style: italic;
+    font-weight: 700;
+  }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0;
+    border: 1px solid #ece6dc;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .stat-card {
+    padding: 36px 28px;
+    border-right: 1px solid #ece6dc;
+    background: var(--white);
+    transition: background 0.25s ease;
+  }
+  .stat-card:last-child { border-right: none; }
+  .stat-card:hover { background: var(--bg-cream); }
+  .stat-num {
+    display: block;
+    font-weight: 800;
+    font-size: clamp(48px, 5vw, 64px);
+    line-height: 1;
+    color: var(--ink);
+    letter-spacing: -2px;
+    margin-bottom: 12px;
+  }
+  .stat-num small {
+    font-size: 0.6em;
+    color: var(--accent-dark);
+    font-weight: 700;
+  }
+  .stat-lbl {
+    display: block;
+    color: var(--accent-dark);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .stat-desc {
+    color: var(--ink);
+    font-size: 18px;
+    line-height: 1.6;
+    opacity: 0.75;
+  }
+
+  /* Responsive */
+  @media (max-width: 1100px) {
+    .nav-left { gap: 16px; }
+    .nav-link { font-size: 18px; }
+  }
+  @media (max-width: 960px) {
+    .nav-left { display: none; }
+    .hamburger { display: inline-flex; }
+    .btn-nav { display: none; }
+  }
+  @media (max-width: 1024px) {
+    .hero-inner,
+    .about-inner,
+    .dev-inner,
+    .loc-inner,
+    .contact-inner { grid-template-columns: 1fr; gap: 56px; }
+    .hero-media,
+    .about-media,
+    .dev-media { aspect-ratio: 4 / 3; }
+    .nav-inner { padding: 14px 24px; }
+    .nav { position: relative; }
+    .nav-inner { position: relative; z-index: 2; background: var(--white); }
+    .hero { padding: 56px 28px 90px; }
+    .about { padding: 70px 28px 80px; }
+    .developer { padding: 70px 28px 60px; }
+    .amenities { padding: 70px 28px; }
+    .typology { padding: 70px 28px 90px; }
+    .typ-card { grid-template-columns: 1fr; }
+    .typ-specs { padding: 36px 28px; }
+    .about-features,
+    .milestones-grid { grid-template-columns: 1fr 1fr; }
+    .amenities-grid { grid-template-columns: repeat(2, 1fr); }
+    .am-card:nth-child(4n) { border-right: 1px solid #ece6dc; }
+    .am-card:nth-child(2n) { border-right: none; }
+    .am-card:nth-last-child(-n+4) { border-bottom: 1px solid #ece6dc; }
+    .am-card:nth-last-child(-n+2) { border-bottom: none; }
+    .typ-tabs { overflow-x: auto; max-width: 100%; }
+    .typ-tab { white-space: nowrap; font-size: 18px; padding: 9px 16px; }
+    .unit-grid { grid-template-columns: repeat(2, 1fr); }
+    .gallery { padding: 70px 0 80px; }
+    .gal-top { padding: 0 28px; }
+    .gal-inner { flex-direction: column; align-items: flex-start; gap: 24px; margin-bottom: 40px; }
+    .gal-card { width: 260px !important; height: 200px !important; }
+    .gal-card.pos-b { margin-top: 40px; }
+    .gal-card.pos-d { margin-top: 50px; }
+    .location { padding: 70px 28px; }
+    .loc-hero { position: static; }
+    .loc-grid { grid-template-columns: 1fr; }
+    .stats { padding: 70px 28px; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .stat-card:nth-child(2n) { border-right: none; }
+    .stat-card:nth-child(-n+3) { border-bottom: 1px solid #ece6dc; }
+    .contact { padding: 70px 28px 80px; }
+    .contact-form { padding: 28px; }
+    .form-row { grid-template-columns: 1fr; }
+    .footer { padding: 60px 28px 24px; }
+    .footer-inner { grid-template-columns: 1fr 1fr; gap: 32px; }
+  }
+  @media (max-width: 640px) {
+    .nav-inner { padding: 12px 20px; }
+    .logo-img { height: 44px; }
+    .footer .logo-img { height: 50px; }
+    .milestones-grid { grid-template-columns: 1fr; }
+    .amenities-grid { grid-template-columns: 1fr; }
+    .unit-grid { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: 1fr; }
+    .stat-card { border-right: none !important; border-bottom: 1px solid #ece6dc !important; }
+    .stat-card:last-child { border-bottom: none !important; }
+    .am-card { border-right: none !important; border-bottom: 1px solid #ece6dc !important; }
+    .am-card:last-child { border-bottom: none !important; }
+    .about-features { grid-template-columns: 1fr; }
+    .hero h1 { letter-spacing: -1px; }
+    .hero h1 .hero-line { white-space: normal; }
+    .hero h1 .brand-line { font-size: clamp(36px, 11vw, 52px); letter-spacing: -1.2px; line-height: 1.02; }
+    .hero h1 .sub-line { font-size: clamp(20px, 5.8vw, 28px); line-height: 1.18; }
+    .hero::after { font-size: clamp(110px, 30vw, 220px); letter-spacing: -5px; opacity: 0.7; }
+    .hero-meta { gap: 20px; }
+    .footer-inner { grid-template-columns: 1fr; gap: 28px; }
+    .hero { padding: 36px 20px 64px; }
+    .hero-copy { padding-right: 0; }
+    .hero p { font-size: 18px; line-height: 1.6; margin-bottom: 28px; }
+    .eyebrow { font-size: 10px; letter-spacing: 1.2px; padding: 6px 12px; margin-bottom: 18px; white-space: nowrap; max-width: 100%; }
+    .hero-eyebrow { font-size: 10px; letter-spacing: 1.6px; margin-bottom: 12px; padding-bottom: 8px; }
+    .about, .developer, .amenities, .typology, .location, .stats, .contact { padding: 56px 20px; }
+    .amenities-grid { gap: 0; }
+    .am-card { padding: 26px 18px; }
+    .am-card h3 { font-size: 18px; }
+    .am-card p { font-size: 18px; }
+    .section-label { font-size: 18px; letter-spacing: 2.4px; margin-bottom: 14px; }
+    h2 { font-size: clamp(28px, 8.5vw, 40px) !important; letter-spacing: -0.6px; }
+    .about-lead, .dev-lead, .contact-lead { font-size: 18px; line-height: 1.65; }
+    .typ-specs h3 { font-size: 24px; }
+    .stat-num { font-size: 44px; }
+    .contact-form { padding: 22px; }
+    .form-input input, .form-input textarea, .form-input select { font-size: 14px; padding: 12px 14px; }
+    .contact-form .form-field label { font-size: 11px; letter-spacing: 1.2px; margin-bottom: 2px; }
+    .contact-form .form-input input::placeholder,
+    .contact-form .form-input textarea::placeholder { font-size: 13px; }
+    .contact-form .code-text { font-size: 13px; }
+    .contact-form .input-icon { width: 38px; }
+    .contact-form .input-icon svg { width: 16px; height: 16px; }
+    .contact-form .form-input textarea { min-height: 80px; padding-top: 12px; padding-bottom: 12px; }
+    .contact-form .consent-text { font-size: 11px; line-height: 1.45; }
+    .contact-form .form-row { gap: 12px; }
+    .contact-form .form-field { gap: 6px; }
+    .contact-form .form-submit { padding: 13px 18px; font-size: 12px; letter-spacing: 1.4px; }
+    .contact-form .submit-arrow { width: 22px; height: 22px; }
+    .contact-form .submit-arrow svg { width: 12px; height: 12px; }
+    .footer-tag { font-size: 18px; }
+    .btn { padding: 10px 16px; font-size: 12px; gap: 10px; }
+    .btn .arrow { width: 22px; height: 22px; }
+  }
+
+  /* ---------- FLOOR PLAN BUTTONS (unit cards) — hide arrow, show PDF icon ---------- */
+  .unit-cta { gap: 8px !important; }
+  .unit-cta .pdf-icon { width: 16px; height: 16px; flex-shrink: 0; color: currentColor; }
+
+  /* ---------- CONTACT MODAL POPUP ---------- */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 17, 15, 0.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    padding: 24px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .modal-overlay.is-open {
+    display: flex;
+    opacity: 1;
+  }
+  .modal {
+    background: #ffffff;
+    border-radius: 14px;
+    width: 100%;
+    max-width: 480px;
+    max-height: 92vh;
+    overflow-y: auto;
+    box-shadow: 0 30px 80px rgba(20,17,15,0.35), 0 0 0 1px rgba(216,175,114,0.25);
+    transform: translateY(20px) scale(0.96);
+    transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+    position: relative;
+  }
+  .modal-overlay.is-open .modal { transform: translateY(0) scale(1); }
+  .modal-head {
+    padding: 26px 28px 18px;
+    border-bottom: 1px solid rgba(216,175,114,0.18);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .modal-head .modal-eyebrow {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 2.4px;
+    text-transform: uppercase;
+    color: var(--accent-dark);
+    margin-bottom: 8px;
+  }
+  .modal-head h3 {
+    font-size: 20px;
+    font-weight: 700;
+    color: #15151A;
+    line-height: 1.25;
+    letter-spacing: -0.4px;
+  }
+  .modal-close {
+    width: 34px; height: 34px;
+    border: 1px solid rgba(21,21,26,0.12);
+    background: #f8f3ec;
+    border-radius: 50%;
+    color: #15151A;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.2s, transform 0.2s;
+  }
+  .modal-close:hover { background: var(--accent); color: #fff; transform: rotate(90deg); }
+  .modal-close svg { width: 14px; height: 14px; }
+  .modal-body { padding: 22px 28px 28px; }
+  .modal-body .form-row { grid-template-columns: 1fr; gap: 16px; margin-bottom: 0; }
+  .modal-body .form-field { margin-bottom: 16px; }
+  .modal-body .form-field:last-child { margin-bottom: 0; }
+  .modal-body .form-input { padding: 0 14px; }
+  .modal-body .form-input input,
+  .modal-body .form-input textarea,
+  .modal-body .form-input select { padding: 12px 14px; }
+  .modal-body .form-input textarea { padding: 12px 14px; min-height: 90px; }
+  .modal-body .form-input input::placeholder,
+  .modal-body .form-input textarea::placeholder { font-size: 18px; }
+  .modal-body .form-submit {
+    margin-top: 20px;
+    width: 100%;
+    justify-content: center;
+  }
+  .modal-body .form-submit[disabled] { opacity: 0.6; cursor: not-allowed; }
+  .modal-body .consent { margin-top: 16px; font-size: 18px; line-height: 1.5; color: #4a443f; }
+  .form-status { margin-top: 14px; font-size: 14px; line-height: 1.5; min-height: 0; text-align: center; color: #4a443f; }
+  .form-status.is-success { color: #2f7a3f; }
+  .form-status.is-error { color: #b03a2e; }
+  body.modal-open { overflow: hidden; }
+  @media (max-width: 640px) {
+    .modal-overlay { padding: 12px; }
+    .modal-head { padding: 18px 18px 12px; }
+    .modal-body { padding: 16px 18px 20px; }
+    .modal-head h3 { font-size: 16px; line-height: 1.3; }
+    .modal-head .modal-eyebrow { font-size: 10px; letter-spacing: 1.6px; margin-bottom: 6px; }
+    .modal-close { width: 30px; height: 30px; }
+    .modal-close svg { width: 12px; height: 12px; }
+    .modal-body .form-field label { font-size: 10px; letter-spacing: 1.2px; margin-bottom: 0; }
+    .modal-body .form-field { gap: 4px; }
+    .modal-body .form-input input,
+    .modal-body .form-input textarea,
+    .modal-body .form-input select { font-size: 14px; padding: 10px 12px; }
+    .modal-body .form-input textarea { min-height: 70px; padding-top: 10px; padding-bottom: 10px; }
+    .modal-body .form-input input::placeholder,
+    .modal-body .form-input textarea::placeholder { font-size: 13px; }
+    .modal-body .form-input { padding: 0 12px; border-radius: 6px; }
+    .modal-body .input-icon { width: 32px; }
+    .modal-body .input-icon svg { width: 15px; height: 15px; }
+    .modal-body .code-text { font-size: 13px; }
+    .modal-body .code-caret svg, .modal-body .select-caret svg { width: 11px; height: 11px; }
+    .modal-body .select-input { padding-right: 32px; }
+    .modal-body .form-row { gap: 10px; margin-bottom: 0; }
+    .modal-body .form-field { margin-bottom: 10px; }
+    .modal-body .form-field:last-child { margin-bottom: 0; }
+    .modal-body .consent { margin-top: 12px; font-size: 11px; line-height: 1.45; gap: 10px; }
+    .modal-body .consent-mark { width: 16px; height: 16px; }
+    .modal-body .consent-mark svg { width: 10px; height: 10px; }
+    .modal-body .form-submit { margin-top: 14px; padding: 12px 16px; font-size: 12px; letter-spacing: 1.4px; gap: 10px; }
+    .modal-body .form-submit .arrow { width: 20px; height: 20px; }
+    .modal-body .form-submit .arrow svg { width: 11px; height: 11px; }
+    .modal { max-height: 95vh; border-radius: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============== NAVBAR ============== -->
+<header class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#home" aria-label="Godrej Verano">
+      <img class="logo-img" src="images/logo/logo.png" alt="Godrej Properties — Godrej Verano" />
+    </a>
+
+    <nav class="nav-left" aria-label="Primary">
+      <a class="nav-link active" href="#home">Home</a>
+      <a class="nav-link" href="#about">About</a>
+      <a class="nav-link" href="#amenities">Amenities</a>
+      <a class="nav-link" href="#typology">Typology</a>
+      <a class="nav-link" href="#gallery">Gallery</a>
+      <a class="nav-link" href="#location">Location</a>
+      <a class="nav-link" href="#enquire">Contact</a>
+    </nav>
+
+    <div class="nav-right">
+      <a class="btn btn-nav" href="#enquire">
+        <span>Inquire now</span>
+        <span class="arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14"/>
+            <path d="M13 5l7 7-7 7"/>
+          </svg>
+        </span>
+      </a>
+      <button class="hamburger" id="hamburger" aria-label="Open menu" aria-expanded="false">
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Mobile drawer -->
+  <div class="mobile-drawer" id="mobileDrawer" aria-hidden="true">
+    <nav class="mobile-nav" aria-label="Mobile">
+      <a class="mobile-link" href="#home">Home</a>
+      <a class="mobile-link" href="#about">About</a>
+      <a class="mobile-link" href="#amenities">Amenities</a>
+      <a class="mobile-link" href="#typology">Typology</a>
+      <a class="mobile-link" href="#gallery">Gallery</a>
+      <a class="mobile-link" href="#location">Location</a>
+      <a class="mobile-link" href="#enquire">Contact</a>
+      <a class="btn btn-mobile" href="#enquire">
+        <span>Inquire now</span>
+        <span class="arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14"/>
+            <path d="M13 5l7 7-7 7"/>
+          </svg>
+        </span>
+      </a>
+    </nav>
+  </div>
+</header>
+
+<!-- ============== HERO ============== -->
+<section class="hero" id="home">
+  <div class="hero-inner">
+
+    <!-- HARERA Disclosure -->
+    <p class="rera-strip">
+      <strong>HARERA Registered:</strong> Godrej Verano, Sector 63A, Gurugram —
+      Reg. No. <span class="rera-num">GGM/1081/813/2026/53</span> dated 11 August 2026.
+      <a href="https://rera.haryana.gov.in/" target="_blank" rel="noopener">Verify on HARERA portal →</a>
+    </p>
+
+    <!-- LEFT: Copy -->
+    <div class="hero-copy">
+      <span class="eyebrow">
+        <span class="dot" aria-hidden="true"></span>
+        Sector 63A · Golf Course Road, Gurgaon
+      </span>
+      <h1>
+        <span class="hero-line brand-line">Godrej Verano</span>
+        <span class="hero-line sub-line">Bay Living <span class="accent">Residences in Gurgaon.</span></span>
+      </h1>
+
+      <p>A new waterfront-inspired residential address in Sector 63A, Golf Course Road. Spacious homes designed around open greens, water features, and generous indoor-outdoor living — brought to you by Godrej Properties.</p>
+
+      <div class="hero-meta">
+        <div class="meta-item">
+          <span class="meta-label">Indicative starting price</span>
+          <span class="meta-value">₹ 5.91 Cr*</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">EOI Amount</span>
+          <span class="meta-value">₹ 10 Lakhs</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Indicative payment plan</span>
+          <span class="meta-value">20 * 5</span>
+        </div>
+      </div>
+      <p class="price-disclaimer">*Indicative pricing shown above is subject to change without prior notice. Final pricing is governed by the RERA-registered Agreement for Sale. Please contact our sales team for the latest price and availability.</p>
+
+      <div class="hero-cta">
+        <a class="btn" href="#typology">
+          <span>Explore floor plans</span>
+          <span class="arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14"/>
+              <path d="M13 5l7 7-7 7"/>
+            </svg>
+          </span>
+        </a>
+      </div>
+    </div>
+
+    <!-- RIGHT: Image -->
+    <div class="hero-media">
+      <img src="images/hero/hero-banner-1.webp" alt="Godrej Verano — residential development in Sector 63A, Golf Course Road, Gurgaon" />
+      <div class="corner-badge">
+        <strong>4 Residential Towers</strong>
+        11+ Acres · 81% Open Greens
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============== ABOUT ============== -->
+<section class="about" id="about">
+  <div class="about-inner">
+
+    <!-- LEFT: Image -->
+    <div class="about-media">
+      <img src="images/gallery/gallery-tower.webp" alt="Residential development in Sector 63A, Gurgaon — render" />
+      <span class="corner-tag tl" aria-hidden="true"></span>
+      <span class="corner-tag tr" aria-hidden="true"></span>
+      <span class="corner-tag bl" aria-hidden="true"></span>
+      <span class="corner-tag br" aria-hidden="true"></span>
+    </div>
+
+    <!-- RIGHT: Copy -->
+    <div class="about-copy">
+      <span class="section-label">// About us</span>
+      <h2>Where timeless elegance<br/>meets <span class="accent">modern luxury</span>.</h2>
+      <p class="about-lead">A waterfront-inspired residential development in Sector 63A, Golf Course Road. Homes are planned around open greens, water features, and generous indoor-outdoor living — designed for families looking for space, light, and a quieter pace within Gurgaon.</p>
+
+      <ul class="about-features">
+        <li><span class="bullet" aria-hidden="true"></span>Sprawling 11+ Acres of prime land</li>
+        <li><span class="bullet" aria-hidden="true"></span>3 Spectacular Clubhouses</li>
+        <li><span class="bullet" aria-hidden="true"></span>2 Lakh+ sq. ft. TriBay concept</li>
+        <li><span class="bullet" aria-hidden="true"></span>East-West facing residences</li>
+        <li><span class="bullet" aria-hidden="true"></span>Panoramic Aravali views</li>
+        <li><span class="bullet" aria-hidden="true"></span>81% Open Greens · 19% footprint</li>
+      </ul>
+
+      <div class="about-cta">
+        <a class="btn" href="#brochure">
+          <span>Download brochure</span>
+          <span class="arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14"/>
+              <path d="M5 12l7 7 7-7"/>
+            </svg>
+          </span>
+        </a>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============== DEVELOPER ============== -->
+<section class="developer" id="developer">
+  <div class="dev-top">
+    <div class="dev-inner">
+      <!-- LEFT: Copy -->
+      <div class="dev-copy">
+        <span class="dev-label">// Developer</span>
+        <h2>From concept to creation by <span class="dev-accent">Godrej Properties.</span></h2>
+        <p class="dev-lead">Godrej Properties brings the Godrej Group philosophy of innovation, sustainability, and excellence to the real estate industry — combining a 127-year legacy of trust with cutting-edge design and technology.</p>
+        <div class="dev-cta">
+          <a class="btn btn-on-dark" href="#enquire">
+            <span>Send a request</span>
+            <span class="arrow" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14"/>
+                <path d="M13 5l7 7-7 7"/>
+              </svg>
+            </span>
+          </a>
+        </div>
+      </div>
+
+      <!-- RIGHT: Image -->
+      <div class="dev-media">
+        <img src="images/gallery/gallery-lifestyle.webp" alt="Godrej Verano lifestyle — Residences, Clubhouse and Pool" />
+        <span class="dev-frame tl" aria-hidden="true"></span>
+        <span class="dev-frame tr" aria-hidden="true"></span>
+        <span class="dev-frame bl" aria-hidden="true"></span>
+        <span class="dev-frame br" aria-hidden="true"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Milestones -->
+  <div class="dev-milestones">
+    <div class="milestones-inner">
+      <h3 class="milestones-title">Our development milestones</h3>
+      <div class="milestones-grid">
+        <div class="ms-item">
+          <span class="ms-bullet" aria-hidden="true"></span>
+          <span class="ms-label">Type</span>
+          <span class="ms-value">Luxury residences</span>
+        </div>
+        <div class="ms-item">
+          <span class="ms-bullet" aria-hidden="true"></span>
+          <span class="ms-label">Unit size</span>
+          <span class="ms-value">2,150 – 3,900 sq. ft.</span>
+        </div>
+        <div class="ms-item">
+          <span class="ms-bullet" aria-hidden="true"></span>
+          <span class="ms-label">Configuration</span>
+          <span class="ms-value">3, 4 & 5 BHK</span>
+        </div>
+        <div class="ms-item">
+          <span class="ms-bullet" aria-hidden="true"></span>
+          <span class="ms-label">Possession</span>
+          <span class="ms-value">2030 – 2031</span>
+        </div>
+        <div class="ms-item">
+          <span class="ms-bullet" aria-hidden="true"></span>
+          <span class="ms-label">Indicative starting price</span>
+          <span class="ms-value">From ₹ 5.91 Cr*</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== AMENITIES ============== -->
+<section class="amenities" id="amenities">
+  <div class="amenities-inner">
+    <div class="amenities-head">
+      <span class="section-label">// Luxury amenities</span>
+      <h2>Designed for your <span class="accent">lifestyle.</span></h2>
+      <p class="amenities-lead">A carefully curated collection of amenities across 2 Lakh+ sq. ft. of TriBay clubhouse space — built for every age group, every mood, every moment.</p>
+    </div>
+
+    <div class="amenities-grid">
+
+      <!-- 1. Rooftop pool -->
+      <div class="am-card">
+        <div class="am-icon">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="10" y="8" width="44" height="48" rx="3" />
+            <path d="M18 18v20" />
+            <path d="M14 26h28" />
+            <path d="M14 32h28" />
+            <path d="M14 38h28" class="wave-1" />
+            <path d="M14 44h28" class="wave-2" />
+            <circle cx="32" cy="14" r="1.5" fill="currentColor" class="dot" />
+          </svg>
+        </div>
+        <span class="am-label">Rooftop pool</span>
+      </div>
+
+      <!-- 2. Fitness studio -->
+      <div class="am-card">
+        <div class="am-icon">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="28" width="6" height="8" rx="1" />
+            <rect x="52" y="28" width="6" height="8" rx="1" />
+            <path d="M12 32h40" />
+            <rect x="20" y="26" width="6" height="12" rx="1" />
+            <rect x="38" y="26" width="6" height="12" rx="1" />
+            <path d="M26 32h12" />
+            <circle cx="46" cy="20" r="2" class="dot" />
+          </svg>
+        </div>
+        <span class="am-label">Fitness studio</span>
+      </div>
+
+      <!-- 3. Rooftop cinema -->
+      <div class="am-card">
+        <div class="am-icon">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="10" y="14" width="44" height="28" rx="3" />
+            <path d="M10 20h-4v16h4" />
+            <path d="M54 20h4v16h-4" />
+            <path d="M20 26v8l10-4-10-4z" fill="currentColor" stroke="none" class="play" />
+            <path d="M10 50h44" class="line" />
+          </svg>
+        </div>
+        <span class="am-label">Rooftop cinema</span>
+      </div>
+
+      <!-- 4. Kids play area -->
+      <div class="am-card">
+        <div class="am-icon">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 50V20l16-10 16 10v30" />
+            <path d="M28 50V36h8v14" />
+            <circle cx="20" cy="26" r="2" class="dot" />
+            <circle cx="44" cy="26" r="2" class="dot" />
+            <path d="M40 30c0 3-2 5-4 5" />
+          </svg>
+        </div>
+        <span class="am-label">Kids play area</span>
+      </div>
+
+      <!-- 5. Yoga studio -->
+      <div class="am-card">
+        <div class="am-icon">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="32" cy="14" r="4" />
+            <path d="M20 30c4 0 8-2 12-2s8 2 12 2" />
+            <path d="M14 38c6 0 12-2 18-2s12 2 18 2" />
+            <path d="M14 46h36" />
+            <path d="M32 22v8" class="breath" />
+          </svg>
+        </div>
+        <span class="am-label">Yoga studio</span>
+      </div>
+
+      <!-- 6. EV charging stations -->
+      <div class="am-card">
+        <div class="am-icon">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="14" y="8" width="20" height="32" rx="3" />
+            <path d="M22 14h4" />
+            <path d="M22 18h4" />
+            <path d="M24 26l-2 6h4l-2 6" class="bolt" />
+            <path d="M34 24c8 4 8 14 0 18" />
+            <path d="M40 28c4 2 4 8 0 10" />
+            <rect x="6" y="44" width="44" height="6" rx="2" />
+          </svg>
+        </div>
+        <span class="am-label">EV charging stations</span>
+      </div>
+
+      <!-- 7. Elevator lobby lounge -->
+      <div class="am-card">
+        <div class="am-icon">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="8" y="14" width="20" height="36" rx="2" />
+            <path d="M14 14v36" />
+            <path d="M22 14v36" />
+            <path d="M16 28l4-4 4 4" />
+            <path d="M16 36l4 4 4-4" />
+            <path d="M40 40c0-4 4-4 4-8s-4-4-4-8" />
+            <rect x="36" y="40" width="20" height="10" rx="2" />
+          </svg>
+        </div>
+        <span class="am-label">Elevator lobby lounge</span>
+      </div>
+
+      <!-- 8. Outdoor grilling & dining -->
+      <div class="am-card">
+        <div class="am-icon">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="12" y="30" width="40" height="20" rx="3" />
+            <circle cx="20" cy="26" r="2" />
+            <circle cx="28" cy="22" r="2" />
+            <circle cx="36" cy="22" r="2" />
+            <circle cx="44" cy="26" r="2" />
+            <path d="M16 26c0-4 4-4 4-8" class="smoke" />
+            <path d="M40 26c0-4 4-4 4-8" class="smoke-2" />
+            <path d="M12 44h40" />
+          </svg>
+        </div>
+        <span class="am-label">Outdoor grilling & dining</span>
+      </div>
+
+      <!-- 9. Library & reading nook -->
+      <div class="am-card">
+        <div class="am-icon">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="10" y="16" width="8" height="32" rx="1" />
+            <rect x="20" y="20" width="6" height="28" rx="1" />
+            <rect x="28" y="12" width="8" height="36" rx="1" />
+            <rect x="38" y="22" width="6" height="26" rx="1" />
+            <rect x="46" y="18" width="8" height="30" rx="1" />
+            <path d="M10 48h44" />
+            <circle cx="50" cy="14" r="1.5" class="dot" fill="currentColor" />
+          </svg>
+        </div>
+        <span class="am-label">Library & reading nook</span>
+      </div>
+
+      <!-- 10. Valet parking -->
+      <div class="am-card">
+        <div class="am-icon">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="10" y="10" width="44" height="44" rx="6" />
+            <path d="M22 24h12c4 0 6 3 6 6s-2 6-6 6h-8" />
+            <path d="M22 24v18" />
+            <path d="M30 44l-6 6" />
+            <circle cx="50" cy="14" r="1.5" class="dot" fill="currentColor" />
+          </svg>
+        </div>
+        <span class="am-label">Valet parking</span>
+      </div>
+
+      <!-- 11. Resident lounge -->
+      <div class="am-card">
+        <div class="am-icon">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 44c0-6 6-10 12-10h20c6 0 12 4 12 10" />
+            <rect x="10" y="44" width="44" height="8" rx="2" />
+            <path d="M20 28v-6a4 4 0 0 1 4-4h16a4 4 0 0 1 4 4v6" />
+            <circle cx="46" cy="20" r="5" />
+            <path d="M46 20v4l2 2" class="hand" />
+          </svg>
+        </div>
+        <span class="am-label">Resident lounge</span>
+      </div>
+
+      <!-- 12. 24/7 security -->
+      <div class="am-card">
+        <div class="am-icon">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="14" y="28" width="36" height="26" rx="4" />
+            <path d="M22 28V20a10 10 0 0 1 20 0v8" />
+            <circle cx="32" cy="40" r="3" />
+            <path d="M32 43v4" />
+            <circle cx="32" cy="16" r="1.5" class="dot" fill="currentColor" />
+          </svg>
+        </div>
+        <span class="am-label">24/7 security</span>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============== TYPOLOGY / UNIT MIX ============== -->
+<section class="typology" id="typology">
+  <div class="typ-inner">
+    <div class="typ-head">
+      <span class="section-label">// Residences</span>
+      <h2>Choose the <span class="accent">perfect space</span> for you.</h2>
+      <p class="typ-lead">Spacious 3, 4 and 5 BHK residences with large balconies, cross-ventilation, and finishes suited to everyday family living — set within an 11+ acre estate with extensive landscaped open space.</p>
+    </div>
+
+    <div class="unit-grid">
+
+      <!-- Card 1 -->
+      <article class="unit-card" data-tab="bhk3">
+        <div class="unit-top">
+          <span class="unit-tag">Type 01</span>
+          <span class="unit-icon" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="6" width="24" height="22" rx="2" />
+              <path d="M10 28v-8h12v8" />
+              <path d="M14 20v8" />
+            </svg>
+          </span>
+        </div>
+        <h3 class="unit-title">3 BHK</h3>
+        <p class="unit-sub">3-bedroom residences</p>
+        <div class="unit-stats">
+          <div class="unit-stat">
+            <span class="stat-label">Area</span>
+            <span class="stat-value">2,150<small>Sq. Ft.</small></span>
+          </div>
+        </div>
+        <div class="unit-price">
+          <span class="price-from">Indicative starting</span>
+          <span class="price-amt">₹ 5.91 Cr*</span>
+        </div>
+        <a class="unit-cta" href="#enquire">
+          <span>Download floor plan</span>
+          <svg class="pdf-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" fill="currentColor" fill-opacity="0.08"/>
+            <path d="M14 3v5h5"/>
+            <path d="M8 14h2.2c.8 0 1.4-.6 1.4-1.4 0-.8-.6-1.4-1.4-1.4H8v4.6"/>
+            <path d="M8 14v3.2"/>
+            <path d="M12.5 11.2h2.4v5.6"/>
+            <path d="M12.5 14h2"/>
+          </svg>
+        </a>
+      </article>
+
+      <!-- Card 2 -->
+      <article class="unit-card featured" data-tab="bhk3s">
+        <span class="unit-ribbon">Type 02</span>
+        <div class="unit-top">
+          <span class="unit-tag">Type 02</span>
+          <span class="unit-icon" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="6" width="24" height="22" rx="2" />
+              <path d="M10 28v-10h12v10" />
+              <path d="M14 22v6" />
+              <path d="M22 12h4v4h-4" />
+            </svg>
+          </span>
+        </div>
+        <h3 class="unit-title">3 BHK + Study</h3>
+        <p class="unit-sub">3-bedroom + study residences</p>
+        <div class="unit-stats">
+          <div class="unit-stat">
+            <span class="stat-label">Area</span>
+            <span class="stat-value">2,575<small>Sq. Ft.</small></span>
+          </div>
+        </div>
+        <div class="unit-price">
+          <span class="price-from">Indicative starting</span>
+          <span class="price-amt">₹ 7.08 Cr*</span>
+        </div>
+        <a class="unit-cta" href="#enquire">
+          <span>Download floor plan</span>
+          <svg class="pdf-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" fill="currentColor" fill-opacity="0.08"/>
+            <path d="M14 3v5h5"/>
+            <path d="M8 14h2.2c.8 0 1.4-.6 1.4-1.4 0-.8-.6-1.4-1.4-1.4H8v4.6"/>
+            <path d="M8 14v3.2"/>
+            <path d="M12.5 11.2h2.4v5.6"/>
+            <path d="M12.5 14h2"/>
+          </svg>
+        </a>
+      </article>
+
+      <!-- Card 3 -->
+      <article class="unit-card" data-tab="bhk4s">
+        <div class="unit-top">
+          <span class="unit-tag">Type 03</span>
+          <span class="unit-icon" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="6" width="24" height="22" rx="2" />
+              <path d="M10 28v-12h12v12" />
+              <path d="M14 22v6" />
+              <path d="M22 11h4v4h-4" />
+              <path d="M22 19h4v4h-4" />
+            </svg>
+          </span>
+        </div>
+        <h3 class="unit-title">4 BHK + Study</h3>
+        <p class="unit-sub">4-bedroom + study residences</p>
+        <div class="unit-stats">
+          <div class="unit-stat">
+            <span class="stat-label">Carpet Area</span>
+            <span class="stat-value">2,950<small>Sq. Ft.</small></span>
+          </div>
+        </div>
+        <div class="unit-price">
+          <span class="price-from">Indicative starting</span>
+          <span class="price-amt">₹ 8.11 Cr*</span>
+        </div>
+        <a class="unit-cta" href="#enquire">
+          <span>Download floor plan</span>
+          <svg class="pdf-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" fill="currentColor" fill-opacity="0.08"/>
+            <path d="M14 3v5h5"/>
+            <path d="M8 14h2.2c.8 0 1.4-.6 1.4-1.4 0-.8-.6-1.4-1.4-1.4H8v4.6"/>
+            <path d="M8 14v3.2"/>
+            <path d="M12.5 11.2h2.4v5.6"/>
+            <path d="M12.5 14h2"/>
+          </svg>
+        </a>
+      </article>
+
+      <!-- Card 4 -->
+      <article class="unit-card limited" data-tab="bhk5s">
+        <span class="unit-ribbon">Type 04</span>
+        <div class="unit-top">
+          <span class="unit-tag">Type 04</span>
+          <span class="unit-icon" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="6" width="24" height="22" rx="2" />
+              <path d="M10 28v-14h12v14" />
+              <path d="M14 22v6" />
+              <path d="M22 10h4v4h-4" />
+              <path d="M22 18h4v4h-4" />
+              <path d="M22 26h4v2h-4" />
+            </svg>
+          </span>
+        </div>
+        <h3 class="unit-title">5 BHK + Study</h3>
+        <p class="unit-sub">5-bedroom + study residences</p>
+        <div class="unit-stats">
+          <div class="unit-stat">
+            <span class="stat-label">Carpet Area</span>
+            <span class="stat-value">3,900<small>Sq. Ft.</small></span>
+          </div>
+        </div>
+        <div class="unit-price">
+          <span class="price-from">Indicative starting</span>
+          <span class="price-amt">₹ 10.72 Cr*</span>
+        </div>
+        <a class="unit-cta" href="#enquire">
+          <span>Download floor plan</span>
+          <svg class="pdf-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" fill="currentColor" fill-opacity="0.08"/>
+            <path d="M14 3v5h5"/>
+            <path d="M8 14h2.2c.8 0 1.4-.6 1.4-1.4 0-.8-.6-1.4-1.4-1.4H8v4.6"/>
+            <path d="M8 14v3.2"/>
+            <path d="M12.5 11.2h2.4v5.6"/>
+            <path d="M12.5 14h2"/>
+          </svg>
+        </a>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============== GALLERY ============== -->
+<section class="gallery" id="gallery">
+  <div class="gal-top">
+    <div class="gal-inner">
+      <div class="gal-copy">
+        <span class="gal-label">// Photo gallery tour</span>
+        <h2>See our <span class="gal-accent">residences and amenities.</span></h2>
+      </div>
+      <a class="btn btn-on-dark" href="#view-gallery">
+        <span>View gallery</span>
+        <span class="arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14"/>
+            <path d="M13 5l7 7-7 7"/>
+          </svg>
+        </span>
+      </a>
+    </div>
+  </div>
+
+  <!-- Auto-scrolling track -->
+  <div class="gal-marquee" aria-hidden="false">
+    <div class="gal-track">
+
+      <!-- Set 1 -->
+      <div class="gal-card pos-a">
+        <div class="gal-ph">
+          <img src="images/gallery/gallery-living.webp" alt="Luxurious living room interior" />
+          <div class="gal-ph-overlay"></div>
+          <span class="gal-ph-label">Living Room</span>
+        </div>
+      </div>
+
+      <div class="gal-card pos-b">
+        <div class="gal-ph">
+          <img src="images/gallery/gallery-amenity.webp" alt="Resort-style amenities" />
+          <div class="gal-ph-overlay"></div>
+          <span class="gal-ph-label">Amenities</span>
+        </div>
+      </div>
+
+      <div class="gal-card pos-c">
+        <div class="gal-ph">
+          <img src="images/hero/hero-banner-2.webp" alt="Aerial view of Godrej Verano" />
+          <div class="gal-ph-overlay"></div>
+          <span class="gal-ph-label">Aerial View</span>
+        </div>
+      </div>
+
+      <div class="gal-card pos-d">
+        <div class="gal-ph">
+          <img src="images/gallery/gallery-lifestyle.webp" alt="Godrej Verano lifestyle" />
+          <div class="gal-ph-overlay"></div>
+          <span class="gal-ph-label">Lifestyle</span>
+        </div>
+      </div>
+
+      <div class="gal-card pos-e">
+        <div class="gal-ph">
+          <img src="images/hero/hero-banner-3.webp" alt="Outdoor patio and landscaped greens" />
+          <div class="gal-ph-overlay"></div>
+          <span class="gal-ph-label">Outdoor Patio</span>
+        </div>
+      </div>
+
+      <!-- Duplicate set for seamless loop -->
+      <div class="gal-card pos-a">
+        <div class="gal-ph">
+          <img src="images/gallery/gallery-living.webp" alt="Luxurious living room interior" />
+          <div class="gal-ph-overlay"></div>
+          <span class="gal-ph-label">Living Room</span>
+        </div>
+      </div>
+
+      <div class="gal-card pos-b">
+        <div class="gal-ph">
+          <img src="images/gallery/gallery-amenity.webp" alt="Resort-style amenities" />
+          <div class="gal-ph-overlay"></div>
+          <span class="gal-ph-label">Amenities</span>
+        </div>
+      </div>
+
+      <div class="gal-card pos-c">
+        <div class="gal-ph">
+          <img src="images/hero/hero-banner-2.webp" alt="Aerial view of Godrej Verano" />
+          <div class="gal-ph-overlay"></div>
+          <span class="gal-ph-label">Aerial View</span>
+        </div>
+      </div>
+
+      <div class="gal-card pos-d">
+        <div class="gal-ph">
+          <img src="images/gallery/gallery-lifestyle.webp" alt="Godrej Verano lifestyle" />
+          <div class="gal-ph-overlay"></div>
+          <span class="gal-ph-label">Lifestyle</span>
+        </div>
+      </div>
+
+      <div class="gal-card pos-e">
+        <div class="gal-ph">
+          <img src="images/hero/hero-banner-3.webp" alt="Outdoor patio and landscaped greens" />
+          <div class="gal-ph-overlay"></div>
+          <span class="gal-ph-label">Outdoor Patio</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============== LOCATION ============== -->
+<section class="location" id="location">
+  <div class="loc-inner">
+
+    <!-- LEFT: Hero copy -->
+    <div class="loc-hero">
+      <span class="section-label">// Nearby locations</span>
+      <h2>Connected to the <span class="accent">best of Gurgaon.</span></h2>
+      <p class="loc-lead">Sector 63A on Golf Course Road is connected to schools, hospitals, business parks, and retail options in the surrounding area. Distances and drive-times are indicative and may vary based on route and traffic.</p>
+
+      <div class="loc-meta">
+        <div class="loc-meta-item">
+          <span class="loc-meta-num">9</span>
+          <span class="loc-meta-lbl">Landmarks<br/>within 15 min</span>
+        </div>
+        <div class="loc-meta-item">
+          <span class="loc-meta-num">7–15</span>
+          <span class="loc-meta-lbl">Minutes to<br/>everywhere</span>
+        </div>
+        <div class="loc-meta-item">
+          <span class="loc-meta-num">5★</span>
+          <span class="loc-meta-lbl">Connectivity<br/>rating</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Premium 2-col location grid with custom SVG icons -->
+    <div class="loc-grid">
+
+      <!-- 1. Shri Ram School -->
+      <div class="loc-card">
+        <div class="loc-card-icon">
+          <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f7f1e6"/>
+                <stop offset="100%" stop-color="#e8dcc1"/>
+              </linearGradient>
+            </defs>
+            <circle cx="40" cy="40" r="36" fill="url(#g1)" stroke="#d8af72" stroke-width="1.4"/>
+            <!-- School: building with flag -->
+            <g transform="translate(40 42)">
+              <!-- Roof -->
+              <path d="M-18 -8 L0 -22 L18 -8 Z" fill="#15151A"/>
+              <!-- Building body -->
+              <rect x="-15" y="-8" width="30" height="22" fill="#ffffff" stroke="#15151A" stroke-width="1.6"/>
+              <!-- Windows -->
+              <rect x="-11" y="-4" width="6" height="6" fill="#d8af72"/>
+              <rect x="5" y="-4" width="6" height="6" fill="#d8af72"/>
+              <!-- Door -->
+              <rect x="-3" y="4" width="6" height="10" fill="#15151A"/>
+              <circle cx="2" cy="9" r="0.8" fill="#d8af72"/>
+              <!-- Flag -->
+              <path d="M0 -22 L0 -32" stroke="#15151A" stroke-width="1.4" stroke-linecap="round"/>
+              <path d="M0 -32 L7 -30 L0 -28 Z" fill="#d8af72"/>
+            </g>
+          </svg>
+        </div>
+        <div class="loc-card-body">
+          <span class="loc-card-cat">School</span>
+          <h3 class="loc-card-name">Shri Ram School</h3>
+          <p class="loc-card-desc">Renowned K-12 institution</p>
+        </div>
+        <div class="loc-card-time">
+          <span class="loc-time-num">8</span>
+          <span class="loc-time-unit">min</span>
+        </div>
+      </div>
+
+      <!-- 2. Medanta -->
+      <div class="loc-card">
+        <div class="loc-card-icon">
+          <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f7f1e6"/>
+                <stop offset="100%" stop-color="#e8dcc1"/>
+              </linearGradient>
+            </defs>
+            <circle cx="40" cy="40" r="36" fill="url(#g2)" stroke="#d8af72" stroke-width="1.4"/>
+            <g transform="translate(40 40)">
+              <!-- Hospital building -->
+              <rect x="-18" y="-16" width="36" height="32" fill="#ffffff" stroke="#15151A" stroke-width="1.6" rx="1"/>
+              <!-- Top floor windows -->
+              <rect x="-14" y="-12" width="5" height="5" fill="#d8af72"/>
+              <rect x="-6" y="-12" width="5" height="5" fill="#d8af72"/>
+              <rect x="2" y="-12" width="5" height="5" fill="#d8af72"/>
+              <rect x="10" y="-12" width="5" height="5" fill="#d8af72"/>
+              <!-- Big medical cross -->
+              <rect x="-9" y="-3" width="18" height="14" fill="#d8af72"/>
+              <rect x="-3" y="0" width="6" height="8" fill="#ffffff"/>
+              <rect x="-5" y="2" width="10" height="4" fill="#ffffff"/>
+              <!-- Bottom floor windows -->
+              <rect x="-14" y="11" width="6" height="3" fill="#15151A"/>
+              <rect x="8" y="11" width="6" height="3" fill="#15151A"/>
+            </g>
+          </svg>
+        </div>
+        <div class="loc-card-body">
+          <span class="loc-card-cat">Hospital</span>
+          <h3 class="loc-card-name">Medanta Hospital</h3>
+          <p class="loc-card-desc">Multi-specialty healthcare</p>
+        </div>
+        <div class="loc-card-time">
+          <span class="loc-time-num">10</span>
+          <span class="loc-time-unit">min</span>
+        </div>
+      </div>
+
+      <!-- 3. Amity International -->
+      <div class="loc-card">
+        <div class="loc-card-icon">
+          <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="g3" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f7f1e6"/>
+                <stop offset="100%" stop-color="#e8dcc1"/>
+              </linearGradient>
+            </defs>
+            <circle cx="40" cy="40" r="36" fill="url(#g3)" stroke="#d8af72" stroke-width="1.4"/>
+            <g transform="translate(40 42)">
+              <!-- Graduation cap top -->
+              <path d="M-22 -2 L0 -14 L22 -2 L0 10 Z" fill="#15151A"/>
+              <!-- Cap top accent -->
+              <path d="M-18 -3 L0 -12 L18 -3 L0 6 Z" fill="#d8af72" opacity="0.4"/>
+              <!-- Tassel -->
+              <path d="M22 -2 L22 8" stroke="#15151A" stroke-width="1.4"/>
+              <circle cx="22" cy="10" r="2" fill="#d8af72"/>
+              <!-- Open book -->
+              <path d="M-16 4 L-16 14 C-16 16 -14 17 -8 17 L0 16 L0 8 Z" fill="#ffffff" stroke="#15151A" stroke-width="1.4"/>
+              <path d="M16 4 L16 14 C16 16 14 17 8 17 L0 16 L0 8 Z" fill="#ffffff" stroke="#15151A" stroke-width="1.4"/>
+              <path d="M0 8 V16" stroke="#15151A" stroke-width="1.2"/>
+            </g>
+          </svg>
+        </div>
+        <div class="loc-card-body">
+          <span class="loc-card-cat">School</span>
+          <h3 class="loc-card-name">Amity International</h3>
+          <p class="loc-card-desc">International curriculum school</p>
+        </div>
+        <div class="loc-card-time">
+          <span class="loc-time-num">12</span>
+          <span class="loc-time-unit">min</span>
+        </div>
+      </div>
+
+      <!-- 4. Artemis Hospital -->
+      <div class="loc-card">
+        <div class="loc-card-icon">
+          <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="g4" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f7f1e6"/>
+                <stop offset="100%" stop-color="#e8dcc1"/>
+              </linearGradient>
+            </defs>
+            <circle cx="40" cy="40" r="36" fill="url(#g4)" stroke="#d8af72" stroke-width="1.4"/>
+            <g transform="translate(40 40)">
+              <!-- Heart shape -->
+              <path d="M0 18 C-14 6 -22 0 -22 -8 C-22 -16 -16 -20 -10 -20 C-5 -20 -2 -17 0 -13 C2 -17 5 -20 10 -20 C16 -20 22 -16 22 -8 C22 0 14 6 0 18 Z"
+                    fill="#d8af72" stroke="#15151A" stroke-width="1.6" stroke-linejoin="round"/>
+              <!-- Pulse line -->
+              <path d="M-14 -4 L-7 -4 L-4 -10 L0 4 L4 -8 L7 -4 L14 -4"
+                    fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+          </svg>
+        </div>
+        <div class="loc-card-body">
+          <span class="loc-card-cat">Hospital</span>
+          <h3 class="loc-card-name">Artemis Hospital</h3>
+          <p class="loc-card-desc">Advanced healthcare facility</p>
+        </div>
+        <div class="loc-card-time">
+          <span class="loc-time-num">14</span>
+          <span class="loc-time-unit">min</span>
+        </div>
+      </div>
+
+      <!-- 5. Kingdom of Dreams -->
+      <div class="loc-card">
+        <div class="loc-card-icon">
+          <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="g5" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f7f1e6"/>
+                <stop offset="100%" stop-color="#e8dcc1"/>
+              </linearGradient>
+            </defs>
+            <circle cx="40" cy="40" r="36" fill="url(#g5)" stroke="#d8af72" stroke-width="1.4"/>
+            <g transform="translate(40 42)">
+              <!-- Stage frame -->
+              <rect x="-20" y="-14" width="40" height="28" fill="#15151A" rx="1"/>
+              <!-- Curtain left -->
+              <path d="M-20 -14 L-20 14 L-12 14 C-14 8 -14 0 -12 -14 Z" fill="#d8af72"/>
+              <!-- Curtain right -->
+              <path d="M20 -14 L20 14 L12 14 C14 8 14 0 12 -14 Z" fill="#d8af72"/>
+              <!-- Stage floor -->
+              <rect x="-16" y="6" width="32" height="6" fill="#ffffff" opacity="0.9"/>
+              <!-- Star -->
+              <path d="M0 -10 L2.6 -3.5 L9.5 -2.5 L4.5 2 L5.5 9 L0 5.5 L-5.5 9 L-4.5 2 L-9.5 -2.5 L-2.6 -3.5 Z"
+                    fill="#ffffff" stroke="#15151A" stroke-width="0.8"/>
+              <!-- Spotlight dots -->
+              <circle cx="-15" cy="-18" r="1" fill="#d8af72"/>
+              <circle cx="15" cy="-18" r="1" fill="#d8af72"/>
+            </g>
+          </svg>
+        </div>
+        <div class="loc-card-body">
+          <span class="loc-card-cat">Entertainment</span>
+          <h3 class="loc-card-name">Kingdom of Dreams</h3>
+          <p class="loc-card-desc">Live entertainment & dining</p>
+        </div>
+        <div class="loc-card-time">
+          <span class="loc-time-num">10</span>
+          <span class="loc-time-unit">min</span>
+        </div>
+      </div>
+
+      <!-- 6. DLF CyberHub -->
+      <div class="loc-card">
+        <div class="loc-card-icon">
+          <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="g6" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f7f1e6"/>
+                <stop offset="100%" stop-color="#e8dcc1"/>
+              </linearGradient>
+            </defs>
+            <circle cx="40" cy="40" r="36" fill="url(#g6)" stroke="#d8af72" stroke-width="1.4"/>
+            <g transform="translate(40 42)">
+              <!-- Ground line -->
+              <line x1="-22" y1="18" x2="22" y2="18" stroke="#15151A" stroke-width="1.4" stroke-linecap="round"/>
+              <!-- Tower 1 (tallest, center) -->
+              <rect x="-5" y="-22" width="10" height="40" fill="#15151A"/>
+              <rect x="-3" y="-20" width="2" height="3" fill="#d8af72"/>
+              <rect x="1" y="-20" width="2" height="3" fill="#d8af72"/>
+              <rect x="-3" y="-13" width="2" height="3" fill="#d8af72"/>
+              <rect x="1" y="-13" width="2" height="3" fill="#d8af72"/>
+              <rect x="-3" y="-6" width="2" height="3" fill="#d8af72"/>
+              <rect x="1" y="-6" width="2" height="3" fill="#d8af72"/>
+              <rect x="-3" y="1" width="2" height="3" fill="#d8af72"/>
+              <rect x="1" y="1" width="2" height="3" fill="#d8af72"/>
+              <rect x="-3" y="8" width="2" height="3" fill="#d8af72"/>
+              <rect x="1" y="8" width="2" height="3" fill="#d8af72"/>
+              <!-- Tower 2 (left) -->
+              <rect x="-15" y="-8" width="8" height="26" fill="#15151A"/>
+              <rect x="-13" y="-5" width="2" height="2" fill="#d8af72"/>
+              <rect x="-9" y="-5" width="2" height="2" fill="#d8af72"/>
+              <rect x="-13" y="1" width="2" height="2" fill="#d8af72"/>
+              <rect x="-9" y="1" width="2" height="2" fill="#d8af72"/>
+              <rect x="-13" y="7" width="2" height="2" fill="#d8af72"/>
+              <rect x="-9" y="7" width="2" height="2" fill="#d8af72"/>
+              <!-- Tower 3 (right) -->
+              <rect x="7" y="-14" width="8" height="32" fill="#15151A"/>
+              <rect x="9" y="-11" width="2" height="2" fill="#d8af72"/>
+              <rect x="13" y="-11" width="2" height="2" fill="#d8af72"/>
+              <rect x="9" y="-5" width="2" height="2" fill="#d8af72"/>
+              <rect x="13" y="-5" width="2" height="2" fill="#d8af72"/>
+              <rect x="9" y="1" width="2" height="2" fill="#d8af72"/>
+              <rect x="13" y="1" width="2" height="2" fill="#d8af72"/>
+              <rect x="9" y="7" width="2" height="2" fill="#d8af72"/>
+              <rect x="13" y="7" width="2" height="2" fill="#d8af72"/>
+            </g>
+          </svg>
+        </div>
+        <div class="loc-card-body">
+          <span class="loc-card-cat">Business Hub</span>
+          <h3 class="loc-card-name">DLF CyberHub</h3>
+          <p class="loc-card-desc">Premium business district</p>
+        </div>
+        <div class="loc-card-time">
+          <span class="loc-time-num">15</span>
+          <span class="loc-time-unit">min</span>
+        </div>
+      </div>
+
+      <!-- 7. Ambience Mall -->
+      <div class="loc-card">
+        <div class="loc-card-icon">
+          <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="g7" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f7f1e6"/>
+                <stop offset="100%" stop-color="#e8dcc1"/>
+              </linearGradient>
+            </defs>
+            <circle cx="40" cy="40" r="36" fill="url(#g7)" stroke="#d8af72" stroke-width="1.4"/>
+            <g transform="translate(40 42)">
+              <!-- Shopping bag body -->
+              <path d="M-16 -8 L-18 18 L18 18 L16 -8 Z" fill="#d8af72" stroke="#15151A" stroke-width="1.6" stroke-linejoin="round"/>
+              <!-- Bag handles -->
+              <path d="M-9 -8 C-9 -16 -5 -18 0 -18 C5 -18 9 -16 9 -8"
+                    fill="none" stroke="#15151A" stroke-width="1.6" stroke-linecap="round"/>
+              <!-- Highlight stripe -->
+              <line x1="-13" y1="-4" x2="13" y2="-4" stroke="#ffffff" stroke-width="0.8" opacity="0.6"/>
+              <!-- Logo dots -->
+              <circle cx="-8" cy="6" r="2" fill="#15151A"/>
+              <circle cx="0" cy="6" r="2" fill="#15151A"/>
+              <circle cx="8" cy="6" r="2" fill="#15151A"/>
+            </g>
+          </svg>
+        </div>
+        <div class="loc-card-body">
+          <span class="loc-card-cat">Shopping</span>
+          <h3 class="loc-card-name">Ambience Mall</h3>
+          <p class="loc-card-desc">Luxury retail destination</p>
+        </div>
+        <div class="loc-card-time">
+          <span class="loc-time-num">15</span>
+          <span class="loc-time-unit">min</span>
+        </div>
+      </div>
+
+      <!-- 8. Leisure Valley Park -->
+      <div class="loc-card">
+        <div class="loc-card-icon">
+          <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="g8" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f7f1e6"/>
+                <stop offset="100%" stop-color="#e8dcc1"/>
+              </linearGradient>
+            </defs>
+            <circle cx="40" cy="40" r="36" fill="url(#g8)" stroke="#d8af72" stroke-width="1.4"/>
+            <g transform="translate(40 44)">
+              <!-- Ground line -->
+              <line x1="-20" y1="16" x2="20" y2="16" stroke="#15151A" stroke-width="1.4" stroke-linecap="round"/>
+              <!-- Tree trunk -->
+              <rect x="-2" y="2" width="4" height="14" fill="#15151A"/>
+              <!-- Tree foliage (3 layers) -->
+              <path d="M-14 6 L0 -18 L14 6 Z" fill="#d8af72" stroke="#15151A" stroke-width="1.6" stroke-linejoin="round"/>
+              <path d="M-12 0 L0 -14 L12 0 Z" fill="#d8af72" stroke="#15151A" stroke-width="1.4" stroke-linejoin="round" opacity="0.85"/>
+              <path d="M-9 -6 L0 -12 L9 -6 Z" fill="#d8af72" opacity="0.7"/>
+              <!-- Side leaves -->
+              <path d="M-22 10 C-24 6 -22 4 -19 6 L-20 12 Z" fill="#d8af72" opacity="0.7"/>
+              <path d="M22 10 C24 6 22 4 19 6 L20 12 Z" fill="#d8af72" opacity="0.7"/>
+            </g>
+          </svg>
+        </div>
+        <div class="loc-card-body">
+          <span class="loc-card-cat">Park</span>
+          <h3 class="loc-card-name">Leisure Valley Park</h3>
+          <p class="loc-card-desc">Lush green open spaces</p>
+        </div>
+        <div class="loc-card-time">
+          <span class="loc-time-num">7</span>
+          <span class="loc-time-unit">min</span>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+<!-- ============== STATS ============== -->
+<section class="stats">
+  <div class="stats-inner">
+    <div class="stats-head">
+      <span class="section-label">// Property statistics</span>
+      <h2>Facts that <span class="accent">matter.</span></h2>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-num">11<small>+</small></span>
+        <span class="stat-lbl">Acres</span>
+        <p class="stat-desc">A sprawling 11+ acre parcel with 81% open greens and just 19% building footprint.</p>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-num">4</span>
+        <span class="stat-lbl">Residential Towers</span>
+        <p class="stat-desc">Four residential towers planned across the estate — designed with east-west facing apartments for natural light and ventilation.</p>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-num">2<small>L+</small></span>
+        <span class="stat-lbl">Sq. Ft. Club</span>
+        <p class="stat-desc">Grand 2,00,000+ sq. ft. of TriBay clubhouse amenities spread across three spectacular spaces.</p>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-num">3</span>
+        <span class="stat-lbl">Clubhouses</span>
+        <p class="stat-desc">Dedicated clubhouses thoughtfully designed for every age group and lifestyle preference.</p>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-num">81<small>%</small></span>
+        <span class="stat-lbl">Open Greens</span>
+        <p class="stat-desc">Ultra-low density living — 8+ acres of beautifully planned open spaces and themed gardens.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============== CONTACT FORM ============== -->
+<section class="contact" id="enquire">
+  <div class="contact-inner">
+
+    <!-- LEFT: Copy -->
+    <div class="contact-copy">
+      <span class="contact-label">// Get in touch</span>
+      <h2>Enquire about <span class="contact-accent">Godrej Verano.</span></h2>
+      <p class="contact-lead">Share your details and our sales team will get back to you with current pricing, available unit types, and a site visit schedule. Indicative pricing shown on this page is subject to change — please contact us for the latest.</p>
+
+      <ul class="contact-perks">
+        <li>
+          <span class="perk-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 6L9 17l-5-5"/>
+            </svg>
+          </span>
+          <span>Priority access to inventory before public launch</span>
+        </li>
+        <li>
+          <span class="perk-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 6L9 17l-5-5"/>
+            </svg>
+          </span>
+          <span>Current pricing &amp; indicative payment plans</span>
+        </li>
+        <li>
+          <span class="perk-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 6L9 17l-5-5"/>
+            </svg>
+          </span>
+          <span>Site tour with our sales team</span>
+        </li>
+      </ul>
+
+      <div class="contact-alt">
+        <span class="alt-label">Or call us directly</span>
+        <a class="alt-phone" href="tel:+919310991205">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5.5 3.6c-.7.2-1.2.8-1.4 1.5-.7 2.6.3 6.3 2.6 9.7 2.3 3.4 5.3 5.6 7.9 6.3.7.2 1.5 0 2-.5l1.5-1.5c.4-.4.4-1 0-1.4l-2.5-2.5c-.4-.4-1-.4-1.4 0l-1.1 1.1c-1.8-.9-3.4-2.5-4.3-4.3l1.1-1.1c.4-.4.4-1 0-1.4L6.4 7c-.4-.4-1-.4-1.4 0L3.5 8.5"/>
+            <path d="M14.5 4.5c1.8 0 3.5.7 4.7 2 1.3 1.2 2 2.9 2 4.7"/>
+            <path d="M14.5 7.5c1 0 1.9.4 2.6 1 .7.7 1.1 1.6 1.1 2.6"/>
+          </svg>
+          93109 91205
+        </a>
+      </div>
+    </div>
+
+    <!-- RIGHT: Form -->
+    <form class="contact-form" id="inlineEnquiryForm" novalidate>
+
+      <div class="form-row">
+        <div class="form-field">
+          <label for="cname">Full name</label>
+          <div class="form-input">
+            <span class="input-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+            </span>
+            <input id="cname" name="name" type="text" placeholder="Enter your full name" autocomplete="name" required />
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="cemail">Email address</label>
+          <div class="form-input">
+            <span class="input-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="4" width="20" height="16" rx="2"/>
+                <path d="M22 7l-10 7L2 7"/>
+              </svg>
+            </span>
+            <input id="cemail" name="email" type="email" placeholder="you@example.com (optional)" autocomplete="email" />
+          </div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-field">
+          <label for="cphone">Phone number</label>
+          <div class="form-input phone-input">
+            <span class="input-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5.5 3.6c-.7.2-1.2.8-1.4 1.5-.7 2.6.3 6.3 2.6 9.7 2.3 3.4 5.3 5.6 7.9 6.3.7.2 1.5 0 2-.5l1.5-1.5c.4-.4.4-1 0-1.4l-2.5-2.5c-.4-.4-1-.4-1.4 0l-1.1 1.1c-1.8-.9-3.4-2.5-4.3-4.3l1.1-1.1c.4-.4.4-1 0-1.4L6.4 7c-.4-.4-1-.4-1.4 0L3.5 8.5"/>
+                <path d="M14.5 4.5c1.8 0 3.5.7 4.7 2 1.3 1.2 2 2.9 2 4.7"/>
+                <path d="M14.5 7.5c1 0 1.9.4 2.6 1 .7.7 1.1 1.6 1.1 2.6"/>
+              </svg>
+            </span>
+            <div class="phone-code">
+              <span class="code-text">+91</span>
+              <span class="code-caret" aria-hidden="true">
+                <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 5l3 3 3-3"/>
+                </svg>
+              </span>
+            </div>
+            <input id="cphone" name="phone" type="tel" placeholder="98765 43210" autocomplete="tel" required />
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="csubject">Interested in</label>
+          <div class="form-input select-input">
+            <span class="input-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9.5L12 3l9 6.5V21h-6v-7H9v7H3z"/>
+                <path d="M9 21v-7h6v7"/>
+              </svg>
+            </span>
+            <select id="csubject" name="subject">
+              <option value="" disabled selected>Select unit type (optional)</option>
+              <option value="3bhk">3 BHK — 2,150 sq. ft.</option>
+              <option value="3bhk-s">3 BHK + Study — 2,575 sq. ft.</option>
+              <option value="4bhk-s">4 BHK + Study — 2,950 sq. ft.</option>
+              <option value="5bhk-s">5 BHK + Study — 3,900 sq. ft.</option>
+              <option value="site-visit">Schedule a site visit</option>
+              <option value="brochure">Request brochure</option>
+            </select>
+            <span class="select-caret" aria-hidden="true">
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 5l3 3 3-3"/>
+              </svg>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-field form-field-full">
+        <label for="cmsg">Your message</label>
+        <div class="form-input textarea-input">
+          <span class="input-icon input-icon-top" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              <path d="M8 9h8 M8 13h5"/>
+            </svg>
+          </span>
+          <textarea id="cmsg" name="message" rows="5" placeholder="Tell us what you're looking for — preferred floor, facing, budget range, visit date..."></textarea>
+        </div>
+      </div>
+
+      <label class="consent">
+        <input type="checkbox" />
+        <span class="consent-mark" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 8.5l3 3 7-7"/>
+          </svg>
+        </span>
+        <span class="consent-text">I agree to be contacted by Godrej Properties regarding this enquiry. Consent is optional and can be withdrawn at any time. This does not override any DNC/NDNC registration.</span>
+      </label>
+
+      <button class="form-submit" type="submit">
+        <span>Enquire now</span>
+        <span class="submit-arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14"/>
+            <path d="M13 5l7 7-7 7"/>
+          </svg>
+        </span>
+      </button>
+      <p class="form-status" id="inlineFormStatus" role="status" aria-live="polite"></p>
+
+    </form>
+
+  </div>
+</section>
+
+<!-- ============== FOOTER ============== -->
+<footer class="footer">
+  <div class="footer-inner">
+
+    <div class="footer-brand">
+      <a class="brand brand-footer" href="#home">
+        <img class="logo-img" src="images/logo/logo.png" alt="Godrej Properties — Godrej Verano" />
+      </a>
+      <p class="footer-tag">A waterfront-inspired residential development by Godrej Properties — Sector 63A, Golf Course Road, Gurgaon.</p>
+    </div>
+
+    <div class="footer-col">
+      <span class="footer-label">Contact</span>
+      <a href="tel:+919310991205">93109 91205</a>
+      <a href="mailto:enquire@godrejverano.com">enquire@godrejverano.com</a>
+    </div>
+
+    <div class="footer-col">
+      <span class="footer-label">Address</span>
+      <p>Sector 63A, Golf Course Road,<br/>Gurgaon, Haryana 122011</p>
+    </div>
+
+    <div class="footer-col">
+      <span class="footer-label">Legal</span>
+      <a href="privacy-policy.html">Privacy Policy</a>
+      <a href="disclaimer.html">Disclaimer</a>
+      <a href="terms-of-use.html">Terms of Use</a>
+    </div>
+
+  </div>
+
+  <div class="footer-bottom">
+    <span>HARERA Registration No. GGM/1081/813/2026/53 dated 11 August 2026 · This website is for informational purposes only and does not constitute an offer.</span>
+    <span>© 2026 Godrej Properties · All rights reserved</span>
+  </div>
+</footer>
+
+<script>
+  // Mobile menu toggle
+  (function() {
+    const hamburger = document.getElementById('hamburger');
+    const drawer = document.getElementById('mobileDrawer');
+    const links = drawer ? drawer.querySelectorAll('.mobile-link') : [];
+
+    if (!hamburger || !drawer) return;
+
+    function setOpen(open) {
+      hamburger.classList.toggle('open', open);
+      drawer.classList.toggle('open', open);
+      hamburger.setAttribute('aria-expanded', open ? 'true' : 'false');
+      drawer.setAttribute('aria-hidden', open ? 'false' : 'true');
+    }
+
+    hamburger.addEventListener('click', () => {
+      setOpen(!hamburger.classList.contains('open'));
+    });
+
+    links.forEach(link => {
+      link.addEventListener('click', () => setOpen(false));
+    });
+
+    // Close drawer on resize to desktop
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 960 && hamburger.classList.contains('open')) {
+        setOpen(false);
+      }
+    });
+  })();
+
+  // Active nav link on scroll
+  (function() {
+    const sections = ['home', 'about', 'amenities', 'typology', 'gallery', 'location'];
+    const navLinks = document.querySelectorAll('.nav-link, .mobile-link');
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const id = entry.target.id;
+          navLinks.forEach(link => {
+            link.classList.toggle('active', link.getAttribute('href') === '#' + id);
+          });
+        }
+      });
+    }, { rootMargin: '-40% 0px -50% 0px' });
+
+    sections.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+  })();
+</script>
+
+<!-- ============== CONTACT MODAL POPUP ============== -->
+<div class="modal-overlay" id="modalOverlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <div class="modal-eyebrow">// Get in touch</div>
+        <h3 id="modalTitle">Request a <span style="color: var(--accent-dark); font-style: italic;">call back.</span></h3>
+      </div>
+      <button class="modal-close" id="modalClose" type="button" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <form class="modal-body" id="enquiryForm" novalidate>
+      <div class="form-row">
+        <div class="form-field">
+          <label for="mname">Full name</label>
+          <div class="form-input">
+            <span class="input-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+            </span>
+            <input id="mname" name="name" type="text" placeholder="Your full name" autocomplete="name" required />
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="memail">Email address</label>
+          <div class="form-input">
+            <span class="input-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="2"/>
+                <path d="M3 7l9 6 9-6"/>
+              </svg>
+            </span>
+            <input id="memail" name="email" type="email" placeholder="you@email.com (optional)" autocomplete="email" />
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="mphone">Phone number</label>
+          <div class="form-input phone-input">
+            <span class="input-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5.5 3.6c-.7.2-1.2.8-1.4 1.5-.7 2.6.3 6.3 2.6 9.7 2.3 3.4 5.3 5.6 7.9 6.3.7.2 1.5 0 2-.5l1.5-1.5c.4-.4.4-1 0-1.4l-2.5-2.5c-.4-.4-1-.4-1.4 0l-1.1 1.1c-1.8-.9-3.4-2.5-4.3-4.3l1.1-1.1c.4-.4.4-1 0-1.4L6.4 7c-.4-.4-1-.4-1.4 0L3.5 8.5"/>
+                <path d="M14.5 4.5c1.8 0 3.5.7 4.7 2 1.3 1.2 2 2.9 2 4.7"/>
+                <path d="M14.5 7.5c1 0 1.9.4 2.6 1 .7.7 1.1 1.6 1.1 2.6"/>
+              </svg>
+            </span>
+            <div class="phone-code">
+              <span class="code-text">+91</span>
+            </div>
+            <input id="mphone" name="phone" type="tel" placeholder="98765 43210" autocomplete="tel" required />
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="msubject">Interested in</label>
+          <div class="form-input select-input">
+            <span class="input-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9.5L12 3l9 6.5V21h-6v-7H9v7H3z"/>
+                <path d="M9 21v-7h6v7"/>
+              </svg>
+            </span>
+            <select id="msubject" name="subject">
+              <option value="" disabled selected>Select unit type (optional)</option>
+              <option value="3bhk">3 BHK — 2,150 sq. ft.</option>
+              <option value="3bhk-s">3 BHK + Study — 2,575 sq. ft.</option>
+              <option value="4bhk-s">4 BHK + Study — 2,950 sq. ft.</option>
+              <option value="5bhk-s">5 BHK + Study — 3,900 sq. ft.</option>
+              <option value="site-visit">Schedule a site visit</option>
+              <option value="brochure">Request brochure</option>
+            </select>
+            <span class="select-caret" aria-hidden="true">
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 5l3 3 3-3"/>
+              </svg>
+            </span>
+          </div>
+        </div>
+      </div>
+      <label class="consent">
+        <input type="checkbox" />
+        <span class="consent-mark" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 8l3.5 3.5L13 5"/>
+          </svg>
+        </span>
+        I agree to be contacted by Godrej Properties regarding this enquiry.
+      </label>
+      <button class="btn form-submit" type="submit">
+        <span>Request a call back</span>
+        <span class="arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14"/>
+            <path d="M13 5l7 7-7 7"/>
+          </svg>
+        </span>
+      </button>
+      <p class="form-status" id="formStatus" role="status" aria-live="polite"></p>
+    </form>
+  </div>
+</div>
+
+<script>
+  /* ---------- CONTACT MODAL (runs after modal HTML exists in DOM) ---------- */
+  (function () {
+    const overlay = document.getElementById('modalOverlay');
+    const closeBtn = document.getElementById('modalClose');
+    const mobileDrawer = document.getElementById('mobileDrawer');
+    const hamburger = document.getElementById('hamburger');
+
+    if (!overlay) { console.warn('Modal overlay not found'); return; }
+
+    function openModal(e) {
+      if (e && e.preventDefault) e.preventDefault();
+      if (e && e.stopPropagation) e.stopPropagation();
+      overlay.classList.add('is-open');
+      document.body.classList.add('modal-open');
+      if (mobileDrawer && mobileDrawer.classList.contains('open')) {
+        mobileDrawer.classList.remove('open');
+        if (hamburger) hamburger.classList.remove('open');
+      }
+    }
+    function closeModal() {
+      overlay.classList.remove('is-open');
+      document.body.classList.remove('modal-open');
+    }
+
+    /* Universal trigger — catch every button-like click and route to modal */
+    function shouldOpenModal(target) {
+      if (!target || !target.closest) return false;
+      const btn = target.closest(
+        'a.btn, button.btn, .btn, .unit-cta, [data-modal-trigger], ' +
+        'a.unit-cta, .form-submit, .btn-mobile, .btn-nav'
+      );
+      if (btn) return true;
+      const a = target.closest('a[href]');
+      if (!a) return false;
+      const href = a.getAttribute('href') || '';
+      return /^#(enquire|brochure|typology|view-gallery|schedule|download|enquiry|contact)/i.test(href);
+    }
+
+    document.addEventListener('click', (e) => {
+      if (overlay.contains(e.target)) return;
+      if (e.target.closest && e.target.closest('.nav-link, .mobile-link')) return;
+      if (e.target.id === 'hamburger' || e.target.id === 'modalClose') return;
+      if (!shouldOpenModal(e.target)) return;
+      openModal(e);
+    }, true);
+
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+    /* ---------- AUTO-POPUP AFTER SCROLL ---------- */
+    /* Show enquiry modal 4s after the user first scrolls the page.
+       Fires only once per page load. Cancelled if the user already
+       interacted with the modal (opened or closed) before the timer. */
+    let userTouchedModal = false;
+    let autoPopupFired = false;
+    let autoPopupTimer = null;
+
+    const originalOpenModal = openModal;
+    openModal = function (e) {
+      userTouchedModal = true;
+      if (autoPopupTimer) { clearTimeout(autoPopupTimer); autoPopupTimer = null; }
+      return originalOpenModal(e);
+    };
+    const originalCloseModal = closeModal;
+    closeModal = function () {
+      userTouchedModal = true;
+      if (autoPopupTimer) { clearTimeout(autoPopupTimer); autoPopupTimer = null; }
+      return originalCloseModal();
+    };
+
+    let scrollArmed = false;
+    function armAutoPopup() {
+      if (scrollArmed || autoPopupFired || userTouchedModal) return;
+      scrollArmed = true;
+      autoPopupTimer = setTimeout(() => {
+        autoPopupTimer = null;
+        if (userTouchedModal || autoPopupFired) return;
+        autoPopupFired = true;
+        originalOpenModal();
+      }, 4000);
+    }
+
+    window.addEventListener('scroll', armAutoPopup, { passive: true });
+
+    /* ---------- FORM SUBMISSION -> GOOGLE SHEETS ---------- */
+    /* Forms submit to the deployed Apps Script web app.
+       Replace SHEETS_ENDPOINT with your URL. */
+    const SHEETS_ENDPOINT = 'https://script.google.com/macros/s/AKfycbxSbPrLrSJgmmBvn3vgQNVvEpvr2HSLhUjNx4v2iDogDdtC7QdEkMJavRd17IiQf_bXyw/exec';
+
+    function setStatus(statusEl, message, kind) {
+      if (!statusEl) return;
+      statusEl.textContent = message;
+      statusEl.classList.remove('is-success', 'is-error');
+      if (kind) statusEl.classList.add(kind);
+    }
+
+    async function handleEnquirySubmit(form, statusEl, opts) {
+      opts = opts || {};
+      if (!form.reportValidity()) return;
+      const submitBtn = form.querySelector('button.form-submit');
+      const originalHtml = submitBtn ? submitBtn.innerHTML : '';
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.innerHTML = '<span>Sending…</span>'; }
+      setStatus(statusEl, 'Submitting your enquiry…');
+
+      const data = {
+        name: form.name.value.trim(),
+        email: form.email.value.trim(),
+        phone: form.phone.value.trim(),
+        unitType: form.subject.value,
+        timestamp: new Date().toISOString()
+      };
+
+      if (!SHEETS_ENDPOINT) {
+        setStatus(statusEl, 'Form is not connected yet. Set SHEETS_ENDPOINT in the page source.', 'is-error');
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = originalHtml; }
+        return;
+      }
+
+      try {
+        await fetch(SHEETS_ENDPOINT, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(data)
+        });
+        setStatus(statusEl, 'Thank you. Our sales team will contact you with current pricing and availability.', 'is-success');
+        form.reset();
+        if (opts.closeAfter) setTimeout(() => { closeModal(); }, 2200);
+      } catch (err) {
+        console.error('Enquiry submit failed', err);
+        setStatus(statusEl, 'Something went wrong. Please call 93109 91205.', 'is-error');
+      } finally {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = originalHtml; }
+      }
+    }
+
+    const modalForm = document.getElementById('enquiryForm');
+    const modalStatus = document.getElementById('formStatus');
+    if (modalForm) {
+      modalForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        handleEnquirySubmit(modalForm, modalStatus, { closeAfter: true });
+      });
+    }
+
+    const inlineForm = document.getElementById('inlineEnquiryForm');
+    const inlineStatus = document.getElementById('inlineFormStatus');
+    if (inlineForm) {
+      inlineForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        handleEnquirySubmit(inlineForm, inlineStatus, { closeAfter: false });
+      });
+    }
+  })();
+</script>
+
+</body>
+</html>
