@@ -14,9 +14,12 @@
     "@tah/proxy": "*",
     "@tah/verdict": "*",
     "@tah/profiles": "*",
+    "@tah/ua": "*",
+    "@tah/tz": "*",
     "playwright": "^1.44.0",
     "playwright-extra": "^3.3.2",
-    "puppeteer-extra-plugin-stealth": "^2.11.2"
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "undici": "^6.20.0"
   },
   "devDependencies": {
     "vitest": "^1.6.0"
