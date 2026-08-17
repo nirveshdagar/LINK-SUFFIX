@@ -2,7 +2,7 @@
   "name": "traffic-armour-harness",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["packages/*"],
+  "workspaces": ["packages/*", "packages/*/*"],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
