@@ -1,0 +1,80 @@
+{
+  "$id": "https://traffic-armour-harness.local/scenarios.schema.json",
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Traffic Armour scenario",
+  "type": "object",
+  "required": ["id", "tier", "seed_url", "geo", "proxy_mode", "repeats", "expected_verdict"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "tier": { "enum": ["trivial-http", "headless", "stealth", "human"] },
+    "seed_url": { "type": "string", "format": "uri" },
+    "device_pool": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "geo": {
+      "type": "object",
+      "required": ["country"],
+      "additionalProperties": false,
+      "properties": {
+        "country": { "type": "string", "pattern": "^[A-Z]{2}$" },
+        "state": { "type": "string", "pattern": "^[A-Za-z]+$" },
+        "city": { "type": "string", "pattern": "^[A-Za-z -]+$" }
+      }
+    },
+    "proxy_mode": { "enum": ["rotating-residential", "sticky-residential"] },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pages": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "min": { "type": "integer", "minimum": 1 },
+            "max": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "internal_link_probability": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "concurrent": { "type": "integer", "minimum": 1, "default": 16 },
+    "repeats": { "type": "integer", "minimum": 1 },
+    "expected_verdict": { "enum": ["block", "challenge", "allow"] },
+    "verdict_detection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "http_status": { "type": "boolean" },
+        "challenge_html": { "type": "boolean" },
+        "challenge_signatures": {
+          "type": "array",
+          "items": { "enum": ["cloudflare", "hcaptcha", "datadome", "perimeterx", "akamai", "generic"] }
+        },
+        "header_signals": { "type": "boolean" },
+        "cookies": { "type": "boolean" },
+        "timing": { "type": "boolean" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "tier": { "enum": ["headless", "stealth", "human"] } },
+        "required": ["tier"]
+      },
+      "then": {
+        "required": ["device_pool"],
+        "properties": {
+          "proxy_mode": { "const": "sticky-residential" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "tier": { "const": "human" } }, "required": ["tier"] },
+      "then": { "required": ["session"] }
+    }
+  ]
+}
