@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { Aggregator } from './aggregator.js';
 import type { EventBus } from '@tah/orchestrator';
@@ -20,7 +21,10 @@ export async function startDashboard(opts: { port: number; bus: EventBus; runDir
     const aggHandler = () => reply.raw.write(`data: ${JSON.stringify({ kind: 'state', state: agg.state })}\n\n`);
     opts.bus.on('request', handler);
     const iv = setInterval(aggHandler, 1000);
-    req.raw.on('close', () => { clearInterval(iv); });
+    req.raw.on('close', () => {
+      clearInterval(iv);
+      (opts.bus as unknown as EventEmitter).off('request', handler);
+    });
   });
 
   app.get('/summary', async () => agg.state);

@@ -5,7 +5,7 @@
   "main": "dist/server.js",
   "types": "dist/server.d.ts",
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && node -e \"const fs=require('fs');const path=require('path');fs.cpSync(path.resolve('src/public'),path.resolve('dist/public'),{recursive:true});\"",
     "test": "vitest run"
   },
   "dependencies": {
