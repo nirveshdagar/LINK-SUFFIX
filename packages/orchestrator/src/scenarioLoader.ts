@@ -3,8 +3,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import yaml from 'yaml';
-import Ajv from 'ajv';
-import addFormats from 'ajv-formats';
+// Task 8 left these as default imports; TS 5.x + NodeNext treats the default
+// import as the module namespace here, so `new Ajv(...)` fails with
+// TS2351. Use named imports which match the package's actual exports.
+// `ajv-formats` ships a default-export function but with the same TS interop
+// quirk; load it through a CJS namespace import and pull `.default` off.
+import { Ajv } from 'ajv';
+import * as ajvFormats from 'ajv-formats';
+const addFormats = (ajvFormats as unknown as { default: (ajv: Ajv) => void }).default;
 import type { Scenario } from './types.js';
 
 // Brief specified `../../scenarios/schema.json` but __dirname resolves to
