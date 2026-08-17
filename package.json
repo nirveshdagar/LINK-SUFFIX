@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
-    "test:unit": "vitest run tests/unit packages/*/src",
+    "test:unit": "vitest run tests/unit packages",
     "test:integration": "vitest run tests/integration",
     "lint": "tsc -b --noEmit"
   },
