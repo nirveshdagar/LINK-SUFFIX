@@ -2,7 +2,10 @@ import type { AggregatedVerdict, VerdictInput, VerdictStrategy, Vote } from './t
 
 export type { Vote, VerdictInput, VerdictStrategy, AggregatedVerdict } from './types.js';
 
-const PRECEDENCE: Vote[] = ['block', 'challenge', 'unsure', 'allow'];
+// Precedence (spec §7.1): block > challenge > allow > unsure. `unsure` is
+// the lowest precedence — a single strategy that abstains must not drag a
+// confident allow down to unsure.
+const PRECEDENCE: Vote[] = ['block', 'challenge', 'allow', 'unsure'];
 
 export function aggregateVerdict(
   input: VerdictInput,
