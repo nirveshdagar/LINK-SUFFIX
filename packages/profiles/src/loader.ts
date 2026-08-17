@@ -2,12 +2,13 @@ import data from './devices.json' with { type: 'json' };
 
 export interface DeviceProfile {
   id: string;
-  uaFamily: string;
+  uaFamily: string;          // legacy single-UA — kept for back-compat
   viewport: { w: number; h: number; dpr: number };
   touch: boolean;
   hardware: { cores: number; memoryGb: number };
   webgl: { vendor: string; renderer: string };
   locale: string;
+  templateIds: string[];     // NEW: ids into @tah/ua templates
 }
 
 const PROFILES: DeviceProfile[] = data as DeviceProfile[];

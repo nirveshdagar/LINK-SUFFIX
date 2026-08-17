@@ -6,7 +6,8 @@
     "touch": false,
     "hardware": { "cores": 8, "memoryGb": 16 },
     "webgl": { "vendor": "Google Inc. (NVIDIA)", "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)" },
-    "locale": "en-US"
+    "locale": "en-US",
+    "templateIds": ["windows-chrome-110", "windows-chrome-118", "windows-chrome-124", "windows-edge-124"]
   },
   {
     "id": "desktop-mac-safari",
@@ -15,7 +16,8 @@
     "touch": false,
     "hardware": { "cores": 10, "memoryGb": 16 },
     "webgl": { "vendor": "Apple Inc.", "renderer": "Apple M2 Pro" },
-    "locale": "en-US"
+    "locale": "en-US",
+    "templateIds": ["mac-safari-15", "mac-safari-16", "mac-safari-17", "mac-chrome-118", "mac-chrome-124"]
   },
   {
     "id": "iphone-15-safari",
@@ -24,7 +26,8 @@
     "touch": true,
     "hardware": { "cores": 6, "memoryGb": 6 },
     "webgl": { "vendor": "Apple Inc.", "renderer": "Apple A16 GPU" },
-    "locale": "en-IN"
+    "locale": "en-IN",
+    "templateIds": ["iphone-15-safari", "iphone-15-plus-safari", "iphone-15-pro-safari", "iphone-15-pro-max-safari", "iphone-14-pro-safari", "iphone-se-3-safari"]
   },
   {
     "id": "android-pixel-chrome",
@@ -33,7 +36,8 @@
     "touch": true,
     "hardware": { "cores": 8, "memoryGb": 8 },
     "webgl": { "vendor": "Qualcomm", "renderer": "Adreno 740" },
-    "locale": "en-IN"
+    "locale": "en-IN",
+    "templateIds": ["pixel-7-chrome", "pixel-8-chrome", "pixel-8-pro-chrome", "samsung-s23-chrome", "samsung-s24-chrome", "oneplus-11-chrome"]
   },
   {
     "id": "ipad-safari",
@@ -42,6 +46,7 @@
     "touch": true,
     "hardware": { "cores": 8, "memoryGb": 8 },
     "webgl": { "vendor": "Apple Inc.", "renderer": "Apple M1 GPU" },
-    "locale": "en-US"
+    "locale": "en-US",
+    "templateIds": ["ipad-air-5-safari", "ipad-pro-11-safari", "ipad-pro-12-9-safari", "ipad-mini-6-safari"]
   }
 ]

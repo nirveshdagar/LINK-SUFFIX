@@ -14,3 +14,19 @@ describe('profiles', () => {
     expect(() => loadProfile('nonexistent')).toThrow(/unknown profile/);
   });
 });
+
+describe('profiles with templateIds', () => {
+  it('iphone-15-safari profile has templateIds array', () => {
+    const p = loadProfile('iphone-15-safari');
+    expect(Array.isArray(p.templateIds)).toBe(true);
+    expect(p.templateIds.length).toBeGreaterThanOrEqual(5);
+  });
+  it('every profile has at least one templateId', () => {
+    for (const p of listProfiles()) {
+      expect(p.templateIds.length).toBeGreaterThan(0);
+    }
+  });
+  it('loadProfile throws for unknown id with template ids intact', () => {
+    expect(() => loadProfile('nonexistent')).toThrow(/unknown profile/);
+  });
+});
