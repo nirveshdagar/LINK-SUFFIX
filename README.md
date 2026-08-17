@@ -176,6 +176,39 @@ profiles: `desktop-windows-chrome`, `desktop-mac-safari`,
 
 ---
 
+## Per-navigation fingerprint rotation
+
+All three browser tiers (headless, stealth, human) rotate the full fingerprint
+bundle on every navigation: User-Agent, locale, languages, viewport, hardware
+concurrency + memory, WebGL vendor + renderer, and IANA timezone.
+
+The User-Agent is synthesized from one of 25 templates across 5 device families,
+varying only the build patch (e.g. `Chrome/124.0.0.0` → `Chrome/124.5.32.99`).
+This produces millions of unique fingerprint combinations while keeping each
+combination internally consistent (an iPhone UA cannot claim a Windows WebGL
+renderer).
+
+The timezone is resolved in three layers per session:
+
+1. **Egress-IP lookup** via `geoip2-lite` (bundled MMDB lookup, in-process)
+2. **Scenario geo lookup** against a 2000-entry static city→IANA map
+3. **Locale fallback** (`en-US` → `America/New_York` etc.)
+
+Egress-IP lookup is one-shot per session (cached). To skip IP rotation,
+delete `.env`'s `MAXMIND_DB_PATH` or any pre-warmed proxy session.
+
+Internally:
+
+- `@tah/ua` owns all UA strings and templates
+- `@tah/tz` owns all IANA timezone strings and IP→city resolution
+- Browser tiers consume fully-built fingerprint bundles; they never see UA grammar
+
+Each navigation opens a fresh Playwright context so HTTP `User-Agent`,
+JS-readable `navigator.userAgent`, and `Intl.DateTimeFormat().resolvedOptions().timeZone`
+all stay consistent.
+
+---
+
 ## 4. Outputs
 
 Every run writes to a fresh `runs/<ISO-timestamp>/` directory (the
