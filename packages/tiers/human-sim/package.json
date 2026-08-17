@@ -1,0 +1,22 @@
+{
+  "name": "@tah/human-sim",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "lint": "tsc -b --noEmit"
+  },
+  "dependencies": {
+    "@tah/orchestrator": "*",
+    "@tah/proxy": "*",
+    "@tah/verdict": "*",
+    "@tah/profiles": "*",
+    "playwright": "^1.44.0"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0"
+  }
+}
