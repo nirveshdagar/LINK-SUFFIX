@@ -7,6 +7,14 @@ export interface RawRequestRecord {
   status: number;
   time_ms: number;
   headers: Record<string, string>;
+  /**
+   * Free-form signals captured per request. Used by the orchestrator to record:
+   * - `ua_actual`: User-Agent string actually sent (after per-nav rotation)
+   * - `template_id`: id of the UA template used to synthesize ua_actual
+   * - `timezone`: IANA timezone (e.g. "Asia/Kolkata")
+   * - `tz_lookup_failed`: "true" if egress-IP→tz resolution failed
+   * - `body_snippet`: first 64KB of response body (added in body-capture round)
+   */
   ta_signal: Record<string, string>;
   body_snippet?: string;
 }
