@@ -46,4 +46,31 @@ describe('buildProxyEndpoint', () => {
       buildProxyEndpoint({ country: 'usa' }, 'rotating-residential', creds),
     ).toThrow(InvalidProxyGeoError);
   });
+
+  it('state code is taken verbatim (no expansion, no codename table)', () => {
+    // Locked-in contract: callers pass the human-readable state name verbatim.
+    // Two-letter codes like 'MH' are valid input — they're just used as-is in the username
+    // (spaces→dashes, no ISO expansion, no codename mapping).
+    const ep = buildProxyEndpoint(
+      { country: 'IN', state: 'MH', city: 'Mumbai' },
+      'sticky-residential',
+      creds,
+      'sess1'
+    );
+    expect(ep.url.username).toBe('user-country-IN-state-MH-city-Mumbai-sessionid-sess1');
+  });
+
+  it('throws on hyphenated sessionid (regex contract is alphanumeric only)', () => {
+    // Locked-in contract: IPROYAL_USERNAME_REGEX requires sessionid to match [A-Za-z0-9]+.
+    // Hyphens (e.g. 'sess-1') are rejected — callers must strip/sanitize sessionids
+    // before passing them in. Do NOT relax the regex to accept hyphens.
+    expect(() =>
+      buildProxyEndpoint(
+        { country: 'US' },
+        'sticky-residential',
+        creds,
+        'sess-1' // hyphen in sessionid
+      )
+    ).toThrow(InvalidProxyGeoError);
+  });
 });

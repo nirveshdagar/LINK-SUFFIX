@@ -35,6 +35,13 @@ function buildUsername(geo: GeoTarget, sessionId?: string): string {
   return u;
 }
 
+/**
+ * Build an IP Royal proxy endpoint URL for the given geo target.
+ *
+ * @param creds  Proxy credentials. `creds.user` is reserved for future use
+ *               (e.g. per-user routing) and currently unused — only
+ *               `creds.pass` is wired into the URL.
+ */
 export function buildProxyEndpoint(
   geo: GeoTarget,
   mode: ProxyMode,
