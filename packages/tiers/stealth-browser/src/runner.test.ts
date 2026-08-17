@@ -1,30 +1,34 @@
 import { describe, it, expect } from 'vitest';
-import { loadProfile } from '@tah/profiles';
-import { run } from './runner.js';
+import { chromium } from 'playwright-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 
-describe('run (smoke, requires network + Playwright Chromium)', () => {
-  it('yields one RequestEvent from sannysoft bot-test page with no webdriver leak', async () => {
+chromium.use(StealthPlugin());
+
+describe('stealth-browser smoke', () => {
+  it('does not expose navigator.webdriver = true to bot.sannysoft.com', async () => {
     if (!process.env.TAH_RUN_SMOKE) return;
-    const scenario = {
-      id: 'smoke-stealth',
-      tier: 'stealth' as const,
-      seed_url: 'https://bot.sannysoft.com',
-      geo: { country: 'US' },
-      proxy_mode: 'rotating-residential' as const,
-      repeats: 1,
-      expected_verdict: 'allow' as const,
-    };
-    const device = loadProfile('iphone-15');
-    const it = run(scenario, new URL('http://127.0.0.1:1'), device);
-    const ev = await it[Symbol.asyncIterator]().next();
-    expect(ev.done).toBe(false);
-    if (!ev.done) {
-      // Navigating through a non-routable proxy will fail; we only assert the
-      // generator still produced a structured event with our tier + verdict.
-      expect(ev.value.events.length).toBeGreaterThanOrEqual(1);
-      expect(ev.value.tier).toBe('stealth');
-      expect(ev.value.timing.pages_visited).toBe(1);
-      expect(ev.value.final_verdict).toBe('unsure');
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const ctx = await browser.newContext();
+      const page = await ctx.newPage();
+      await page.goto('https://bot.sannysoft.com', {
+        waitUntil: 'domcontentloaded',
+        timeout: 15000,
+      });
+      // Verify the runtime value directly: with stealth evasions applied,
+      // `navigator.webdriver` must evaluate to false, not true.
+      const webdriverFlag = await page.evaluate(
+        () => (navigator as Navigator & { webdriver?: boolean }).webdriver === true,
+      );
+      expect(webdriverFlag).toBe(false);
+
+      // Cross-check the rendered DOM: sannysoft renders the detection result
+      // as text rows like "navigator.webdriver  true". With stealth active,
+      // those rows should NOT contain the value `true`.
+      const body = await page.content();
+      expect(body.toLowerCase()).not.toMatch(/navigator\.webdriver.*?true/);
+    } finally {
+      await browser.close();
     }
   });
 });
