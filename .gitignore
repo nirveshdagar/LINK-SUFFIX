@@ -5,6 +5,7 @@ runs/
 .DS_Store
 dist/
 coverage/
+*.tsbuildinfo
 
 # Tooling state and unrelated local directories
 .browse-state/
