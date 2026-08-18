@@ -4,26 +4,32 @@
 <meta charset="utf-8">
 <title>Traffic Armour Harness</title>
 <style>
-  body { background: #0e1116; color: #ddd; font: 13px/1.4 -apple-system, sans-serif; margin: 24px; }
-  h1 { font-size: 16px; margin: 0 0 8px; }
-  h2 { font-size: 14px; margin: 16px 0 8px; }
-  .header { display: flex; gap: 24px; align-items: baseline; padding-bottom: 8px; border-bottom: 1px solid #222; margin-bottom: 16px; }
-  .header .stat { color: #888; font-size: 12px; }
-  .header .stat strong { color: #ddd; }
-  .matrix { display: grid; grid-template-columns: 120px repeat(4, 1fr); gap: 1px; background: #222; margin-bottom: 24px; }
-  .matrix > div { background: #161b22; padding: 8px; }
-  .cell-allow { color: #4ec9b0; }
-  .cell-block { color: #f48771; }
-  .cell-challenge { color: #dcdcaa; }
-  .cell-unsure { color: #888; }
-  .city-table, .scen-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  .city-table th, .scen-table th, .city-table td, .scen-table td { padding: 4px 8px; border-bottom: 1px solid #222; text-align: left; }
-  .city-table th, .scen-table th { color: #888; font-weight: normal; font-size: 11px; text-transform: uppercase; }
-  details { background: #161b22; padding: 8px; margin-top: 8px; border: 1px solid #222; }
-  summary { cursor: pointer; color: #888; }
-  pre { background: #0a0d12; padding: 8px; overflow: auto; max-height: 240px; }
-  .col-bar { display: inline-block; background: #222; height: 6px; vertical-align: middle; }
-  .replay-link { color: #6cb6ff; text-decoration: none; }
+  body { background: #0e1116; color: #e6edf3; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 32px; }
+  h1 { font-size: 22px; margin: 0 0 12px; color: #f0f6fc; font-weight: 600; }
+  h2 { font-size: 16px; margin: 24px 0 8px; color: #f0f6fc; font-weight: 600; }
+  .header { display: flex; gap: 32px; align-items: baseline; padding: 16px 20px; background: #161b22; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 24px; }
+  .header .stat { color: #8b949e; font-size: 13px; }
+  .header .stat strong { color: #f0f6fc; font-weight: 600; font-size: 14px; margin-left: 4px; }
+  .matrix { display: grid; grid-template-columns: 140px repeat(4, 1fr); gap: 2px; background: #30363d; margin-bottom: 24px; border-radius: 6px; overflow: hidden; }
+  .matrix > div { background: #161b22; padding: 12px 16px; font-size: 14px; }
+  .matrix .header-cell { background: #21262d; font-weight: 600; color: #f0f6fc; }
+  .matrix .corner { background: #21262d; }
+  .cell-allow { color: #3fb950; }
+  .cell-block { color: #f85149; }
+  .cell-challenge { color: #d29922; }
+  .cell-unsure { color: #8b949e; }
+  .city-table, .scen-table { width: 100%; border-collapse: collapse; margin-top: 8px; background: #161b22; border-radius: 6px; overflow: hidden; }
+  .city-table th, .scen-table th, .city-table td, .scen-table td { padding: 8px 16px; border-bottom: 1px solid #30363d; text-align: left; font-size: 13px; }
+  .city-table tr:last-child td, .scen-table tr:last-child td { border-bottom: none; }
+  .city-table th, .scen-table th { background: #21262d; color: #f0f6fc; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .empty { color: #6e7681; font-style: italic; padding: 12px 16px; }
+  details { background: #161b22; padding: 12px 16px; margin-top: 8px; border: 1px solid #30363d; border-radius: 6px; }
+  summary { cursor: pointer; color: #c9d1d9; font-weight: 500; }
+  pre { background: #0a0d12; padding: 12px; overflow: auto; max-height: 240px; border-radius: 4px; font-size: 12px; color: #c9d1d9; }
+  .col-bar { display: inline-block; background: #30363d; height: 6px; vertical-align: middle; }
+  .replay-link { color: #58a6ff; text-decoration: none; }
+  .replay-link:hover { text-decoration: underline; }
+  #stream { min-height: 80px; max-height: 320px; }
 </style>
 </head>
 <body>
@@ -34,7 +40,18 @@
   <span class="stat">total requests: <strong id="totalReq">0</strong></span>
 </div>
 
-<div class="matrix" id="matrix"></div>
+<div id="empty-state" style="padding: 24px; border: 1px dashed #30363d; margin-bottom: 24px; color: #8b949e;">
+  Waiting for traffic. Total requests: <strong id="emptyCount">0</strong>.
+  The matrix below will populate as events arrive over SSE.
+</div>
+
+<div class="matrix" id="matrix">
+  <div></div><div>allow</div><div>challenge</div><div>block</div><div>unsure</div>
+  <div>trivial-http</div><div>0</div><div>0</div><div>0</div><div>0</div>
+  <div>headless</div><div>0</div><div>0</div><div>0</div><div>0</div>
+  <div>stealth</div><div>0</div><div>0</div><div>0</div><div>0</div>
+  <div>human</div><div>0</div><div>0</div><div>0</div><div>0</div>
+</div>
 
 <h2>Geo breakdown (top cities)</h2>
 <table class="city-table" id="cityTable">
@@ -72,10 +89,16 @@
     const m = document.getElementById('matrix');
     const tiers = ['trivial-http','headless','stealth','human'];
     const v = ['allow','challenge','block','unsure'];
+    const btv = state.byTierVerdict || {};
     m.innerHTML = '<div></div>' + v.map(x => `<div>${x}</div>`).join('') +
-      tiers.map(t => `<div>${t}</div>` + v.map(c => `<div class="cell-${c}">${state.byTierVerdict[t][c] ?? 0}</div>`).join('')).join('');
-    document.getElementById('totalReq').textContent = state.totalRequests;
+      tiers.map(t => {
+        const counters = btv[t] || {};
+        return `<div>${t}</div>` + v.map(c => `<div class="cell-${c}">${counters[c] ?? 0}</div>`).join('');
+      }).join('');
+    document.getElementById('totalReq').textContent = state.totalRequests || 0;
     document.getElementById('elapsed').textContent = fmtElapsed(state.elapsed_ms || 0);
+    document.getElementById('emptyCount').textContent = state.totalRequests || 0;
+    document.getElementById('empty-state').style.display = (state.totalRequests || 0) > 0 ? 'none' : 'block';
 
     // Geo breakdown: top 8 cities by total requests.
     const cities = Object.entries(state.byCity || {})
