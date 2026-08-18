@@ -17,14 +17,13 @@ import type { Scenario } from './types.js';
 // packages/orchestrator/src under vitest, so that path lands at packages/scenarios/
 // (nonexistent). The actual workspace schema lives at scenarios/schema.json at the
 // repo root, requiring one extra `../`. Same correction needed when running from dist/.
-const SCHEMA_PATH = path.resolve(__dirname, '../../../scenarios/schema.json');
+const here = path.dirname(fileURLToPath(import.meta.url));
+const SCHEMA_PATH = path.resolve(here, '../../../scenarios/schema.json');
 
 // scenarios/schema.json declares $schema: https://json-schema.org/draft-07/schema#,
 // but Ajv 8 only ships the http:// variant pre-registered. Register the meta-schema
 // under the https:// key so Ajv resolves the $schema reference.
 const DRAFT07_HTTPS = 'https://json-schema.org/draft-07/schema#';
-
-const here = path.dirname(fileURLToPath(import.meta.url));
 
 export async function loadScenario(filePath: string): Promise<Scenario> {
   const raw = await readFile(filePath, 'utf8');

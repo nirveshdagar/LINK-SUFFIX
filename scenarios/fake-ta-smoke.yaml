@@ -1,0 +1,8 @@
+id: fake-ta-smoke
+tier: trivial-http
+seed_url: http://127.0.0.1:8188/
+geo: { country: US, state: CA, city: LosAngeles }
+proxy_mode: rotating-residential
+repeats: 5
+concurrent: 2
+expected_verdict: challenge
