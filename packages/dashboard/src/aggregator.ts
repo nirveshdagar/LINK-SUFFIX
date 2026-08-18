@@ -20,7 +20,10 @@ export class Aggregator {
 
   ingest(e: RequestEvent): void {
     this.state.totalRequests++;
-    this.state.byTierVerdict[e.tier][e.final_verdict]++;
+    const tierCounters = this.state.byTierVerdict[e.tier];
+    if (tierCounters && (e.final_verdict === 'allow' || e.final_verdict === 'block' || e.final_verdict === 'challenge' || e.final_verdict === 'unsure' || e.final_verdict === 'error')) {
+      tierCounters[e.final_verdict]++;
+    }
     const city = `${e.geo_requested.country}-${e.geo_requested.state ?? ''}-${e.geo_requested.city ?? ''}`;
     const c = this.state.byCity[city] ?? { allow: 0, block: 0, challenge: 0, unsure: 0 };
     if (e.final_verdict === 'allow' || e.final_verdict === 'block' || e.final_verdict === 'challenge' || e.final_verdict === 'unsure') {

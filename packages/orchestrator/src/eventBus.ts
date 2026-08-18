@@ -10,6 +10,9 @@ export class EventBus {
   on<K extends keyof BusEvents>(event: K, cb: BusEvents[K]): void {
     this.ee.on(event, cb as (...args: unknown[]) => void);
   }
+  off<K extends keyof BusEvents>(event: K, cb: BusEvents[K]): void {
+    this.ee.off(event, cb as (...args: unknown[]) => void);
+  }
   emit<K extends keyof BusEvents>(event: K, ...args: Parameters<BusEvents[K]>): void {
     this.ee.emit(event, ...args);
   }

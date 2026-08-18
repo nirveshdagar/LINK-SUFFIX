@@ -19,10 +19,18 @@ function pick<T>(arr: T[]): T {
 }
 
 export async function fireOne(url: URL, proxyUrl: URL, ua: string, lang: string) {
-  const dispatcher = new ProxyAgent({ uri: proxyUrl.toString() });
+  // `proxyUrl.toString() === 'direct://'` disables the proxy (no dispatcher).
+  const dispatcher = proxyUrl.toString() === 'direct://'
+    ? undefined
+    : new ProxyAgent({ uri: proxyUrl.toString() });
   const start = Date.now();
   const res = await request(url, {
     dispatcher,
+    // 5s hard cap per request — without it, a misconfigured proxy URL
+    // (e.g. fake credentials pointing at a real proxy gateway) hangs
+    // indefinitely and the run never completes.
+    headersTimeout: 5_000,
+    bodyTimeout: 5_000,
     headers: {
       'User-Agent': ua,
       'Accept-Language': lang,

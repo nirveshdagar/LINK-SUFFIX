@@ -9,7 +9,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@fastify/static": "^7.0.4",
     "@tah/orchestrator": "*",
     "fastify": "^4.27.0"
   },

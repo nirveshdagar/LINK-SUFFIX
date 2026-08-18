@@ -1,8 +1,6 @@
 import Fastify from 'fastify';
-import fastifyStatic from '@fastify/static';
 import path from 'node:path';
 import fs from 'node:fs';
-import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { Aggregator } from './aggregator.js';
 import type { EventBus } from '@tah/orchestrator';
@@ -13,7 +11,7 @@ export async function startDashboard(opts: { port: number; bus: EventBus; runDir
   const app = Fastify({ logger: false });
   const agg = new Aggregator();
   const runStart = Date.now();
-  opts.bus.on('request', (e) => agg.ingest(e));
+  opts.bus.on('request', (e: Parameters<typeof agg.ingest>[0]) => agg.ingest(e));
 
   app.get('/events', async (req, reply) => {
     reply.raw.setHeader('Content-Type', 'text/event-stream');
@@ -25,7 +23,7 @@ export async function startDashboard(opts: { port: number; bus: EventBus; runDir
     const iv = setInterval(aggHandler, 1000);
     req.raw.on('close', () => {
       clearInterval(iv);
-      (opts.bus as unknown as EventEmitter).off('request', handler);
+      opts.bus.off('request', handler);
     });
   });
 
@@ -76,9 +74,18 @@ export async function startDashboard(opts: { port: number; bus: EventBus; runDir
     return { id: req.params.id, files };
   });
 
-  await app.register(fastifyStatic, {
-    root: path.join(__dirname, 'public'),
-    prefix: '/',
+  // Serve the SPA at `/` from the static directory.
+  const indexPath = path.join(__dirname, 'public', 'index.html');
+  app.get('/', async (_req, reply) => {
+    reply.type('text/html');
+    return fs.createReadStream(indexPath);
+  });
+  app.setNotFoundHandler(async (req, reply) => {
+    if (req.headers.accept?.includes('text/html')) {
+      reply.type('text/html');
+      return reply.send(fs.createReadStream(indexPath));
+    }
+    return reply.code(404).send('not found');
   });
   await app.listen({ host: '127.0.0.1', port: opts.port });
   return new URL(`http://127.0.0.1:${opts.port}/`);

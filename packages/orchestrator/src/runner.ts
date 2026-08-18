@@ -88,7 +88,9 @@ async function runOneRepeat(
   const sessionId = `${scenario.id}-${Date.now()}-${i}`;
   let proxyUrl: URL;
   try {
-    proxyUrl = buildProxyEndpoint(scenario.geo, scenario.proxy_mode, creds, sessionId).url;
+    proxyUrl = process.env.TAH_NO_PROXY === '1'
+      ? new URL('direct://')
+      : buildProxyEndpoint(scenario.geo, scenario.proxy_mode, creds, sessionId).url;
   } catch (e: any) {
     await skippedSink.write({ scenario_id: scenario.id, repeat: i, reason: e.message });
     return;
