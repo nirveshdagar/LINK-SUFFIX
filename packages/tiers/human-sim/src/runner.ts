@@ -33,7 +33,9 @@ export async function* run(
   resetTzCache();
   const browser: Browser = await chromium.launch({
     headless: false, // human tier runs headed; smoke is gated separately
-    args: [`--proxy-server=${proxyUrl.toString()}`],
+    // Chromium's --proxy-server accepts only host:port (no embedded creds).
+    // Credentials come through newContext({ proxy: { username, password } }).
+    args: [`--proxy-server=${proxyUrl.host}`],
   });
 
   let tzLookupFailed = false;
@@ -81,7 +83,11 @@ export async function* run(
       timezoneId: fp.fingerprint.timezone,
       extraHTTPHeaders: { 'Accept-Language': fp.fingerprint.languages.join(',') },
       hasTouch: device.touch,
-      proxy: { server: proxyUrl.toString() },
+      proxy: {
+        server: `${proxyUrl.protocol}//${proxyUrl.host}`,
+        username: decodeURIComponent(proxyUrl.username),
+        password: decodeURIComponent(proxyUrl.password),
+      },
     });
     const page = await ctx.newPage();
     page.on('response', async (res) => {

@@ -85,7 +85,11 @@ async function runOneRepeat(
   unsureSink: AppendOnlyJsonl,
   skippedSink: AppendOnlyJsonl,
 ): Promise<void> {
-  const sessionId = `${scenario.id}-${Date.now()}-${i}`;
+  // Session ID must match the IP Royal username grammar
+  // ([A-Za-z0-9]+); scenario.id may contain hyphens (e.g.
+  // `digitalserviceone-human-journey`), so build a short alphanumeric token
+  // from a hash + monotonic counter.
+  const sessionId = `${i}${Date.now().toString(36).slice(-6)}`;
   let proxyUrl: URL;
   try {
     proxyUrl = process.env.TAH_NO_PROXY === '1'

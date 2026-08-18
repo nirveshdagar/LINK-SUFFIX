@@ -1,5 +1,8 @@
-export const IPROYAL_USERNAME_REGEX =
-  /^user-country-[A-Z]{2}(-state-[A-Za-z]+)?(-city-[A-Za-z -]+)?(-sessionid-[A-Za-z0-9]+)?$/;
+// IP Royal auth: just your account username + password. Geo targeting is
+// configured per-session inside the proxy URL path via IP Royal's session
+// router (e.g. /country-US-state-CA-city-LosAngeles/), or via the account
+// dashboard. The username is the literal account name.
+export const IPROYAL_USERNAME_REGEX = /^[A-Za-z0-9_-]+$/;
 
 export interface Hostnames {
   'rotating-residential': string;
@@ -13,4 +16,4 @@ export const HOSTNAMES: Hostnames = {
   'sticky-residential': process.env.IPROYAL_HOSTNAME ?? DEFAULT_IPROYAL_HOSTNAME,
 };
 
-export const PROXY_PORT = 12321;
+export const PROXY_PORT = 51230;

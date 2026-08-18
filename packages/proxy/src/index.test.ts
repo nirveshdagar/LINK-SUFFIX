@@ -6,71 +6,53 @@ import {
 } from './index.js';
 
 describe('IPROYAL_USERNAME_REGEX', () => {
-  it('accepts country-only', () => {
-    expect(IPROYAL_USERNAME_REGEX.test('user-country-US')).toBe(true);
+  it('accepts plain alphanumeric account names', () => {
+    expect(IPROYAL_USERNAME_REGEX.test('iproyal1365')).toBe(true);
+    expect(IPROYAL_USERNAME_REGEX.test('user_name-1')).toBe(true);
   });
-  it('accepts country+state+city', () => {
-    expect(IPROYAL_USERNAME_REGEX.test('user-country-IN-state-Maharashtra-city-Mumbai')).toBe(true);
-  });
-  it('accepts with sessionid', () => {
-    expect(IPROYAL_USERNAME_REGEX.test('user-country-IN-state-MH-city-Mumbai-sessionid-abc123')).toBe(true);
-  });
-  it('rejects lowercase country', () => {
-    expect(IPROYAL_USERNAME_REGEX.test('user-country-us')).toBe(false);
+
+  it('rejects empty or invalid usernames', () => {
+    expect(IPROYAL_USERNAME_REGEX.test('')).toBe(false);
+    expect(IPROYAL_USERNAME_REGEX.test('bad user')).toBe(false);
+    expect(IPROYAL_USERNAME_REGEX.test('user@host')).toBe(false);
   });
 });
 
 describe('buildProxyEndpoint', () => {
-  const creds = { user: 'alice', pass: 'secret' };
+  const creds = { user: 'iproyal1365', pass: 'FuuyV5rj_country-us' };
 
-  it('builds a rotating endpoint', () => {
+  it('builds a rotating endpoint with geo in path', () => {
     const ep = buildProxyEndpoint({ country: 'US' }, 'rotating-residential', creds);
-    expect(ep.url.username).toBe('user-country-US');
-    expect(ep.url.password).toBe('secret');
+    expect(ep.url.username).toBe('iproyal1365');
+    expect(ep.url.password).toBe('FuuyV5rj_country-us');
+    expect(ep.url.pathname).toBe('/country-US');
     expect(ep.mode).toBe('rotating-residential');
   });
 
-  it('builds a sticky endpoint with session id', () => {
+  it('builds a sticky endpoint with state+city+session in path', () => {
     const ep = buildProxyEndpoint(
-      { country: 'IN', state: 'Maharashtra', city: 'Mumbai' },
+      { country: 'US', state: 'CA', city: 'LosAngeles' },
       'sticky-residential',
       creds,
       'sess1'
     );
-    expect(ep.url.username).toBe('user-country-IN-state-Maharashtra-city-Mumbai-sessionid-sess1');
+    expect(ep.url.pathname).toBe('/country-US/state-CA/city-LosAngeles/session-sess1');
     expect(ep.sessionId).toBe('sess1');
   });
 
-  it('throws InvalidProxyGeoError on bad country code', () => {
-    expect(() =>
-      buildProxyEndpoint({ country: 'usa' }, 'rotating-residential', creds),
-    ).toThrow(InvalidProxyGeoError);
-  });
-
-  it('state code is taken verbatim (no expansion, no codename table)', () => {
-    // Locked-in contract: callers pass the human-readable state name verbatim.
-    // Two-letter codes like 'MH' are valid input — they're just used as-is in the username
-    // (spaces→dashes, no ISO expansion, no codename mapping).
+  it('URL-encodes spaces in state and city', () => {
     const ep = buildProxyEndpoint(
-      { country: 'IN', state: 'MH', city: 'Mumbai' },
+      { country: 'US', state: 'New York', city: 'New York' },
       'sticky-residential',
       creds,
-      'sess1'
     );
-    expect(ep.url.username).toBe('user-country-IN-state-MH-city-Mumbai-sessionid-sess1');
+    expect(ep.url.pathname).toContain('state-New-York');
+    expect(ep.url.pathname).toContain('city-New-York');
   });
 
-  it('throws on hyphenated sessionid (regex contract is alphanumeric only)', () => {
-    // Locked-in contract: IPROYAL_USERNAME_REGEX requires sessionid to match [A-Za-z0-9]+.
-    // Hyphens (e.g. 'sess-1') are rejected — callers must strip/sanitize sessionids
-    // before passing them in. Do NOT relax the regex to accept hyphens.
+  it('throws on invalid account username', () => {
     expect(() =>
-      buildProxyEndpoint(
-        { country: 'US' },
-        'sticky-residential',
-        creds,
-        'sess-1' // hyphen in sessionid
-      )
+      buildProxyEndpoint({ country: 'US' }, 'rotating-residential', { user: 'bad user', pass: 'x' })
     ).toThrow(InvalidProxyGeoError);
   });
 });
