@@ -19,10 +19,22 @@ function pick<T>(arr: T[]): T {
 }
 
 export async function fireOne(url: URL, proxyUrl: URL, ua: string, lang: string) {
-  // `proxyUrl.toString() === 'direct://'` disables the proxy (no dispatcher).
-  const dispatcher = proxyUrl.toString() === 'direct://'
-    ? undefined
-    : new ProxyAgent({ uri: proxyUrl.toString() });
+  // undici's ProxyAgent accepts only host:port in the URI. Geo targeting
+  // is in the URL path; the proxy gateway reads the path for routing.
+  // For undici we extract host:port + userinfo separately.
+  let dispatcher;
+  if (proxyUrl.toString() === 'direct://') {
+    dispatcher = undefined;
+  } else {
+    // undici ProxyAgent parses credentials from the URI; the `auth` field
+    // is not honored for proxy tunneling. Geo targeting via URL path is
+    // not supported by undici (it throws 'invalid url'), so we strip the
+    // path. trivial-http shares one proxy per run; per-session geo
+    // targeting is a browser-tier feature.
+    const authUrl = new URL(proxyUrl.toString());
+    authUrl.pathname = '/';
+    dispatcher = new ProxyAgent({ uri: authUrl.toString() });
+  }
   const start = Date.now();
   const res = await request(url, {
     dispatcher,

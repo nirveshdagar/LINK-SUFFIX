@@ -1,0 +1,17 @@
+id: digitalserviceone-trivial-burst
+tier: trivial-http
+seed_url: https://digitalserviceone.com/
+geo:
+  country: US
+  state: CA
+  city: LosAngeles
+proxy_mode: rotating-residential
+repeats: 20
+concurrent: 5
+expected_verdict: challenge
+verdict_detection:
+  challenge_signatures: [cloudflare, hcaptcha, datadome, perimeterx, akamai, generic]
+  challenge_html: true
+  http_status: true
+  header_signals: true
+  cookies: true
