@@ -1,0 +1,25 @@
+id: digitalserviceone-human-real
+tier: human
+seed_url: https://digitalserviceone.com/
+device_pool:
+  - iphone-15-safari
+  - android-pixel-chrome
+  - desktop-windows-chrome
+  - iphone-15-pro-max-safari
+geo:
+  country: US
+  state: CA
+  city: LosAngeles
+proxy_mode: sticky-residential
+repeats: 4
+expected_verdict: allow
+session:
+  pages: {min: 5, max: 9}
+  internal_link_probability: 0.85
+verdict_detection:
+  challenge_signatures: [cloudflare, hcaptcha, datadome, perimeterx, akamai, generic]
+  challenge_html: true
+  http_status: true
+  header_signals: true
+  cookies: true
+  timing: false

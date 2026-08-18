@@ -1,0 +1,17 @@
+id: digitalserviceone-stealth-probe
+tier: stealth
+seed_url: https://digitalserviceone.com/
+device_pool: [desktop-windows-chrome]
+geo:
+  country: US
+  state: CA
+  city: LosAngeles
+proxy_mode: sticky-residential
+repeats: 3
+expected_verdict: challenge
+verdict_detection:
+  challenge_signatures: [cloudflare, hcaptcha, datadome, perimeterx, akamai, generic]
+  challenge_html: true
+  http_status: true
+  header_signals: true
+  cookies: true

@@ -118,7 +118,16 @@ export async function* run(
 
     visitCounts.set(current.toString(), (visitCounts.get(current.toString()) ?? 0) + 1);
     pages.push(current.toString());
-    await page.goto(current.toString(), { waitUntil: 'domcontentloaded' });
+    // Cloudflare stalls the page in 'loading' state for synthetic fingerprints.
+    // We use 'commit' (response headers landed) with a short timeout, then
+    // continue regardless — TA verdict comes from response status + headers
+    // + body snippet anyway.
+    try {
+      await page.goto(current.toString(), { waitUntil: 'commit', timeout: 8000 });
+    } catch {
+      // Connection stalled — proceed anyway; the response handler may
+      // still have captured the initial headers before the stall.
+    }
     await humanScroll(page);
     await page.waitForTimeout(logNormalTimeMs() / 4);
     mouseMoves++;
