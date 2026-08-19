@@ -16,6 +16,7 @@
     "@tah/dashboard": "*",
     "@tah/headless-browser": "*",
     "@tah/human-sim": "*",
+    "@tah/mitm": "*",
     "@tah/profiles": "*",
     "@tah/proxy": "*",
     "@tah/stealth-browser": "*",

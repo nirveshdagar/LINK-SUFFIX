@@ -31,6 +31,7 @@ export async function runScenario(opts: {
   bus: EventBus;
   creds: { user: string; pass: string };
   parallel?: boolean;
+  mitmUrl?: string;   // when present, tiers route through mitm instead of upstream proxy
 }): Promise<void> {
   const scenario = await loadScenario(opts.scenarioFile);
   const sigNames = (scenario.verdict_detection?.challenge_signatures ?? [
@@ -63,12 +64,12 @@ export async function runScenario(opts: {
     // JSONL sink; the sink serialises writes so concurrency is safe.
     await Promise.all(
       Array.from({ length: scenario.repeats }, (_, i) =>
-        runOneRepeat(i, scenario, opts.creds, tierFn, profile, opts.bus, sink, unsureSink, skippedSink),
+        runOneRepeat(i, scenario, opts.creds, tierFn, profile, opts.bus, sink, unsureSink, skippedSink, opts.mitmUrl),
       ),
     );
   } else {
     for (let i = 0; i < scenario.repeats; i++) {
-      await runOneRepeat(i, scenario, opts.creds, tierFn, profile, opts.bus, sink, unsureSink, skippedSink);
+      await runOneRepeat(i, scenario, opts.creds, tierFn, profile, opts.bus, sink, unsureSink, skippedSink, opts.mitmUrl);
     }
   }
   await sink.close();
@@ -84,6 +85,7 @@ async function runOneRepeat(
   sink: JsonlSink,
   unsureSink: AppendOnlyJsonl,
   skippedSink: AppendOnlyJsonl,
+  mitmUrl: string | undefined,
 ): Promise<void> {
   // Session ID must match the IP Royal username grammar
   // ([A-Za-z0-9]+); scenario.id may contain hyphens (e.g.
@@ -92,9 +94,16 @@ async function runOneRepeat(
   const sessionId = `${i}${Date.now().toString(36).slice(-6)}`;
   let proxyUrl: URL;
   try {
-    proxyUrl = process.env.TAH_NO_PROXY === '1'
-      ? new URL('direct://')
-      : buildProxyEndpoint(scenario.geo, scenario.proxy_mode, creds, sessionId).url;
+    if (process.env.TAH_NO_PROXY === '1') {
+      proxyUrl = new URL('direct://');
+    } else if (mitmUrl) {
+      // Route through mitmproxy sidecar; mitm itself dials the upstream.
+      // Credentials don't need to live in the per-request proxy URL — mitm
+      // is already running with `--upstream-auth` or as a transparent proxy.
+      proxyUrl = new URL(mitmUrl);
+    } else {
+      proxyUrl = buildProxyEndpoint(scenario.geo, scenario.proxy_mode, creds, sessionId).url;
+    }
   } catch (e: any) {
     await skippedSink.write({ scenario_id: scenario.id, repeat: i, reason: e.message });
     return;

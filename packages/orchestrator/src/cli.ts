@@ -6,6 +6,8 @@ import fs from 'node:fs';
 import { EventBus } from './eventBus.js';
 import { runScenario } from './runner.js';
 import { startDashboard } from '@tah/dashboard';
+import { startMitm } from '@tah/mitm';
+import { readFileSync, existsSync } from 'node:fs';
 
 async function main(): Promise<void> {
   const program = new Command();
@@ -16,6 +18,8 @@ async function main(): Promise<void> {
     .option('--parallel', 'run repeats concurrently', false)
     .option('--dashboard-port <port>', 'dashboard port', '7474')
     .option('--no-dashboard', 'disable dashboard')
+    .option('--no-mitm', 'disable mitmproxy JA3 capture')
+    .option('--mitm-port <port>', 'mitmproxy listen port', '8188')
     .parse(process.argv);
 
   const opts = program.opts<{
@@ -23,6 +27,8 @@ async function main(): Promise<void> {
     parallel?: boolean;
     dashboardPort: string;
     dashboard: boolean;
+    mitm: boolean;
+    mitmPort: string;
   }>();
 
   const runId = new Date().toISOString().replace(/[:.]/g, '-');
@@ -47,15 +53,69 @@ async function main(): Promise<void> {
     console.log(`dashboard at ${url}`);
   }
 
+  // Start mitmproxy sidecar so every request flows through it (browser tiers
+  // via Playwright proxy.server, trivial-http via undici dispatcher). mitmproxy
+  // itself proxies upstream to IP Royal. JA3/JA4 are written to recorderPath
+  // and merged into ta_signal at the end of the run.
+  let mitmHandle: Awaited<ReturnType<typeof startMitm>> | undefined;
+  if (opts.mitm) {
+    try {
+      // Upstream URL is the IP Royal gateway — mitm forwards all browser
+      // and trivial-http traffic to it.
+      const upstream = `http://${encodeURIComponent(creds.user)}:${encodeURIComponent(creds.pass)}@geo.iproyal.com:51230`;
+      mitmHandle = await startMitm({ upstreamUrl: upstream, listenPort: Number(opts.mitmPort) });
+      console.log(`mitm at ${mitmHandle.listenUrl} (recorder: ${mitmHandle.recorderPath})`);
+    } catch (e) {
+      console.error(`mitm start failed: ${(e as Error).message}`);
+      console.error('continuing without mitm — JA3 will not be captured');
+    }
+  }
+
   await runScenario({
     scenarioFile: opts.scenario,
     runDir,
     bus,
     creds,
     parallel: opts.parallel,
+    mitmUrl: mitmHandle?.listenUrl,
   });
 
-  // Post-run: invoke verify_geo.py (writes mismatches.csv + geo_resolved.jsonl)
+  // Stop mitmproxy and merge JA3/JA4 records into scenarios.jsonl.
+  if (mitmHandle) {
+    await mitmHandle.shutdown();
+    try {
+      const records = readFileSync(mitmHandle.recorderPath, 'utf8')
+        .split('\n').filter(Boolean).map((l) => JSON.parse(l));
+      // Merge: each JA3 record's `url` key matches a RequestEvent's `url`,
+      // so we look up by URL and append ja3/ja4 to ta_signal.
+      const eventsPath = path.join(runDir, 'scenarios.jsonl');
+      if (existsSync(eventsPath)) {
+        const events = readFileSync(eventsPath, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+        const byUrl = new Map<string, any[]>();
+        for (const rec of records) {
+          const u = rec.url ?? rec.host;
+          if (!byUrl.has(u)) byUrl.set(u, []);
+          byUrl.get(u)!.push(rec);
+        }
+        let merged = 0;
+        for (const e of events) {
+          const ta = (e.ta_signal ?? (e.ta_signal = {}));
+          const hits = byUrl.get(e.url) ?? [];
+          if (hits.length) {
+            const h = hits[merged++ % hits.length];
+            ta.ja3 = h.ja3;
+            ta.ja4 = h.ja4;
+            ta.tls_version = h.tls_version;
+          }
+        }
+        fs.writeFileSync(eventsPath, events.map((e: any) => JSON.stringify(e)).join('\n') + '\n');
+      }
+    } catch (e) {
+      console.error(`JA3 merge failed: ${(e as Error).message}`);
+    }
+  }
+
+// Post-run: invoke verify_geo.py (writes mismatches.csv + geo_resolved.jsonl)
   // then check_pool_exhaustion.py (exits 2 if any city has 3+ consecutive
   // mismatches). These are best-effort: missing MAXMIND_DB_PATH or absent
   // python are non-fatal — we still emit summary.json below.
