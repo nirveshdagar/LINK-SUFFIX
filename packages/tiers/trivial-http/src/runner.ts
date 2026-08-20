@@ -3,99 +3,94 @@ import { readFileSync, existsSync } from 'node:fs';
 import type { Scenario } from '@tah/orchestrator';
 import type { RequestEvent } from '@tah/orchestrator';
 
-// If mitmproxy is in the chain (set via env), trust its CA cert so undici
-// doesn't reject the upstream TLS with 'unable to verify the first certificate'.
+// When mitmproxy is in the chain, trust its CA in undici's ProxyAgent.
 const MITM_CA_PATH = process.env.TAH_MITM_CA_PATH;
 const MITM_CA = MITM_CA_PATH && existsSync(MITM_CA_PATH)
   ? readFileSync(MITM_CA_PATH)
   : undefined;
 
-const UA_POOL = [
-  'curl/8.4.0',
-  'python-requests/2.32.0',
-  'Go-http-client/2.0',
-  'Wget/1.21.4',
-  '',
-];
+export const SKIP_REQUEST = Symbol.for('tah.skip-request');
 
-const LANG_POOL = ['', 'en', 'en-US,en;q=0.9', '*']; // some are weird on purpose
-
-function pick<T>(arr: T[]): T {
-  const i = Math.floor(Math.random() * arr.length);
-  // length is checked by caller convention; arr always non-empty in tests
-  return arr[i]!;
+export async function* run(
+  scenario: Scenario,
+  proxyUrl: URL,
+  _third: unknown,
+): AsyncGenerator<RequestEvent> {
+  void _third;
+  const target = scenario.repeats ?? 1;
+  const concurrency = scenario.concurrent ?? 1;
+  for (let i = 0; i < target; i++) {
+    const results = await Promise.all(
+      Array.from({ length: concurrency }, () => fireOne(new URL(scenario.seed_url), proxyUrl, scenario)),
+    );
+    for (const evt of results) {
+      if (evt === SKIP_REQUEST) continue;
+      yield evt;
+    }
+  }
 }
 
-export async function fireOne(url: URL, proxyUrl: URL, ua: string, lang: string) {
-  // undici's ProxyAgent accepts only host:port in the URI. Geo targeting
-  // is in the URL path; the proxy gateway reads the path for routing.
-  // For undici we extract host:port + userinfo separately.
+export async function fireOne(url: URL, proxyUrl: URL, scenario: Scenario): Promise<RequestEvent | typeof SKIP_REQUEST> {
   let dispatcher;
   if (proxyUrl.toString() === 'direct://') {
     dispatcher = undefined;
   } else {
-    // undici ProxyAgent parses credentials from the URI; the `auth` field
-    // is not honored for proxy tunneling. Geo targeting via URL path is
-    // not supported by undici (it throws 'invalid url'), so we strip the
-    // path. trivial-http shares one proxy per run; per-session geo
-    // targeting is a browser-tier feature.
     const authUrl = new URL(proxyUrl.toString());
     authUrl.pathname = '/';
     dispatcher = new ProxyAgent({
       uri: authUrl.toString(),
-      // Trust mitmproxy's CA when present (for JA3 capture pipeline).
-      ...(MITM_CA ? { connect: { ca: MITM_CA } } : {}),
+      requestTls: MITM_CA ? { ca: MITM_CA } : undefined,
     });
   }
   const start = Date.now();
-  const res = await request(url, {
-    dispatcher,
-    ...(MITM_CA ? { connect: { ca: MITM_CA } } : {}),
-    // 5s hard cap per request — without it, a misconfigured proxy URL
-    // (e.g. fake credentials pointing at a real proxy gateway) hangs
-    // indefinitely and the run never completes.
-    headersTimeout: 5_000,
-    bodyTimeout: 5_000,
-    headers: {
-      'User-Agent': ua,
-      'Accept-Language': lang,
-      'Accept': '*/*',
-    },
-  });
-  const body = await res.body.text();
-  return {
-    url: url.toString(),
-    method: 'GET',
-    status: res.statusCode,
-    time_ms: Date.now() - start,
-    headers: res.headers as Record<string, string>,
-    ta_signal: {},
-    body_snippet: body.slice(0, 65536),
-    body,
-  };
-}
-
-export async function* run(scenario: Scenario, proxyUrl: URL, concurrency = scenario.concurrent ?? 16): AsyncIterable<RequestEvent> {
-  const seed = new URL(scenario.seed_url);
-  for (let i = 0; i < scenario.repeats; i++) {
-    const ua = pick(UA_POOL);
-    const lang = pick(LANG_POOL);
-    const started = new Date().toISOString();
-    const r = await fireOne(seed, proxyUrl, ua, lang);
-    yield {
+  try {
+    const res = await request(url, {
+      dispatcher,
+      headersTimeout: 5_000,
+      bodyTimeout: 5_000,
+      headers: {
+        'User-Agent': 'tah-trivial-http/1.0',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': '*/*',
+      },
+    });
+    const body = await res.body.text();
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(res.headers)) {
+      if (Array.isArray(v)) headers[k] = v.join(', ');
+      else if (v != null) headers[k] = String(v);
+    }
+    return {
       scenario_id: scenario.id,
-      repeat_index: i,
-      tier: 'trivial-http',
-      geo_requested: scenario.geo,
+      repeat_index: 0,
+      tier: 'trivial-http' as const,
+      geo_requested: { country: 'US' },
       proxy_mode: scenario.proxy_mode,
-      started_at: started,
+      started_at: new Date(start).toISOString(),
       events: [{
-        url: r.url, method: r.method, status: r.status, time_ms: r.time_ms,
-        headers: r.headers, ta_signal: r.ta_signal,
-        body_snippet: r.body_snippet,
+        url: url.toString(),
+        method: 'GET' as const,
+        status: res.statusCode,
+        time_ms: Date.now() - start,
+        headers,
+        ta_signal: {},
+        body_snippet: body.slice(0, 65_536),
       }],
-      final_verdict: 'unsure',  // tier does not classify; orchestrator does
-      timing: { total_ms: r.time_ms },
+      final_verdict: 'unsure' as const,
+      timing: { total_ms: Date.now() - start },
+    };
+  } catch (err: any) {
+    return {
+      scenario_id: scenario.id,
+      repeat_index: 0,
+      tier: 'trivial-http' as const,
+      geo_requested: { country: 'US' },
+      proxy_mode: scenario.proxy_mode,
+      started_at: new Date(start).toISOString(),
+      events: [],
+      final_verdict: 'error' as const,
+      timing: { total_ms: Date.now() - start },
+      error: err.message ?? String(err),
     };
   }
 }
