@@ -32,6 +32,7 @@ export async function runScenario(opts: {
   creds: { user: string; pass: string };
   parallel?: boolean;
   mitmUrl?: string;   // when present, tiers route through mitm instead of upstream proxy
+  mitmCaPath?: string; // mitmproxy CA cert path; tiers set this in env or pass to connector
 }): Promise<void> {
   const scenario = await loadScenario(opts.scenarioFile);
   const sigNames = (scenario.verdict_detection?.challenge_signatures ?? [

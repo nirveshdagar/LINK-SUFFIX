@@ -1,56 +1,44 @@
-# mitmproxy addon: capture JA3 / JA4 / TLS ClientHello per request.
-# Writes one JSONL line per request to TAH_JA3_RECORDER env var path.
+# mitmproxy addon: capture TLS ClientHello per TLS connection.
+# Writes one JSONL line per ClientHello to TAH_JA3_RECORDER env var path.
 
+import hashlib
 import json
 import os
 import sys
 
+from mitmproxy.tls import ClientHelloData
+
 RECORDER_PATH = os.environ.get('TAH_JA3_RECORDER', '')
 
-def ja3_from_client_hello(client_hello):
-    """Build a JA3 string from a TLS ClientHello message."""
-    try:
-        # mitmproxy's tls.ClientHello exposes extension types as named attrs
-        cipher_suites = [cs for cs in (client_hello.cipher_suites or [])]
-        extensions = []
-        elliptic_curves = []
-        ec_point_formats = []
-        for ext in (client_hello.extensions or []]:
-            if hasattr(ext, 'type'):
-                extensions.append(ext.type)
-            if hasattr(ext, 'elliptic_curves'):
-                elliptic_curves = list(ext.elliptic_curves or [])
-            if hasattr(ext, 'ec_point_formats'):
-                ec_point_formats = list(ext.ec_point_formats or [])
-        ja3 = ','.join(str(x) for x in [client_hello.cipher_suites,
-                                       extensions,
-                                       elliptic_curves,
-                                       ec_point_formats,
-                                       client_hello.signature_algorithms or []])
-        return ja3, ','.join(str(c) for c in cipher_suites), extensions
-    except Exception:
-        return None, None, None
 
-def request(flow):
+def tls_client_hello(data: ClientHelloData):
+    """mitmproxy fires this for every TLS ClientHello observed."""
     if not RECORDER_PATH:
         return
     try:
-        ch = flow.client_conn.tls_client_hello if hasattr(flow.client_conn, 'tls_client_hello') else None
-        ja3_str, ciphers, exts = (None, [], [])
-        if ch is not None:
-            ja3_str, ciphers, exts = ja3_from_client_hello(ch)
+        msg = data.message
+        cipher_suites = ','.join(str(c) for c in msg.cipher_suites)
+        extensions = ','.join(str(e.type) for e in msg.extensions)
+        ec_curves = ''
+        for ext in msg.extensions:
+            if hasattr(ext, 'elliptic_curves') and ext.elliptic_curves is not None:
+                ec_curves = ','.join(str(c) for c in ext.elliptic_curves)
+                break
+        ja3_raw = f'{cipher_suites},{extensions},{ec_curves}'
+        ja3_hash = hashlib.md5(ja3_raw.encode('utf-8')).hexdigest()
         record = {
-            'url': flow.request.pretty_url,
-            'ja3': ja3_str,
-            'ja3_hash': __import__('hashlib').md5(ja3_str.encode()).hexdigest() if ja3_str else None,
-            'ja4': getattr(ch, 'ja4', None) if ch else None,
-            'tls_version': flow.client_conn.tls_version if hasattr(flow.client_conn, 'tls_version') else None,
-            'cipher_suites': ciphers or [],
-            'extensions': exts or [],
+            'timestamp': data.timestamp,
+            'client_address': str(data.context.client.peername) if data.context.client.peername else None,
+            'tls_version': msg.version,
+            'cipher_suites': cipher_suites,
+            'extensions': extensions,
+            'ec_curves': ec_curves,
+            'ja3': ja3_hash,
         }
-        with open(RECORDER_PATH, 'a') as f:
+        with open(RECORDER_PATH, 'a', encoding='utf-8') as f:
             f.write(json.dumps(record) + '\n')
     except Exception as e:
         sys.stderr.write(f'ja3_addon error: {e}\n')
 
-addons = [request]
+
+addons = [tls_client_hello]

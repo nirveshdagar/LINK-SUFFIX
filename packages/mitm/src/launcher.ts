@@ -35,21 +35,39 @@ export async function startMitm(opts: MitmOptions): Promise<MitmHandle> {
   const recorderPath = path.join(tmp, 'ja3.jsonl');
   const caCertPath = path.join(tmp, 'mitmproxy-ca-cert.pem');
 
-  // Pass recorder path to the addon via env var (addon reads it).
-  const proc = spawn('mitmdump', [
+  // mitmproxy's `--mode upstream:` rejects user:pass@ — extract host:port
+  // and pass credentials via `--upstream-auth` separately.
+  const upstream = new URL(opts.upstreamUrl);
+  const upstreamAuth = upstream.username
+    ? `${decodeURIComponent(upstream.username)}:${decodeURIComponent(upstream.password)}`
+    : null;
+  const upstreamHostPort = `${upstream.protocol}//${upstream.host}`;
+
+  const args = [
     '-s', ADDON_PATH,
-    '--mode', `upstream:${opts.upstreamUrl}`,
+    '--mode', `upstream:${upstreamHostPort}`,
     '--listen-port', String(opts.listenPort),
     '--set', 'block_global=false',
     '--set', 'ssl_insecure=true',
     '--set', `confdir=${tmp}`,
-  ], {
+  ];
+  if (upstreamAuth) args.push('--upstream-auth', upstreamAuth);
+
+  // Pass recorder path to the addon via env var (addon reads it).
+  const proc = spawn('mitmdump', args, {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, TAH_JA3_RECORDER: recorderPath },
   });
 
-  proc.stdout.on('data', () => {});
-  proc.stderr.on('data', () => {});
+  proc.stdout.on('data', (chunk: Buffer) => {
+    const s = chunk.toString('utf8');
+    if (s.includes('listening') || s.includes('error') || s.includes('Error')) {
+      process.stderr.write(`[mitm] ${s}`);
+    }
+  });
+  proc.stderr.on('data', (chunk: Buffer) => {
+    process.stderr.write(`[mitm] ${chunk.toString('utf8')}`);
+  });
 
   await waitForPort('127.0.0.1', opts.listenPort, 30_000);
   await waitForCert(caCertPath, 30_000);

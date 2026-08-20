@@ -6,6 +6,7 @@ runs/
 dist/
 coverage/
 *.tsbuildinfo
+__pycache__/
 
 # Tooling state and unrelated local directories
 .browse-state/

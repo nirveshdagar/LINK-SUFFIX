@@ -65,6 +65,8 @@ async function main(): Promise<void> {
       const upstream = `http://${encodeURIComponent(creds.user)}:${encodeURIComponent(creds.pass)}@geo.iproyal.com:51230`;
       mitmHandle = await startMitm({ upstreamUrl: upstream, listenPort: Number(opts.mitmPort) });
       console.log(`mitm at ${mitmHandle.listenUrl} (recorder: ${mitmHandle.recorderPath})`);
+      // Browser tiers use this to trust mitmproxy's CA cert.
+      process.env.TAH_MITM_CA_PATH = mitmHandle.caCertPath;
     } catch (e) {
       console.error(`mitm start failed: ${(e as Error).message}`);
       console.error('continuing without mitm — JA3 will not be captured');
@@ -78,6 +80,7 @@ async function main(): Promise<void> {
     creds,
     parallel: opts.parallel,
     mitmUrl: mitmHandle?.listenUrl,
+    mitmCaPath: mitmHandle?.caCertPath,
   });
 
   // Stop mitmproxy and merge JA3/JA4 records into scenarios.jsonl.

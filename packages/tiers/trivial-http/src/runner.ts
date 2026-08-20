@@ -1,6 +1,14 @@
 import { ProxyAgent, request } from 'undici';
+import { readFileSync, existsSync } from 'node:fs';
 import type { Scenario } from '@tah/orchestrator';
 import type { RequestEvent } from '@tah/orchestrator';
+
+// If mitmproxy is in the chain (set via env), trust its CA cert so undici
+// doesn't reject the upstream TLS with 'unable to verify the first certificate'.
+const MITM_CA_PATH = process.env.TAH_MITM_CA_PATH;
+const MITM_CA = MITM_CA_PATH && existsSync(MITM_CA_PATH)
+  ? readFileSync(MITM_CA_PATH)
+  : undefined;
 
 const UA_POOL = [
   'curl/8.4.0',
@@ -33,11 +41,16 @@ export async function fireOne(url: URL, proxyUrl: URL, ua: string, lang: string)
     // targeting is a browser-tier feature.
     const authUrl = new URL(proxyUrl.toString());
     authUrl.pathname = '/';
-    dispatcher = new ProxyAgent({ uri: authUrl.toString() });
+    dispatcher = new ProxyAgent({
+      uri: authUrl.toString(),
+      // Trust mitmproxy's CA when present (for JA3 capture pipeline).
+      ...(MITM_CA ? { connect: { ca: MITM_CA } } : {}),
+    });
   }
   const start = Date.now();
   const res = await request(url, {
     dispatcher,
+    ...(MITM_CA ? { connect: { ca: MITM_CA } } : {}),
     // 5s hard cap per request — without it, a misconfigured proxy URL
     // (e.g. fake credentials pointing at a real proxy gateway) hangs
     // indefinitely and the run never completes.
