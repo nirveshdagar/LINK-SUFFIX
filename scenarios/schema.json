@@ -51,7 +51,7 @@
         "challenge_html": { "type": "boolean" },
         "challenge_signatures": {
           "type": "array",
-          "items": { "enum": ["cloudflare", "hcaptcha", "datadome", "perimeterx", "akamai", "generic"] }
+          "items": { "enum": ["cloudflare", "hcaptcha", "datadome", "perimeterx", "akamai", "kasada", "shape", "fingerprintjs", "generic"] }
         },
         "header_signals": { "type": "boolean" },
         "cookies": { "type": "boolean" },

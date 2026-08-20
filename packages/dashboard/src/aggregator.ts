@@ -22,12 +22,12 @@ export class Aggregator {
     this.state.totalRequests++;
     const tierCounters = this.state.byTierVerdict[e.tier];
     if (tierCounters && (e.final_verdict === 'allow' || e.final_verdict === 'block' || e.final_verdict === 'challenge' || e.final_verdict === 'unsure' || e.final_verdict === 'error')) {
-      tierCounters[e.final_verdict]++;
+      tierCounters[e.final_verdict as keyof typeof tierCounters]!++;
     }
     const city = `${e.geo_requested.country}-${e.geo_requested.state ?? ''}-${e.geo_requested.city ?? ''}`;
     const c = this.state.byCity[city] ?? { allow: 0, block: 0, challenge: 0, unsure: 0 };
     if (e.final_verdict === 'allow' || e.final_verdict === 'block' || e.final_verdict === 'challenge' || e.final_verdict === 'unsure') {
-      c[e.final_verdict]++;
+      (c as Record<string, number>)[e.final_verdict]!++;
     }
     this.state.byCity[city] = c;
     const k = e.scenario_id;

@@ -86,8 +86,11 @@ export async function startMitm(opts: MitmOptions): Promise<MitmHandle> {
     recorderPath,
     caCertPath,
     shutdown: async () => {
-      proc.kill('SIGTERM');
-      await new Promise<void>((r) => proc.on('exit', () => r()));
+      // Register exit listener BEFORE killing so a fast exit between
+      // the call and listener attachment doesn't hang the caller.
+      const exited = new Promise<void>((r) => proc.once('exit', () => r()));
+      try { proc.kill('SIGTERM'); } catch { /* already dead */ }
+      await exited;
     },
   };
 }

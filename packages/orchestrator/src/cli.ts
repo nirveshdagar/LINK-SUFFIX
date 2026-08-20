@@ -2,12 +2,11 @@
 import { Command } from 'commander';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import fs from 'node:fs';
+import fs, { readFileSync, existsSync } from 'node:fs';
 import { EventBus } from './eventBus.js';
 import { runScenario } from './runner.js';
 import { startDashboard } from '@tah/dashboard';
 import { startMitm } from '@tah/mitm';
-import { readFileSync, existsSync } from 'node:fs';
 
 async function main(): Promise<void> {
   const program = new Command();
@@ -82,7 +81,6 @@ async function main(): Promise<void> {
     creds,
     parallel: opts.parallel,
     mitmUrl: mitmHandle?.listenUrl,
-    mitmCaPath: mitmHandle?.caCertPath,
   });
 
   // Stop mitmproxy and merge JA3/JA4 records into scenarios.jsonl.
@@ -91,25 +89,27 @@ async function main(): Promise<void> {
     try {
       const records = readFileSync(mitmHandle.recorderPath, 'utf8')
         .split('\n').filter(Boolean).map((l) => JSON.parse(l));
-      // Merge: each JA3 record's `url` key matches a RequestEvent's `url`,
-      // so we look up by URL and append ja3/ja4 to ta_signal.
+      // Merge: JA3 records carry `sni` (TLS server_name from the ClientHello),
+      // which is the destination hostname. Match against RequestEvent's
+      // URL host so we attach ja3/ja4 to the right request.
       const eventsPath = path.join(runDir, 'scenarios.jsonl');
       if (existsSync(eventsPath)) {
         const events = readFileSync(eventsPath, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
-        const byUrl = new Map<string, any[]>();
+        const byHost = new Map<string, any[]>();
         for (const rec of records) {
-          const u = rec.url ?? rec.host;
-          if (!byUrl.has(u)) byUrl.set(u, []);
-          byUrl.get(u)!.push(rec);
+          const key = rec.sni ?? rec.host;
+          if (!key) continue;
+          if (!byHost.has(key)) byHost.set(key, []);
+          byHost.get(key)!.push(rec);
         }
         let merged = 0;
         for (const e of events) {
+          const url = new URL(e.url);
           const ta = (e.ta_signal ?? (e.ta_signal = {}));
-          const hits = byUrl.get(e.url) ?? [];
+          const hits = byHost.get(url.hostname) ?? [];
           if (hits.length) {
             const h = hits[merged++ % hits.length];
             ta.ja3 = h.ja3;
-            ta.ja4 = h.ja4;
             ta.tls_version = h.tls_version;
           }
         }

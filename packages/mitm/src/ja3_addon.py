@@ -29,6 +29,8 @@ def tls_client_hello(data: ClientHelloData):
         record = {
             'timestamp': data.timestamp,
             'client_address': str(data.context.client.peername) if data.context.client.peername else None,
+            'host': str(data.context.client.peername[0]) if data.context.client.peername else None,
+            'sni': msg.server_name,
             'tls_version': msg.version,
             'cipher_suites': cipher_suites,
             'extensions': extensions,

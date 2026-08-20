@@ -29,7 +29,7 @@ export async function* run(
   resetTzCache();
   const browser = await chromium.launch({
     headless: true,
-    args: [`--proxy-server=${proxyUrl.toString()}`],
+    args: [`--proxy-server=${proxyUrl.host}`],
   });
 
   let tzLookupFailed = false;
@@ -61,15 +61,23 @@ export async function* run(
       locale: fp.fingerprint.locale,
       timezoneId: fp.fingerprint.timezone,
       extraHTTPHeaders: { 'Accept-Language': fp.fingerprint.languages.join(',') },
-      proxy: { server: proxyUrl.toString() },
+      proxy: {
+        server: `${proxyUrl.protocol}//${proxyUrl.host}`,
+        username: decodeURIComponent(proxyUrl.username),
+        password: decodeURIComponent(proxyUrl.password),
+      },
     });
     page = await ctx.newPage();
     page.on('response', async (res) => {
       const t = Date.now();
-      try { await res.body(); } catch { /* ignore */ }
+      let body_snippet = '';
+      try {
+        const buf = await res.body();
+        body_snippet = buf.toString('utf8', 0, 65536);
+      } catch { /* ignore */ }
       events.push({
         url: res.url(), method: res.request().method(), status: res.status(),
-        time_ms: Date.now() - t, headers: res.headers(), ta_signal: {
+        time_ms: Date.now() - t, headers: res.headers(), body_snippet, ta_signal: {
           ua_actual: fp.ua,
           template_id: fp.templateId,
           timezone: fp.fingerprint.timezone,

@@ -10,6 +10,6 @@ describe('fireOne (smoke, requires network)', () => {
     const url = new URL('https://httpbin.org/anything');
     const r = await fireOne(url, new URL('direct://'), stubScenario);
     if (r === SKIP_REQUEST) throw new Error('unexpected skip');
-    expect([200, 502, 503]).toContain(r.events[0].status);
+    expect([200, 502, 503]).toContain(r.events[0]!.status);
   });
 });

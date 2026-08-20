@@ -52,7 +52,7 @@ export async function fireOne(url: URL, proxyUrl: URL, scenario: Scenario): Prom
       scenario_id: scenario.id,
       repeat_index: 0,
       tier: 'trivial-http' as const,
-      geo_requested: { country: 'US' },
+      geo_requested: scenario.geo,
       proxy_mode: scenario.proxy_mode,
       started_at: new Date(start).toISOString(),
       events: [{
@@ -78,7 +78,7 @@ export async function fireOne(url: URL, proxyUrl: URL, scenario: Scenario): Prom
       scenario_id: scenario.id,
       repeat_index: 0,
       tier: 'trivial-http' as const,
-      geo_requested: { country: 'US' },
+      geo_requested: scenario.geo,
       proxy_mode: scenario.proxy_mode,
       started_at: new Date(start).toISOString(),
       events: [],

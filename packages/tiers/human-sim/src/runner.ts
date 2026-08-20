@@ -2,7 +2,7 @@ import { chromium, type Browser } from 'playwright';
 import { synthesizeUA, templatesForProfile } from '@tah/ua';
 import { timeZoneFromIP, resetTzCache, tzForGeo, commonTzForLocale, type Geo } from '@tah/tz';
 import { request, ProxyAgent } from 'undici';
-import { bezierMove, humanClick } from './behavior/mouse.js';
+import { bezierMove } from './behavior/mouse.js';
 import { humanScroll } from './behavior/scroll.js';
 import { TelemetryRecorder } from '@tah/telemetry';
 import { logNormalTimeMs } from './behavior/timing.js';
@@ -64,11 +64,9 @@ export async function* run(
   let mouseMoves = 0;
   let scrollPulses = 0;
 
-  // humanClick is part of the public surface of behavior/mouse.ts; pulled
-  // in here so downstream journey steps (e.g. clicking on a CTA) can use
-  // it without re-importing the behavior module. Currently the journey
-  // is link-driven so this stays as a no-op reference.
-  void humanClick;
+  // humanClick was here as a no-op reference; the journey is link-driven
+  // and we removed the import. Re-import only when journey starts clicking
+  // CTAs (then wire `page.on(...)` → humanClick).
 
   let current = new URL(scenario.seed_url);
   for (let p = 0; p < target; p++) {

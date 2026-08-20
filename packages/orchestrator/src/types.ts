@@ -51,7 +51,7 @@ export interface Scenario {
   verdict_detection?: {
     http_status?: boolean;
     challenge_html?: boolean;
-    challenge_signatures?: Array<'cloudflare' | 'hcaptcha' | 'datadome' | 'perimeterx' | 'akamai' | 'generic'>;
+    challenge_signatures?: Array<'cloudflare' | 'hcaptcha' | 'datadome' | 'perimeterx' | 'akamai' | 'kasada' | 'shape' | 'fingerprintjs' | 'generic'>;
     header_signals?: boolean;
     cookies?: boolean;
     timing?: boolean;
