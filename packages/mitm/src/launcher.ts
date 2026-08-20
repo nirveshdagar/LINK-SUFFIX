@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, existsSync, readFileSync, copyFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +31,14 @@ export interface Ja3Record {
 }
 
 export async function startMitm(opts: MitmOptions): Promise<MitmHandle> {
+  // Copy ja3_addon.py from src/ to dist/ if missing — survives npm run build but
+  // not bare `tsc -b` invocations which wipe dist without re-running the copy step.
+  const addonSrc = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'ja3_addon.py');
+  const addonDist = path.join(path.dirname(fileURLToPath(import.meta.url)), 'ja3_addon.py');
+  if (existsSync(addonSrc) && !existsSync(addonDist)) {
+    copyFileSync(addonSrc, addonDist);
+  }
+
   const tmp = mkdtempSync(path.join(os.tmpdir(), 'tah-mitm-'));
   const recorderPath = path.join(tmp, 'ja3.jsonl');
   const caCertPath = path.join(tmp, 'mitmproxy-ca-cert.pem');

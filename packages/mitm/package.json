@@ -5,7 +5,9 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -b && node -e \"require('node:fs').copyFileSync('src/ja3_addon.py','dist/ja3_addon.py')\"",
+    "build": "npm run compile && npm run copy-addon",
+  "compile": "tsc -b",
+  "copy-addon": "node -e \"require('node:fs').copyFileSync('src/ja3_addon.py','dist/ja3_addon.py')\"",
     "test": "vitest run"
   },
   "dependencies": {},
