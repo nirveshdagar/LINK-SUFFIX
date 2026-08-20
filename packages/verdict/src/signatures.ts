@@ -4,6 +4,9 @@ export type SignatureName =
   | 'datadome'
   | 'perimeterx'
   | 'akamai'
+  | 'kasada'
+  | 'shape'
+  | 'fingerprintjs'
   | 'generic';
 
 export interface Signature {
@@ -39,6 +42,27 @@ export const DEFAULT_SIGNATURES: Record<SignatureName, Signature> = {
   generic: {
     headers: ['x-blocked', 'x-served-by:suspicious'],
     body: ['access denied', 'forbidden', 'rate limit exceeded'],
+  },
+  kasada: {
+    // Kasada's bot-mitigation inserts x-kasada-* headers and serves a
+    // 'PoW' challenge page with these markers.
+    headers: ['x-kasada', 'x-kasada-cd', 'x-kasada-id', 'x-cdn-info:x-kasada'],
+    cookies: ['kp_lpa', 'kp_lpr', 'x-kasada'],
+    body: ['kasada', '/149e9513-01fa-4fb0-aad4-566af076c2c2/2c206d82-1a6e-41e5-8f3a-d2b1c844d78d',
+           'sbid.js', '/149e9513-', 'client.js', 'tp_'],
+  },
+  shape: {
+    // Shape Security (now F5) emits __cf_bm-style or shape-specific tokens.
+    headers: ['x-shape', 'server:shape', 'set-cookie:_shape'],
+    cookies: ['_shape', 'shape_session'],
+    body: ['shape.security', 'shape-fp', 'experience-check', '/___shape_fp/'],
+  },
+  fingerprintjs: {
+    // FingerprintJS Pro server returns visitorId via its API; client-side
+    // helper scripts inject a known fingerprint endpoint.
+    headers: ['x-fpjs', 'x-fingerprint', 'fpjsid'],
+    cookies: ['fpjsid', '_fpjs_'],
+    body: ['fingerprintjs', 'fingerprintjs.com', '/v3/fp/', 'visitorid'],
   },
 };
 
