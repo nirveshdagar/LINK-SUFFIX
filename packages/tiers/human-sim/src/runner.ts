@@ -4,8 +4,10 @@ import { timeZoneFromIP, resetTzCache, tzForGeo, commonTzForLocale, type Geo } f
 import { request, ProxyAgent } from 'undici';
 import { bezierMove, humanClick } from './behavior/mouse.js';
 import { humanScroll } from './behavior/scroll.js';
+import { TelemetryRecorder } from '@tah/telemetry';
 import { logNormalTimeMs } from './behavior/timing.js';
 import { extractInternalLinks, pickNextUrl } from './journey.js';
+import path from 'node:path';
 import type { Scenario, RequestEvent, RawRequestRecord } from '@tah/orchestrator';
 import type { DeviceProfile } from '@tah/profiles';
 
@@ -90,6 +92,12 @@ export async function* run(
       },
     });
     const page = await ctx.newPage();
+    const telemetry = new TelemetryRecorder(current.toString());
+    const pAny = page as any;
+    pAny.on('mousemove', (ev: any) => telemetry.recordMouseMove(ev.x, ev.y));
+    pAny.on('click', (ev: any) => telemetry.recordClick(ev.x, ev.y, 'left', String(ev.button ?? 'left')));
+    pAny.on('wheel', (ev: any) => telemetry.recordScroll(ev.deltaY ?? 0, ev.x, ev.y));
+    pAny.on('keydown', () => telemetry.recordKeypress('key'));
     page.on('response', async (res) => {
       const t = Date.now();
       let snippet = '';
@@ -132,6 +140,15 @@ export async function* run(
     await page.waitForTimeout(logNormalTimeMs() / 4);
     mouseMoves++;
     scrollPulses++;
+    telemetry.recordScroll(120, 0, 0);
+    // Telemetry is written to $TAH_TELEMETRY_DIR if set (orchestrator
+    // sets it before calling run()).
+    const tdir = process.env.TAH_TELEMETRY_DIR;
+    if (p === target - 1 && tdir) {
+      const { mkdirSync } = await import('node:fs');
+      mkdirSync(tdir, { recursive: true });
+      telemetry.writeToFile(path.join(tdir, `repeat-${Date.now()}.jsonl`));
+    }
 
     if (p < target - 1) {
       const base = new URL(current.toString());

@@ -14,6 +14,7 @@
     "@tah/proxy": "*",
     "@tah/verdict": "*",
     "@tah/profiles": "*",
+    "@tah/telemetry": "*",
     "@tah/ua": "*",
     "@tah/tz": "*",
     "playwright": "^1.44.0",

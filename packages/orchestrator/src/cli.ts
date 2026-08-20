@@ -67,6 +67,8 @@ async function main(): Promise<void> {
       console.log(`mitm at ${mitmHandle.listenUrl} (recorder: ${mitmHandle.recorderPath})`);
       // Browser tiers use this to trust mitmproxy's CA cert.
       process.env.TAH_MITM_CA_PATH = mitmHandle.caCertPath;
+      // Tell browser tiers where to dump per-page telemetry JSONL.
+      process.env.TAH_TELEMETRY_DIR = path.join(runDir, 'telemetry');
     } catch (e) {
       console.error(`mitm start failed: ${(e as Error).message}`);
       console.error('continuing without mitm — JA3 will not be captured');
