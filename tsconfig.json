@@ -1,5 +1,21 @@
 {
   "extends": "./tsconfig.base.json",
   "files": [],
-  "references": []
+  "references": [
+    { "path": "./packages/contracts" },
+    { "path": "./packages/proxy" },
+    { "path": "./packages/verdict" },
+    { "path": "./packages/ua" },
+    { "path": "./packages/tz" },
+    { "path": "./packages/profiles" },
+    { "path": "./packages/mitm" },
+    { "path": "./packages/telemetry" },
+    { "path": "./packages/antidetect" },
+    { "path": "./packages/dashboard" },
+    { "path": "./packages/orchestrator" },
+    { "path": "./packages/tiers/trivial-http" },
+    { "path": "./packages/tiers/headless-browser" },
+    { "path": "./packages/tiers/stealth-browser" },
+    { "path": "./packages/tiers/human-sim" }
+  ]
 }

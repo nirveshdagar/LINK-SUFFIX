@@ -3,11 +3,10 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { synthesizeUA, templatesForProfile } from '@tah/ua';
 import { timeZoneFromIP, resetTzCache, tzForGeo, commonTzForLocale, type Geo } from '@tah/tz';
 import { request, ProxyAgent } from 'undici';
-import type { Scenario, RequestEvent } from '@tah/orchestrator';
+import type { Scenario, RequestEvent } from '@tah/contracts';
 import type { DeviceProfile } from '@tah/profiles';
 
 chromium.use(StealthPlugin());
-const buffer = Buffer.from('');
 
 async function probeEgressIP(proxyUrl: URL): Promise<string | null> {
   try {
@@ -36,7 +35,7 @@ export async function* run(
   let timezone = commonTzForLocale(device.locale);
   const egressIp = await probeEgressIP(proxyUrl);
   if (egressIp) {
-    const tz = await timeZoneFromIP(egressIp, buffer);
+    const tz = await timeZoneFromIP(egressIp);
     if (tz) timezone = tz; else tzLookupFailed = true;
   } else {
     tzLookupFailed = true;

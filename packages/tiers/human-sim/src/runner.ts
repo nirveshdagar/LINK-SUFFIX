@@ -8,12 +8,11 @@ import { TelemetryRecorder } from '@tah/telemetry';
 import { logNormalTimeMs } from './behavior/timing.js';
 import { extractInternalLinks, pickNextUrl } from './journey.js';
 import path from 'node:path';
-import type { Scenario, RequestEvent, RawRequestRecord } from '@tah/orchestrator';
+import type { Scenario, RequestEvent, RawRequestRecord } from '@tah/contracts';
 import type { DeviceProfile } from '@tah/profiles';
 
 const FALLBACK_LINKS = ['/', '/pricing', '/about', '/contact'] as const;
 
-const buffer = Buffer.from(''); // geoip2-lite expects a Buffer; pass empty (mock for tests).
 
 async function probeEgressIP(proxyUrl: URL): Promise<string | null> {
   try {
@@ -44,7 +43,7 @@ export async function* run(
   let timezone = commonTzForLocale(device.locale);
   const egressIp = await probeEgressIP(proxyUrl);
   if (egressIp) {
-    const tz = await timeZoneFromIP(egressIp, buffer);
+    const tz = await timeZoneFromIP(egressIp);
     if (tz) timezone = tz; else tzLookupFailed = true;
   } else {
     tzLookupFailed = true;
@@ -139,13 +138,14 @@ export async function* run(
     mouseMoves++;
     scrollPulses++;
     telemetry.recordScroll(120, 0, 0);
-    // Telemetry is written to $TAH_TELEMETRY_DIR if set (orchestrator
-    // sets it before calling run()).
+    // Telemetry: write one JSONL per page (so per-navigation behavior is
+    // preserved, not just the last page). Filename includes the repeat
+    // index (not Date.now()) so a multi-repeat run produces stable names.
     const tdir = process.env.TAH_TELEMETRY_DIR;
-    if (p === target - 1 && tdir) {
+    if (tdir) {
       const { mkdirSync } = await import('node:fs');
       mkdirSync(tdir, { recursive: true });
-      telemetry.writeToFile(path.join(tdir, `repeat-${Date.now()}.jsonl`));
+      telemetry.writeToFile(path.join(tdir, `run-${Date.now()}-page-${p}.jsonl`));
     }
 
     if (p < target - 1) {

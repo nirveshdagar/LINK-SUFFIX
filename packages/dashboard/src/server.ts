@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Aggregator } from './aggregator.js';
-import type { EventBus } from '@tah/orchestrator';
+import type { EventBus } from '@tah/contracts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

@@ -1,7 +1,7 @@
 import { request } from 'undici';
 import { readFileSync, existsSync } from 'node:fs';
-import type { Scenario } from '@tah/orchestrator';
-import type { RequestEvent } from '@tah/orchestrator';
+import type { Scenario } from '@tah/contracts';
+import type { RequestEvent } from '@tah/contracts';
 import { fireWithJa3, type TlsFingerprint } from './ja3.js';
 
 // When mitmproxy is in the chain, trust its CA in undici's TLS.

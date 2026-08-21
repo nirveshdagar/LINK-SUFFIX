@@ -1,5 +1,34 @@
 {
   "extends": "../../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "dist", "rootDir": "src" },
-  "include": ["src"]
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../contracts"
+    },
+    {
+      "path": "../../profiles"
+    },
+    {
+      "path": "../../proxy"
+    },
+    {
+      "path": "../../telemetry"
+    },
+    {
+      "path": "../../tz"
+    },
+    {
+      "path": "../../ua"
+    },
+    {
+      "path": "../../verdict"
+    }
+  ]
 }

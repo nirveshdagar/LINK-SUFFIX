@@ -6,9 +6,9 @@ import { buildProxyEndpoint } from '@tah/proxy';
 import { defaultStrategies, aggregateVerdict, type Vote } from '@tah/verdict';
 import { loadProfile } from '@tah/profiles';
 import { loadScenario } from './scenarioLoader.js';
-import { EventBus } from './eventBus.js';
+import { EventBus } from '@tah/contracts';
 import { JsonlSink, AppendOnlyJsonl } from './jsonlSink.js';
-import type { Scenario, RequestEvent } from './types.js';
+import type { Scenario, RequestEvent } from '@tah/contracts';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -51,12 +51,12 @@ export async function runScenario(opts: {
 
   const tierFn = pickTier(scenario);
   // trivial-http accepts a number (concurrency) here; the browser tiers accept
-  // a DeviceProfile. Either way the tier's signature is loose enough to take
-  // the profile without complaint. Pass the profile so the browser tiers get
-  // a real device; trivial-http ignores it.
-  const profile = scenario.device_pool?.[0]
-    ? loadProfile(scenario.device_pool[0])
-    : loadProfile(DEFAULT_PROFILE);
+  // a DeviceProfile[]. Either way the tier's signature is loose enough to take
+  // the array without complaint. Pass the full device_pool so the browser
+  // tiers can rotate per-navigation; trivial-http ignores it.
+  const profile: any = scenario.device_pool && scenario.device_pool.length > 0
+    ? scenario.device_pool.map((id: string) => loadProfile(id))
+    : [loadProfile(DEFAULT_PROFILE)];
 
   if (opts.parallel) {
     // Fire all repeats concurrently. Cap is implicit at scenario.repeats.
@@ -124,7 +124,9 @@ async function runOneRepeat(
   // it from the start; on the second failure we emit a synthetic event
   // tagged `final_verdict: 'error'`.
   const attemptOnce = async (): Promise<void> => {
-    const iter = tierFn(scenario, proxyUrl, profile) as AsyncIterable<RequestEvent>;
+    // Pick a profile per repeat so the pool rotates (rather than always [0]).
+    const repeatProfile = profile[i % profile.length];
+    const iter = tierFn(scenario, proxyUrl, repeatProfile) as AsyncIterable<RequestEvent>;
     for await (const evt of iter) {
       const last = evt.events.at(-1);
       if (last) {

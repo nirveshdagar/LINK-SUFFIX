@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { EventBus } from './eventBus.js';
+import { EventBus } from '@tah/contracts';
 
 describe('EventBus', () => {
   it('forwards emits to subscribers', () => {

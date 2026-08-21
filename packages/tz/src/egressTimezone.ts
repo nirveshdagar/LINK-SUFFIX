@@ -3,7 +3,7 @@ import { tzForGeo } from './cityTimezone.js';
 
 const cache = new Map<string, string | null>();
 
-export async function timeZoneFromIP(ip: string, _dbBuffer: Buffer): Promise<string | null> {
+export async function timeZoneFromIP(ip: string): Promise<string | null> {
   if (cache.has(ip)) return cache.get(ip) ?? null;
   const rec = maxmind.get(ip);
   if (!rec) {

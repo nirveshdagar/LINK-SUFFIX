@@ -1,4 +1,4 @@
-import type { RequestEvent } from '@tah/orchestrator';
+import type { RequestEvent } from '@tah/contracts';
 
 type Verdict = RequestEvent['final_verdict'];
 type Tier = RequestEvent['tier'];

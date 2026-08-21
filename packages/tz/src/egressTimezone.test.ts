@@ -29,24 +29,24 @@ describe('timeZoneFromIP', () => {
 
   it('returns Asia/Kolkata for Mumbai IP', async () => {
     const buf = Buffer.from('');
-    const tz = await timeZoneFromIP('203.0.113.42', buf);
+    const tz = await timeZoneFromIP('203.0.113.42');
     expect(tz).toBe('Asia/Kolkata');
   });
 
   it('returns America/New_York for NY IP', async () => {
-    const tz = await timeZoneFromIP('198.51.100.5', Buffer.from(''));
+    const tz = await timeZoneFromIP('198.51.100.5');
     expect(tz).toBe('America/New_York');
   });
 
   it('returns null when ip has no record', async () => {
-    const tz = await timeZoneFromIP('203.0.113.99', Buffer.from(''));
+    const tz = await timeZoneFromIP('203.0.113.99');
     expect(tz).toBeNull();
   });
 
   it('caches result per IP within session', async () => {
     // First call caches, second call uses cache (no mock call)
-    const t1 = await timeZoneFromIP('203.0.113.42', Buffer.from(''));
-    const t2 = await timeZoneFromIP('203.0.113.42', Buffer.from(''));
+    const t1 = await timeZoneFromIP('203.0.113.42');
+    const t2 = await timeZoneFromIP('203.0.113.42');
     expect(t1).toBe(t2);
   });
 });

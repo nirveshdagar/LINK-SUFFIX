@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "web-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "--prefix", "packages/web", "dev"],
+      "port": 5173
+    },
+    {
       "name": "aura-build",
       "url": "http://localhost:5500"
     }

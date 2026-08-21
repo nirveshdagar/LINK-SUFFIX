@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import fs, { readFileSync, existsSync } from 'node:fs';
-import { EventBus } from './eventBus.js';
+import { EventBus } from '@tah/contracts';
 import { runScenario } from './runner.js';
 import { startDashboard } from '@tah/dashboard';
 import { startMitm } from '@tah/mitm';

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { fireOne, SKIP_REQUEST } from './runner.js';
-import type { Scenario } from '@tah/orchestrator';
+import type { Scenario } from '@tah/contracts';
 
 const stubScenario = { id: 't', tier: 'trivial-http', seed_url: '', geo: { country: 'US' }, proxy_mode: 'rotating-residential', repeats: 1 } as unknown as Scenario;
 

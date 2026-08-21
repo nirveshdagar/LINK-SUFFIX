@@ -2,10 +2,9 @@ import { chromium, type Browser } from 'playwright';
 import { synthesizeUA, templatesForProfile } from '@tah/ua';
 import { timeZoneFromIP, resetTzCache, tzForGeo, commonTzForLocale, type Geo } from '@tah/tz';
 import { request } from 'undici';
-import type { Scenario, RequestEvent } from '@tah/orchestrator';
+import type { Scenario, RequestEvent } from '@tah/contracts';
 import type { DeviceProfile } from '@tah/profiles';
 
-const buffer = Buffer.from(''); // geoip2-lite expects a Buffer; pass empty (mock for tests).
 
 async function probeEgressIP(proxyUrl: URL): Promise<string | null> {
   try {
@@ -36,7 +35,7 @@ export async function* run(
   let timezone = commonTzForLocale(device.locale);
   const egressIp = await probeEgressIP(proxyUrl);
   if (egressIp) {
-    const tz = await timeZoneFromIP(egressIp, buffer);
+    const tz = await timeZoneFromIP(egressIp);
     if (tz) timezone = tz; else tzLookupFailed = true;
   } else {
     tzLookupFailed = true;

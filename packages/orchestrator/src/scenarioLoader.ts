@@ -11,7 +11,7 @@ import yaml from 'yaml';
 import { Ajv } from 'ajv';
 import * as ajvFormats from 'ajv-formats';
 const addFormats = (ajvFormats as unknown as { default: (ajv: Ajv) => void }).default;
-import type { Scenario } from './types.js';
+import type { Scenario } from '@tah/contracts';
 
 // Brief specified `../../scenarios/schema.json` but __dirname resolves to
 // packages/orchestrator/src under vitest, so that path lands at packages/scenarios/

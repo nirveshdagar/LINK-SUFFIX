@@ -1,6 +1,6 @@
 import { appendFile } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
-import type { RequestEvent } from './types.js';
+import type { RequestEvent } from '@tah/contracts';
 
 export class JsonlSink {
   private stream: ReturnType<typeof createWriteStream>;

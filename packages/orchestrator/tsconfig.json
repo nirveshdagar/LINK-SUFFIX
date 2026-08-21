@@ -1,5 +1,76 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "dist", "rootDir": "src" },
-  "include": ["src"]
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../contracts"
+    },
+    {
+      "path": {
+        "path": "../antidetect"
+      }
+    },
+    {
+      "path": {
+        "path": "../dashboard"
+      }
+    },
+    {
+      "path": {
+        "path": "../mitm"
+      }
+    },
+    {
+      "path": {
+        "path": "../profiles"
+      }
+    },
+    {
+      "path": {
+        "path": "../proxy"
+      }
+    },
+    {
+      "path": {
+        "path": "../tiers/headless-browser"
+      }
+    },
+    {
+      "path": {
+        "path": "../tiers/human-sim"
+      }
+    },
+    {
+      "path": {
+        "path": "../tiers/stealth-browser"
+      }
+    },
+    {
+      "path": {
+        "path": "../tiers/trivial-http"
+      }
+    },
+    {
+      "path": {
+        "path": "../tz"
+      }
+    },
+    {
+      "path": {
+        "path": "../ua"
+      }
+    },
+    {
+      "path": {
+        "path": "../verdict"
+      }
+    }
+  ]
 }

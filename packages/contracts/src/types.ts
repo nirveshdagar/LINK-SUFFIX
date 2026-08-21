@@ -57,3 +57,10 @@ export interface Scenario {
     timing?: boolean;
   };
 }
+export type { GeoTarget, ProxyMode } from '@tah/proxy';
+
+export type TierRunner = (
+  scenario: Scenario,
+  proxyUrl: URL,
+  third: any,
+) => AsyncIterable<RequestEvent>;
