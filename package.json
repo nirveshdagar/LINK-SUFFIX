@@ -9,9 +9,10 @@
     "test:unit": "vitest run tests/unit packages",
     "test:integration": "vitest run tests/integration",
     "lint": "node tools/lint.mjs",
-    "web:dev": "next dev --port 3000",
+    "web:dev": "next dev --port 3000 --prefix web",
     "web:build": "next build --prefix web",
-    "web:start": "next start --port 3000 --prefix web"
+    "web:start": "next start --port 3000 --prefix web",
+    "control": "node web/server/control.mjs"
   },
   "devDependencies": {
     "typescript": "^5.4.0",
