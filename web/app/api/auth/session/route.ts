@@ -6,7 +6,8 @@ function sameOrigin(request: Request) {
   const origin = request.headers.get("origin");
   if (!origin) return process.env.NODE_ENV !== "production";
   try {
-    return new URL(origin).origin === new URL(request.url).origin;
+    const publicBaseUrl = process.env.TAH_PUBLIC_BASE_URL?.trim();
+    return new URL(origin).origin === new URL(publicBaseUrl || request.url).origin;
   } catch {
     return false;
   }
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
   }
 
   const response = NextResponse.json({ ok: true });
-  response.headers.set("set-cookie", apiSessionCookie(createApiSession(), request.url));
+  response.headers.set("set-cookie", apiSessionCookie(createApiSession(), process.env.TAH_PUBLIC_BASE_URL?.trim() || request.url));
   response.headers.set("cache-control", "no-store");
   return withRateLimitHeaders(response, limit);
 }
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   if (!sameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected" }, { status: 403 });
   const response = NextResponse.json({ ok: true });
-  response.headers.set("set-cookie", clearApiSessionCookie(request.url));
+  response.headers.set("set-cookie", clearApiSessionCookie(process.env.TAH_PUBLIC_BASE_URL?.trim() || request.url));
   response.headers.set("cache-control", "no-store");
   return response;
 }

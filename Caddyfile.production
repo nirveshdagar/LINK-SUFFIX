@@ -6,7 +6,7 @@
 {$TAH_DOMAIN} {
 	encode zstd gzip
 
-	@requiresHumanAuth not path /api/script-bridge/jobs /api/script-bridge/jobs/*
+	@requiresHumanAuth not path /api/* /control-ws* /_next/* /favicon.ico
 	basic_auth @requiresHumanAuth {
 		{$TAH_ADMIN_USER} {$TAH_ADMIN_PASSWORD_HASH}
 	}

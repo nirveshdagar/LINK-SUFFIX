@@ -328,7 +328,7 @@ export default function ControlPanel() {
       <div className="workspace">
         <header className="masthead">
           <div><p className="kicker">Traffic Armour / Control Plane</p><h1>Launch traffic with intent.</h1><p className="lede">Build an authorized geo-targeted test, route it through residential egress, and watch the policy response.</p></div>
-          <div className="system-state"><span className={connected ? "state-dot online" : "state-dot"} /><div><b>{connected ? "Control online" : "Control offline"}</b><small>{mounted ? `${window.location.hostname}:${CONTROL_PORT}` : "control service"}</small></div></div>
+          <div className="system-state"><span className={connected ? "state-dot online" : "state-dot"} /><div><b>{connected ? "Control online" : "Control offline"}</b><small>{mounted ? ((window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost") ? `${window.location.hostname}:${CONTROL_PORT}` : `${window.location.host}/control-ws`) : "control service"}</small></div></div>
         </header>
 
         <section className="control-auth" aria-label="Remote control authentication">
