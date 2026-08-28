@@ -25,6 +25,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    user: "999:1000"
     environment:
       TAH_REDIS_PASSWORD: ${TAH_REDIS_PASSWORD:?set TAH_REDIS_PASSWORD}
     command:
@@ -79,11 +80,13 @@ services:
     build: .
     restart: unless-stopped
     command:
-      - npm
-      - --workspace
-      - web
-      - run
+      - /app/node_modules/.bin/next
       - start
+      - /app/web
+      - --hostname
+      - 0.0.0.0
+      - --port
+      - "3100"
     expose:
       - "3100"
     healthcheck:
