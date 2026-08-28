@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { WebSocket } from 'ws';
 
@@ -8,6 +9,7 @@ const webRoot = new URL('../web/', import.meta.url).pathname.replace(/^\/(?:[A-Z
 const targetPort = 3199;
 const controlPort = 3198;
 const webPort = 3197;
+const controlToken = randomBytes(32).toString('hex');
 const children = [];
 const target = createServer((_request, response) => {
   response.writeHead(200, { 'content-type': 'text/html' });
@@ -33,13 +35,13 @@ try {
   await once(target, 'listening');
   children.push(spawn(process.execPath, ['web/server/control.mjs'], {
     cwd: root,
-    env: { ...process.env, WS_PORT: String(controlPort), CONTROL_HOST: '127.0.0.1', CONTROL_ALLOWED_ORIGINS: `http://127.0.0.1:${webPort}`, TAH_ALLOWED_TARGETS: '127.0.0.1', TAH_NO_PROXY: '1' },
+    env: { ...process.env, WS_PORT: String(controlPort), CONTROL_HOST: '127.0.0.1', CONTROL_TOKEN: controlToken, CONTROL_ALLOWED_ORIGINS: `http://127.0.0.1:${webPort}`, TAH_ALLOWED_TARGETS: '127.0.0.1', TAH_NO_PROXY: '1' },
     stdio: 'inherit',
   }));
   children.push(spawn(process.execPath, ['../node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', String(webPort)], { cwd: webRoot, stdio: 'inherit' }));
   await Promise.all([waitFor(`http://127.0.0.1:${controlPort}/health`), waitFor(`http://127.0.0.1:${webPort}/control`)]);
 
-  const socket = new WebSocket(`ws://127.0.0.1:${controlPort}`, ['tah-control'], { origin: `http://127.0.0.1:${webPort}` });
+  const socket = new WebSocket(`ws://127.0.0.1:${controlPort}`, ['tah-control', controlToken], { origin: `http://127.0.0.1:${webPort}` });
   await once(socket, 'open');
   socket.send(JSON.stringify({ type: 'create_run', payload: {
     scenarioId: 'production-smoke', tier: 'trivial-http', seedUrl: `http://127.0.0.1:${targetPort}/`, proxyMode: 'rotating-residential', expectedVerdict: 'allow', geo: { country: 'US' }, repeats: 1, concurrent: 1, authorized: true,
