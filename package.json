@@ -11,7 +11,7 @@
     "build": "tsc -b",
     "test": "npm run test:vitest && npm run test:web",
     "test:unit": "vitest run tests/unit packages",
-    "test:integration": "node --env-file=.env --test web/tests/*.integration.test.ts",
+    "test:integration": "node tooling/run-integration-tests.mjs",
     "test:production": "node tooling/production-smoke.mjs",
     "lint": "node tools/lint.mjs",
     "web:dev": "node tooling/start-next.mjs dev web --hostname 127.0.0.1 --port 3100",
