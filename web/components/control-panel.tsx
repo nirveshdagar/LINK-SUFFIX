@@ -16,7 +16,17 @@ const DEFAULT_DEVICE: Device = { id: "desktop-windows-chrome", family: "chrome",
 interface ChallengeInfo { id: string; status: string; vendor: string; challengeType: string; referenceId?: string; url: string; detectedAt: string; timeoutAt: string; screenshotPath?: string; lastError?: string; redirects?: Array<{ from: string; to: string; status: number }> }
 interface RunInfo { id: string; scenarioId: string; startedAt: number; alive: boolean; exitCode?: number | null; dashboardPort?: number; challenges?: ChallengeInfo[] }
 interface ScheduleInfo { id: string; scenarioId: string; timezone: string; startTime: string; stopTime: string; days: number[]; enabled: boolean; lastStartedWindow?: string; lastError?: string }
-  interface CampaignInfo { id: string; number: number; name: string; status: string; activeRunId?: string; latestSuffix?: string; lastCapturedAt?: string; lastMeshVersion?: number; lastMeshQueuedAt?: string; lastError?: string; config: { seedUrl: string; proxyPort: number; customerId?: string; googleCampaignId?: string; loginCustomerId?: string; syncGoogleAds?: boolean; useScriptMesh?: boolean; scriptFleetShardId?: string } }
+interface CampaignConfig {
+  scenarioId?: string; tier?: Tier; seedUrl: string; proxyMode?: ProxyMode; expectedVerdict?: ExpectedVerdict;
+  proxyPort: number; customerId?: string; googleCampaignId?: string; loginCustomerId?: string;
+  syncGoogleAds?: boolean; useScriptMesh?: boolean; scriptFleetShardId?: string; geo?: Geo;
+  repeats?: number; concurrent?: number; devicePool?: string[]; fingerprintMode?: "balanced" | "hardened";
+  mitm?: boolean; challengeSignatures?: SignatureName[]; testEnvironment?: { mode?: "staging" | "production" };
+  loadProfile?: { mode?: "burst"; targetRps?: number; durationSeconds?: number; rampSeconds?: number; maxRequests?: number };
+  session?: { headless?: boolean; followExternalRedirects?: boolean };
+  schedule?: { timezone: string; startTime: string; stopTime: string; days: number[] };
+}
+interface CampaignInfo { id: string; number: number; name: string; status: string; activeRunId?: string; latestSuffix?: string; lastCapturedAt?: string; lastMeshVersion?: number; lastMeshQueuedAt?: string; lastError?: string; retryCount?: number; nextRetryAt?: number; config: CampaignConfig }
 interface ProxyIdentity { egressIp?: string; timezone?: string; location?: string }
 interface LocationState { code: string; name: string }
 type SignatureName = "cloudflare" | "hcaptcha" | "datadome" | "perimeterx" | "akamai" | "kasada" | "shape" | "fingerprintjs" | "generic";
@@ -61,8 +71,10 @@ const WEEKDAYS = [
 ];
 const weekdaySummary = (days: number[]) => WEEKDAYS.filter((day) => days.includes(day.value)).map((day) => day.label).join(", ");
 
-export default function ControlPanel() {
+export default function ControlPanel({ editCampaignId }: { editCampaignId?: string } = {}) {
   const wsRef = useRef<WebSocket | null>(null);
+  const editHydratedRef = useRef("");
+  const pendingEditActionRef = useRef<"save" | "restart" | null>(null);
   const challengeAlertsEnabledRef = useRef(false);
   const seenChallengeIdsRef = useRef(new Set<string>());
   const [connected, setConnected] = useState(false);
@@ -198,7 +210,25 @@ export default function ControlPanel() {
           if (msg.type === "campaigns") setSavedCampaigns(msg.payload as CampaignInfo[]);
           if (msg.type === "campaign_fleet_updated") { setNotice(String(msg.payload.name) + (msg.payload.config?.useScriptMesh ? " added to" : " removed from") + " the Rolling Apps Script Fleet."); send({ type: "list_campaigns" }); }
           if (msg.type === "capacity") { setActiveLimit(msg.payload?.activeLimit ?? 500); setLockedPorts(msg.payload?.lockedPorts ?? []); }
-          if (msg.type === "campaign_saved") { setNotice(`Campaign ${String(msg.payload.number).padStart(3, "0")} saved and ${msg.payload.config?.schedule ? "scheduled" : "queued"}.`); send({ type: "list_campaigns" }); }
+          if (msg.type === "campaign_saved") {
+            const editAction = editCampaignId && msg.payload?.id === editCampaignId ? pendingEditActionRef.current : null;
+            if (editAction === "restart") {
+              ws.send(JSON.stringify({ type: "restart_campaign", payload: { id: editCampaignId } }));
+              setNotice(`Campaign ${String(msg.payload.number).padStart(3, "0")} saved. Restarting with the new configuration…`);
+            } else if (editAction === "save") {
+              pendingEditActionRef.current = null;
+              setNotice(`Campaign ${String(msg.payload.number).padStart(3, "0")} saved.`);
+              window.setTimeout(() => window.location.assign("/#campaigns"), 300);
+            } else {
+              setNotice(`Campaign ${String(msg.payload.number).padStart(3, "0")} saved and ${msg.payload.config?.schedule ? "scheduled" : "queued"}.`);
+            }
+            send({ type: "list_campaigns" });
+          }
+          if (msg.type === "campaign_restarted" && editCampaignId && msg.payload?.id === editCampaignId && pendingEditActionRef.current === "restart") {
+            pendingEditActionRef.current = null;
+            setNotice(`Campaign ${String(msg.payload.number).padStart(3, "0")} restarted with the saved configuration.`);
+            window.setTimeout(() => window.location.assign("/#campaigns"), 300);
+          }
           if (msg.type === "run_started") { setNotice(`Run ${msg.payload.scenarioId} launched.`); send({ type: "list_runs" }); }
           if (msg.type === "schedule_saved") setNotice(`Daily L4 schedule saved: ${msg.payload.startTime}–${msg.payload.stopTime} ${msg.payload.timezone}.`);
           if (msg.type === "schedule_removed") setNotice(msg.payload?.ok ? "Daily L4 schedule removed." : "Schedule was already removed.");
@@ -224,13 +254,54 @@ export default function ControlPanel() {
             const data = msg.payload?.data ?? msg.data ?? "";
             setLog((current) => [...current.slice(-149), `[${stream}] ${String(data).trim()}`]);
           }
-          if (msg.type === "error") { setProxyVerifying(false); setNotice(msg.payload?.message ?? "Control server error"); }
+          if (msg.type === "error") { pendingEditActionRef.current = null; setProxyVerifying(false); setNotice(msg.payload?.message ?? "Control server error"); }
         } catch { setNotice("Received an unreadable control-server message."); }
       };
     };
     connect();
     return () => { disposed = true; if (retry) clearTimeout(retry); wsRef.current?.close(); };
   }, []);
+
+  useEffect(() => {
+    if (!editCampaignId || editHydratedRef.current === editCampaignId) return;
+    const saved = savedCampaigns.find((item) => item.id === editCampaignId);
+    if (!saved) return;
+    const config = saved.config;
+    editHydratedRef.current = editCampaignId;
+    setCampaign(config.scenarioId || saved.name);
+    setUrl(config.seedUrl);
+    setTier(config.tier || "human");
+    setProxyMode(config.proxyMode || "sticky-residential");
+    setExpectedVerdict(config.expectedVerdict || "allow");
+    setProxyPort(config.proxyPort);
+    setGeo(config.geo || { country: "US", state: "", city: "" });
+    setRepeats(Number(config.repeats || 1));
+    setConcurrent(Number(config.concurrent || 1));
+    setDevicePool(Array.isArray(config.devicePool) ? config.devicePool : []);
+    setFingerprintMode(config.fingerprintMode || "hardened");
+    setTlsCapture(config.mitm === true);
+    setChallengeSignatures(Array.isArray(config.challengeSignatures) ? config.challengeSignatures.filter((item): item is SignatureName => SIGNATURES.includes(item)) : SIGNATURES);
+    setStagingMode(config.testEnvironment?.mode === "staging");
+    setVisibleBrowser(config.session?.headless === false);
+    setFollowExternalRedirects(config.session?.followExternalRedirects !== false);
+    setBurstMode(config.loadProfile?.mode === "burst");
+    setTargetRps(Number(config.loadProfile?.targetRps || 500));
+    setBurstDuration(Number(config.loadProfile?.durationSeconds || 2));
+    setRampSeconds(Number(config.loadProfile?.rampSeconds || 0));
+    setRequestCeiling(Number(config.loadProfile?.maxRequests || 1000));
+    setRunCustomerId(config.customerId || "");
+    setRunGoogleCampaignId(config.googleCampaignId || "");
+    setRunLoginCustomerId(config.loginCustomerId || "");
+    setSyncGoogleAds(config.syncGoogleAds === true);
+    setUseScriptMesh(config.useScriptMesh === true);
+    setDailySchedule(Boolean(config.schedule));
+    setScheduleTimezone(config.schedule?.timezone || "Asia/Kolkata");
+    setScheduleStartTime(config.schedule?.startTime || "09:00");
+    setScheduleStopTime(config.schedule?.stopTime || "22:00");
+    setScheduleDays(config.schedule?.days?.length ? config.schedule.days : WEEKDAYS.map((day) => day.value));
+    setAuthorized(true);
+    setNotice(`Editing ${String(saved.number).padStart(3, "0")} · ${saved.name}`);
+  }, [editCampaignId, savedCampaigns]);
 
   const browserTier = tier !== "trivial-http";
   const selectedCountry = WORLD_COUNTRIES.find((country) => country.code === geo.country);
@@ -285,11 +356,11 @@ export default function ControlPanel() {
   const projectedRequests = tier === "trivial-http" ? (burstMode ? burstRequests : repeats * concurrent) : repeats;
   const targetHost = validUrl ? new URL(url).hostname : "invalid target";
 
-  const start = () => {
-    setNotice("");
-    send({ type: "create_campaign", payload: {
+  const editingCampaign = editCampaignId ? savedCampaigns.find((item) => item.id === editCampaignId) : undefined;
+  const campaignPayload = () => ({
       scenarioId: campaign.trim() || `campaign-${Date.now().toString(36)}`,
       tier, seedUrl: url, proxyMode, expectedVerdict, authorized, continuous: tier === "human", syncGoogleAds: tier === "human" && syncGoogleAds, useScriptMesh: tier === "human" && useScriptMesh,
+      scriptFleetShardId: editingCampaign?.config.scriptFleetShardId,
       proxyPort, customerId: runCustomerId, googleCampaignId: runGoogleCampaignId, loginCustomerId: runLoginCustomerId,
       geo: { country: geo.country.toUpperCase(), state: geo.state?.trim() || undefined, city: geo.city?.trim() || undefined },
       repeats: tier === "human" ? 1 : Number(repeats), concurrent: tier === "human" ? 1 : Math.min(100, Math.max(1, Math.trunc(Number(concurrent) || 1))),
@@ -301,7 +372,20 @@ export default function ControlPanel() {
       testEnvironment: { mode: stagingMode ? "staging" : "production" },
       session: tier === "human" ? { pages: { min: 1, max: 1 }, internalLinkProbability: 0, headless: !visibleBrowser, followExternalRedirects, challengeHandling: { enabled: false, persistent: false, timeoutSeconds: 300, onTimeout: "stop" as const } } : undefined,
       schedule: dailySchedule && tier === "human" ? { timezone: scheduleTimezone, startTime: scheduleStartTime, stopTime: scheduleStopTime, days: scheduleDays } : undefined,
-    } });
+  });
+  const submitCampaignEdit = (action: "save" | "restart") => {
+    if (!editCampaignId) return;
+    setNotice(action === "restart" ? "Saving campaign before restart…" : "Saving campaign…");
+    pendingEditActionRef.current = action;
+    if (!send({ type: "update_campaign", payload: { ...campaignPayload(), id: editCampaignId } })) {
+      pendingEditActionRef.current = null;
+      setNotice("Control server is offline. The campaign was not changed.");
+    }
+  };
+  const start = () => {
+    setNotice("");
+    if (editCampaignId) { submitCampaignEdit("save"); return; }
+    send({ type: "create_campaign", payload: campaignPayload() });
   };
   const saveProxy = () => {
     setProxyVerifying(true);
@@ -360,7 +444,7 @@ export default function ControlPanel() {
             <div className="tier-grid">{TIERS.map((item) => { const Icon = item.icon; return <button key={item.id} type="button" className={tier === item.id ? "tier-card selected" : "tier-card"} onClick={() => setTier(item.id)}><span className="tier-top"><em>{item.code}</em><Icon size={19} /></span><b>{item.title}</b><small>{item.copy}</small></button>; })}</div>
 
             <div className="rule" /><Section number="03" title="Residential egress" copy="Country, state and city are encoded into the provider route." />
-            <div className="proxy-vault"><div className="proxy-vault-title"><KeyRound size={19} /><div><b>IPRoyal connection</b><small>Credentials can be encrypted locally and automatically restored after refreshes or backend restarts.</small></div><span className={proxyConfigured ? "vault-status ready" : "vault-status"}>{proxyVerifying ? "VERIFYING" : proxyConfigured ? "VERIFIED" : "REQUIRED"}</span></div><div className="field-row two"><Field label="Gateway host or IP"><input value={proxyHost} onChange={(event) => setProxyHost(event.target.value)} /></Field><Field label="Gateway port"><select value={proxyPort} onChange={(event) => setProxyPort(Number(event.target.value))}>{IPROYAL_PORTS.filter((port) => !lockedPorts.includes(port)).map((port) => <option key={port} value={port}>{port}</option>)}</select></Field></div><div className="field-row two"><Field label="IPRoyal username"><input autoComplete="username" value={proxyUser} onChange={(event) => setProxyUser(event.target.value)} /></Field><Field label="IPRoyal base password"><input type="password" autoComplete="new-password" value={proxyPass} onChange={(event) => setProxyPass(event.target.value)} /></Field></div><label className="authorization"><input type="checkbox" checked={rememberProxy} onChange={(event) => setRememberProxy(event.target.checked)} /><span>Remember IPRoyal credentials on this machine using encrypted local storage.</span></label>{proxyConfigured && <div className="credential-note">Verified exit {proxyIdentity.egressIp} · {proxyIdentity.timezone}{proxyIdentity.location ? ` · ${proxyIdentity.location}` : ""}</div>}<button type="button" className="save-proxy" disabled={!connected || !proxyUser || !proxyPass || proxyVerifying} onClick={saveProxy}>{proxyVerifying ? "Verifying authenticated route…" : "Verify IPRoyal with backend"}</button></div>
+            <div className="proxy-vault"><div className="proxy-vault-title"><KeyRound size={19} /><div><b>IPRoyal connection</b><small>Credentials can be encrypted locally and automatically restored after refreshes or backend restarts.</small></div><span className={proxyConfigured ? "vault-status ready" : "vault-status"}>{proxyVerifying ? "VERIFYING" : proxyConfigured ? "VERIFIED" : "REQUIRED"}</span></div><div className="field-row two"><Field label="Gateway host or IP"><input value={proxyHost} onChange={(event) => setProxyHost(event.target.value)} /></Field><Field label="Gateway port"><select value={proxyPort} onChange={(event) => setProxyPort(Number(event.target.value))}>{IPROYAL_PORTS.filter((port) => port === proxyPort || !lockedPorts.includes(port)).map((port) => <option key={port} value={port}>{port}</option>)}</select></Field></div><div className="field-row two"><Field label="IPRoyal username"><input autoComplete="username" value={proxyUser} onChange={(event) => setProxyUser(event.target.value)} /></Field><Field label="IPRoyal base password"><input type="password" autoComplete="new-password" value={proxyPass} onChange={(event) => setProxyPass(event.target.value)} /></Field></div><label className="authorization"><input type="checkbox" checked={rememberProxy} onChange={(event) => setRememberProxy(event.target.checked)} /><span>Remember IPRoyal credentials on this machine using encrypted local storage.</span></label>{proxyConfigured && <div className="credential-note">Verified exit {proxyIdentity.egressIp} · {proxyIdentity.timezone}{proxyIdentity.location ? ` · ${proxyIdentity.location}` : ""}</div>}<button type="button" className="save-proxy" disabled={!connected || !proxyUser || !proxyPass || proxyVerifying} onClick={saveProxy}>{proxyVerifying ? "Verifying authenticated route…" : "Verify IPRoyal with backend"}</button></div>
             <div className="preset-row">{PRESETS.map((preset) => <button type="button" key={preset.label} onClick={() => { setGeo(preset.geo); setStateCode(""); }} className={geo.city === preset.geo.city ? "preset active" : "preset"}>{preset.label}</button>)}</div>
             <div className="field-row three"><Field label="Country"><select value={geo.country} onChange={(event) => { setGeo({ country: event.target.value, state: "", city: "" }); setStateCode(""); }}>{WORLD_COUNTRIES.map((country) => <option key={country.code} value={country.code}>{country.name} ({country.code})</option>)}</select></Field><Field label="State / region (optional)"><select value={stateCode} onChange={(event) => { const code = event.target.value; const state = locationStates.find((item) => item.code === code); setStateCode(code); setGeo({ ...geo, state: state?.name ?? "", city: "" }); }}><option value="">Any state / region</option>{locationStates.map((state) => <option key={state.code} value={state.code}>{state.name}</option>)}</select></Field><Field label="City (optional)"><select value={geo.city ?? ""} onChange={(event) => setGeo({ ...geo, city: event.target.value })}><option value="">Any city</option>{citySuggestions.map((city) => <option key={city} value={city}>{city}</option>)}</select></Field></div>
             <div className="credential-note">IPRoyal route: {selectedCountry?.name ?? geo.country}{geo.state ? ` / ${geo.state}` : ""}{geo.city ? ` / ${geo.city}` : ""}. Leave state and city blank for random country-wide residential exits. Timezone is resolved from the actual exit IP.</div>
@@ -383,7 +467,7 @@ export default function ControlPanel() {
           </div>
 
           <aside className="launch-card">
-            <p className="kicker">Launch review</p><h2>{campaign || "Untitled campaign"}</h2>
+            <p className="kicker">{editCampaignId ? "Edit saved campaign" : "Launch review"}</p><h2>{campaign || "Untitled campaign"}</h2>
             <div className="route-visual"><span>{geo.city || geo.state || `${geo.country} · random IP`}</span><i /><span>{targetHost}</span></div>
             <dl><Summary label="Execution" value={burstMode && tier === "trivial-http" ? "Guarded Burst" : TIERS.find((item) => item.id === tier)?.title ?? tier} /><Summary label="Network" value={proxyMode === "rotating-residential" ? "Rotating" : "Sticky"} /><Summary label="Load" value={tier === "human" ? "Continuous · one at a time" : burstMode && tier === "trivial-http" ? `${projectedRequests} requests · ${targetRps} RPS · ${burstDuration}s` : browserTier ? `${projectedRequests} sessions · ${Math.min(concurrent, repeats)} concurrent` : `${projectedRequests} requests · ${concurrent} concurrent`} /><Summary label="Geo" value={geo.state || geo.city ? [geo.city, geo.state, geo.country].filter(Boolean).join(", ") : `${selectedCountry?.name ?? geo.country} · random country-wide exits`} /><Summary label="Evidence" value={tier === "trivial-http" && tlsCapture ? "JA3 + vendor signatures" : tier === "human" ? "Exact suffix · frame telemetry" : "Vendor signatures"} /></dl>
             <div className="checks"><CheckRow pass={connected} label="Control server" /><CheckRow pass={proxyConfigured} label="Verified residential exit" /><CheckRow pass={validUrl} label="Valid target URL" /><CheckRow pass={!browserTier || devicePool.length > 0} label="Device identity" /></div>
@@ -395,7 +479,7 @@ export default function ControlPanel() {
             {tier === "human" && dailySchedule && <div className="devices"><p>Run on days <span>{scheduleDays.length} of 7 selected</span></p><div className="preset-row"><button type="button" className="preset" onClick={() => setScheduleDays([1, 2, 3, 4, 5])}>Monday–Friday</button><button type="button" className="preset" onClick={() => setScheduleDays([1, 2, 3, 4, 5, 6])}>Monday–Saturday</button><button type="button" className="preset" onClick={() => setScheduleDays(WEEKDAYS.map((day) => day.value))}>Every day</button></div><div>{WEEKDAYS.map((day) => <button type="button" key={day.value} onClick={() => setScheduleDays((current) => current.includes(day.value) ? current.filter((value) => value !== day.value) : [...current, day.value])} className={scheduleDays.includes(day.value) ? "device selected" : "device"}>{day.label}</button>)}</div></div>}
             {tier === "human" && schedules.length > 0 && <div className="checks">{schedules.map((schedule) => <p className={schedule.lastError ? "fail" : "pass"} key={schedule.id}><span>{schedule.lastError ? "!" : <Check size={14} />}</span>{schedule.scenarioId}: {weekdaySummary(schedule.days ?? [])} · {schedule.startTime}–{schedule.stopTime} {schedule.timezone}{schedule.lastError ? ` · ${schedule.lastError}` : ""}<button type="button" onClick={() => send({ type: "remove_schedule", payload: { id: schedule.id } })}>Remove</button></p>)}</div>}
             <label className="authorization"><input type="checkbox" checked={authorized} onChange={(event) => setAuthorized(event.target.checked)} /><span>I confirm I own or have written authorization to test this destination.</span></label>
-            <button type="button" className="launch" disabled={!ready || (tier === "human" && dailySchedule && scheduleDays.length === 0)} onClick={start}><Play size={18} fill="currentColor" />{tier === "human" && dailySchedule ? "Save daily schedule" : "Launch authorized run"}</button>
+            {editCampaignId ? <div className="edit-launch-actions"><button type="button" className="launch" disabled={!ready || (tier === "human" && dailySchedule && scheduleDays.length === 0)} onClick={start}><Check size={18} />Save campaign</button><button type="button" className="launch is-secondary" disabled={!ready || (tier === "human" && dailySchedule && scheduleDays.length === 0)} onClick={() => submitCampaignEdit("restart")}><RefreshCw size={18} />Save and restart</button><Link className="edit-cancel" href="/#campaigns">Cancel editing</Link></div> : <button type="button" className="launch" disabled={!ready || (tier === "human" && dailySchedule && scheduleDays.length === 0)} onClick={start}><Play size={18} fill="currentColor" />{tier === "human" && dailySchedule ? "Save daily schedule" : "Launch authorized run"}</button>}
             {!proxyConfigured && <p className="credential-note">Enter your IPRoyal gateway, port, username, and base password above, then connect it to the local backend.</p>}
             {notice && <p className="notice">{notice}</p>}
           </aside>
@@ -415,7 +499,7 @@ export default function ControlPanel() {
             <label><span>Find a saved campaign</span><input type="search" value={campaignSearch} placeholder="Name, number, URL, customer, or campaign ID" onChange={(event) => { setCampaignSearch(event.currentTarget.value); setCampaignPage(1); }} /></label>
             <span aria-live="polite">{filteredSavedCampaigns.length.toLocaleString()} matching</span>
           </div>
-          <div className="run-list">{filteredSavedCampaigns.length === 0 ? <div className="empty"><Activity size={24} /><p>{savedCampaigns.length ? "No campaigns match this search." : "No persistent campaigns saved."}</p></div> : visibleSavedCampaigns.map((item) => <article key={item.id}><span className={item.status === "running" ? "pulse" : "pulse ended"} /><div><b>{String(item.number).padStart(3, "0")} · {item.name}</b><small>Port {item.config.proxyPort} · {item.config.seedUrl}</small></div><strong>{item.status.toUpperCase()}</strong><Link href={`/runs/${encodeURIComponent(item.id)}/edit`}>Edit</Link><button type="button" disabled={item.status === "running"} onClick={() => send({ type: "start_campaign", payload: { id: item.id } })}><Play size={14} />Start</button><button type="button" onClick={() => send({ type: "restart_campaign", payload: { id: item.id } })}><RefreshCw size={14} />Restart</button><button type="button" disabled={item.status !== "running" && item.status !== "queued"} onClick={() => send({ type: "stop_campaign", payload: { id: item.id } })}><CircleStop size={14} />Stop</button></article>)}</div>
+          <div className="run-list">{filteredSavedCampaigns.length === 0 ? <div className="empty"><Activity size={24} /><p>{savedCampaigns.length ? "No campaigns match this search." : "No persistent campaigns saved."}</p></div> : visibleSavedCampaigns.map((item) => <article key={item.id}><span className={item.status === "running" ? "pulse" : "pulse ended"} /><div><b>{String(item.number).padStart(3, "0")} · {item.name}</b><small>Port {item.config.proxyPort} · {item.config.seedUrl}</small>{item.lastError && <small className="campaign-launch-error">Launch blocked: {item.lastError}{item.retryCount ? ` · retry ${item.retryCount}` : ""}</small>}</div><strong>{item.status.toUpperCase()}</strong><Link href={`/runs/${encodeURIComponent(item.id)}/edit`}>Edit</Link><button type="button" disabled={item.status === "running"} onClick={() => send({ type: "start_campaign", payload: { id: item.id } })}><Play size={14} />Start</button><button type="button" onClick={() => send({ type: "restart_campaign", payload: { id: item.id } })}><RefreshCw size={14} />Restart</button><button type="button" disabled={item.status !== "running" && item.status !== "queued"} onClick={() => send({ type: "stop_campaign", payload: { id: item.id } })}><CircleStop size={14} />Stop</button></article>)}</div>
           {filteredSavedCampaigns.length > campaignPageSize && <nav className="campaign-pagination" aria-label="Saved campaign pages"><button type="button" disabled={visibleCampaignPage <= 1} onClick={() => setCampaignPage(Math.max(1, visibleCampaignPage - 1))}>Previous</button><span>Page {visibleCampaignPage.toLocaleString()} of {campaignPageCount.toLocaleString()}</span><button type="button" disabled={visibleCampaignPage >= campaignPageCount} onClick={() => setCampaignPage(Math.min(campaignPageCount, visibleCampaignPage + 1))}>Next</button></nav>}
         </section>
 

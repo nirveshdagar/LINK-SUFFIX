@@ -7,6 +7,11 @@ const DEFAULT_LEASE_MS = 15_000;
 const MIN_LEASE_MS = 5_000;
 const MAX_LEASE_MS = 120_000;
 const MAX_EVENT_BYTES = 256 * 1024;
+const DEFAULT_MAX_STATE_BYTES = 64 * 1024 * 1024;
+const configuredMaxStateBytes = Number(process.env.TAH_MAX_CONTROL_STATE_BYTES || DEFAULT_MAX_STATE_BYTES);
+const MAX_STATE_BYTES = Number.isFinite(configuredMaxStateBytes)
+  ? Math.max(MAX_EVENT_BYTES, Math.trunc(configuredMaxStateBytes))
+  : DEFAULT_MAX_STATE_BYTES;
 
 function boundedLeaseMs(value) {
   const parsed = Number(value);
@@ -19,10 +24,10 @@ function sslConfig() {
   return { rejectUnauthorized: process.env.TAH_DATABASE_SSL_REJECT_UNAUTHORIZED !== "false" };
 }
 
-function safePayload(value) {
+function safePayload(value, maximumBytes = MAX_EVENT_BYTES) {
   const encoded = JSON.stringify(value ?? null);
-  if (Buffer.byteLength(encoded, "utf8") > MAX_EVENT_BYTES) {
-    throw new Error(`Distributed payload exceeds ${MAX_EVENT_BYTES} bytes`);
+  if (Buffer.byteLength(encoded, "utf8") > maximumBytes) {
+    throw new Error(`Distributed payload exceeds ${maximumBytes} bytes`);
   }
   return JSON.parse(encoded);
 }
@@ -206,7 +211,7 @@ export async function createDistributedControlStore({
     }
     const requestedName = typeof nameOrState === "string" ? nameOrState : stateName;
     const state = typeof nameOrState === "string" ? stateOrMetadata : nameOrState;
-    const payload = safePayload(state);
+    const payload = safePayload(state, MAX_STATE_BYTES);
     const result = await pool.query(
       `INSERT INTO tah_control_state (name, payload, version, updated_at, updated_by, fencing_token)
        SELECT $1, $2::jsonb, 1, NOW(), $3, $4

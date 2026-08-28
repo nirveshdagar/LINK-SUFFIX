@@ -10,6 +10,7 @@ import { createDistributedControlStore } from "./distributed-store.mjs";
 import { extractExactQuerySuffix } from "./exact-suffix.mjs";
 import { verifySessionToken } from "../lib/session-token.mjs";
 import { computeCampaignLaunchGapMs, evaluateResourceAdmission } from "./resource-admission.mjs";
+import { createSerializedStateWriter } from "./serialized-state-writer.mjs";
 
 function normalizedGoogleAdsId(value) {
   return String(value ?? "").replace(/\D/g, "");
@@ -47,17 +48,6 @@ async function scriptBridgeRequest(body) {
   return result;
 }
 const PORT = Number(process.env.WS_PORT ?? 3101);
-let distributedStateWriteTail = Promise.resolve();
-function queueDistributedStateSave(value) {
-  const snapshot = typeof structuredClone === "function" ? structuredClone(value) : JSON.parse(JSON.stringify(value));
-  distributedStateWriteTail = distributedStateWriteTail
-    .catch(() => undefined)
-    .then(() => distributedStore.saveState(snapshot))
-    .catch((error) => {
-      process.stderr.write(`${JSON.stringify({ level: "error", event: "control.state.persist_failed", message: error instanceof Error ? error.message : String(error), ts: new Date().toISOString() })}\n`);
-    });
-  return distributedStateWriteTail;
-}
 const ROOT = process.env.WORKSPACE_ROOT ?? process.cwd();
 const ORCH = process.env.ORCH_BIN ?? path.join(ROOT, "packages/orchestrator/dist/cli.js");
 const SCENARIOS = process.env.SCENARIO_DIR ?? path.join(ROOT, "runs", "scenarios");
@@ -101,6 +91,7 @@ const distributedStore = await createDistributedControlStore({
   instanceId: controlInstanceId,
   required: process.env.TAH_DISTRIBUTED_REQUIRED === "true",
 });
+const queueDistributedStateSave = createSerializedStateWriter((name, value) => distributedStore.saveState(name, value));
 const leaderLeaseMs = Math.max(5_000, Number(process.env.TAH_LEADER_LEASE_MS ?? 15_000));
 
 function acquireControlLock() {
@@ -825,10 +816,12 @@ async function pumpCampaignQueue() {
         campaign.retryCount = 0;
         campaign.nextRetryAt = undefined;
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         campaign.retryCount = Math.min(10, Number(campaign.retryCount ?? 0) + 1);
         campaign.nextRetryAt = Date.now() + Math.min(300_000, 5_000 * (2 ** (campaign.retryCount - 1)));
         campaign.status = "queued";
-        campaign.lastError = error instanceof Error ? error.message : String(error);
+        campaign.lastError = message;
+        process.stderr.write(`${JSON.stringify({ level: "error", event: "campaign.launch_failed", campaignId: campaign.id, retryCount: campaign.retryCount, nextRetryAt: campaign.nextRetryAt, message, ts: new Date().toISOString() })}\n`);
       }
       nextCampaignStartAt = Date.now() + CAMPAIGN_START_GAP_MS;
       persistCampaigns();
@@ -1003,12 +996,13 @@ async function handle(ws, msg) {
       const campaign = saveCampaign(msg.payload ?? {}, clean(msg.payload?.id, 120));
       send(ws, "campaign_saved", publicCampaign(campaign));
       broadcastCampaigns();
+      void pumpCampaignQueue();
     }
     else if (msg.type === "list_campaigns") { send(ws, "campaigns", listCampaigns()); send(ws, "capacity", { activeLimit, active: activeRuns().length, queued: [...campaigns.values()].filter(campaign => campaign.status === "queued").length, lockedPorts: [...lockedPorts()] }); }
     else if (msg.type === "start_campaign") {
       const campaign = campaigns.get(clean(msg.payload?.id, 120));
       if (!campaign) throw new Error("Campaign was not found");
-      if (!campaign.activeRunId) { campaign.desiredRunning = true; campaign.status = "queued"; campaign.lastError = undefined; persistCampaigns(); }
+      if (!campaign.activeRunId) { campaign.desiredRunning = true; campaign.status = "queued"; campaign.lastError = undefined; campaign.retryCount = 0; campaign.nextRetryAt = undefined; persistCampaigns(); }
       broadcastCampaigns();
       void pumpCampaignQueue();
     }
@@ -1030,6 +1024,9 @@ async function handle(ws, msg) {
       campaign.desiredRunning = true;
       campaign.status = "queued";
       campaign.restartPending = Boolean(run);
+      campaign.lastError = undefined;
+      campaign.retryCount = 0;
+      campaign.nextRetryAt = undefined;
       if (run) terminateRun(run); else void pumpCampaignQueue();
       persistCampaigns();
       broadcastCampaigns();

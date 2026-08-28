@@ -28,8 +28,8 @@ test-results
 playwright-report
 **/playwright-report
 
-runs
-**/runs
+/runs
+/web/runs
 backups
 **/backups
 graphify-out
