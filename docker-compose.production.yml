@@ -1,4 +1,54 @@
 services:
+  postgres:
+    image: postgres:${TAH_POSTGRES_MAJOR:-16}-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tah
+      POSTGRES_PASSWORD: ${TAH_POSTGRES_PASSWORD:?set TAH_POSTGRES_PASSWORD}
+      POSTGRES_DB: tah
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U tah -d tah
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - private
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    environment:
+      TAH_REDIS_PASSWORD: ${TAH_REDIS_PASSWORD:?set TAH_REDIS_PASSWORD}
+    command:
+      - /bin/sh
+      - -ec
+      - exec redis-server --appendonly yes --maxmemory 384mb --maxmemory-policy noeviction --requirepass "$$TAH_REDIS_PASSWORD"
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli -a "$$TAH_REDIS_PASSWORD" ping | grep -q PONG
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - private
   migrate:
     image: traffic-armour-app:${TAH_IMAGE_TAG:-latest}
     restart: on-failure:5
@@ -20,6 +70,11 @@ services:
       - ALL
     networks:
       - private
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
   web:
     build: .
     restart: unless-stopped
@@ -62,6 +117,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
   control:
     restart: unless-stopped
     command:
@@ -101,6 +158,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
   caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
@@ -143,6 +202,11 @@ services:
     networks:
       - private
     image: traffic-armour-app:${TAH_IMAGE_TAG:-latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
   prometheus:
     image: prom/prometheus:v3.5.0
     restart: unless-stopped
@@ -219,6 +283,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10m
+    depends_on:
+      postgres:
+        condition: service_healthy
 networks:
   private:
     internal: false
@@ -229,3 +296,5 @@ volumes:
   alertmanager_data: null
   tah_runs: {}
   postgres_backups: {}
+  postgres_data: {}
+  redis_data: {}

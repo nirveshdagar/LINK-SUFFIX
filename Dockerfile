@@ -24,6 +24,5 @@ COPY --chown=node:node --from=build /app /app
 RUN mkdir -p /app/runs && chown node:node /app/runs
 
 USER node
-USER node
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["npm", "--workspace", "web", "run", "start"]
