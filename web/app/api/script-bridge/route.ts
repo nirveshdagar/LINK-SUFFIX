@@ -8,6 +8,7 @@ import {
   enqueueBridgeCapture,
   listBridgeTargets,
   queueLatestBridgeCapture,
+  setBridgeTargetArchived,
   setBridgeTargetEnabled,
   upsertBridgeTarget,
 } from "@/lib/script-bridge-store";
@@ -101,6 +102,13 @@ export async function POST(request: Request) {
       await setBridgeTargetEnabled(campaignRecordId, enabled);
       const delivery = enabled ? await queueLatestBridgeCapture(campaignRecordId) : undefined;
       return NextResponse.json({ ok: true, delivery });
+    }
+    if (action === "archive-target") {
+      if (!hasValidApiAuth(request, { envVarName: "TAH_API_BEARER_TOKEN", scope: "control" })) {
+        return NextResponse.json({ error: "Control authentication required" }, { status: 401 });
+      }
+      const target = await setBridgeTargetArchived(String(body.targetId || ""), body.archived !== false);
+      return NextResponse.json({ ok: true, target, state: body.archived !== false ? "archived" : "restored" });
     }
     if (action === "generate-worker") {
       if (!hasValidApiAuth(request, { envVarName: "TAH_API_BEARER_TOKEN", scope: "control" })) return NextResponse.json({ error: "Control authentication required" }, { status: 401 });

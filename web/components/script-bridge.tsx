@@ -333,6 +333,29 @@ export function ScriptBridge({
     }, 1200);
   }
 
+  async function archiveFleetTarget(campaign: BridgeCampaign) {
+    if (!window.confirm(`Archive ${campaign.campaign_name} from Fleet delivery? Its suffix and delivery history will be preserved.`)) return;
+    setActionCampaignId(campaign.campaign_record_id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/script-bridge", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "archive-target", targetId: campaign.target_id, archived: true }),
+      });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error || "Fleet archive failed");
+      setNotice(`${campaign.campaign_name} was archived. Its captures and delivery history were preserved.`);
+      await refresh(undefined, true);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Fleet archive failed");
+    } finally {
+      setActionCampaignId("");
+    }
+  }
+
   const summary = status?.summary;
   const fleetCampaigns = status?.campaigns;
   const totalPages = Math.max(1, Math.ceil((fleetCampaigns?.total || 0) / (fleetCampaigns?.pageSize || 25)));
@@ -493,6 +516,9 @@ export function ScriptBridge({
                           {busy ? "Saving..." : campaign.enabled ? "Pause" : "Resume"}
                         </button>
                       )}
+                      <button className="bridge-inline-action" type="button" disabled={busy} onClick={() => void archiveFleetTarget(campaign)}>
+                        {busy ? "Archiving..." : "Archive from Fleet"}
+                      </button>
                     </td>
                   </tr>
                 );

@@ -154,6 +154,7 @@ export async function upsertBridgeTarget(input: BridgeTargetInput) {
            google_campaign_id=EXCLUDED.google_campaign_id,
            shard_id=EXCLUDED.shard_id,
            enabled=true,
+           archived_at=NULL,
            updated_at=now()
          RETURNING target_id,shard_id`,
         [id, input.campaignRecordId, input.campaignName, managerCustomerId, customerId, googleCampaignId, assignedShardId, MIN_INTERVAL_MS],
@@ -499,7 +500,7 @@ export async function listBridgeTargets(options: { query?: string; page?: number
        SELECT state,attempt_count,last_error,applied_at,created_at FROM tah_delivery_jobs
        WHERE target_id=t.target_id AND capture_id=latest.capture_id ORDER BY created_at DESC LIMIT 1
      ) job ON true
-     WHERE t.enabled AND ($1='' OR t.campaign_name ILIKE $2 ESCAPE '\\' OR t.campaign_record_id ILIKE $2 ESCAPE '\\'
+     WHERE t.enabled AND t.archived_at IS NULL AND ($1='' OR t.campaign_name ILIKE $2 ESCAPE '\\' OR t.campaign_record_id ILIKE $2 ESCAPE '\\'
             OR t.customer_id ILIKE $2 ESCAPE '\\' OR t.google_campaign_id ILIKE $2 ESCAPE '\\')
      ORDER BY t.updated_at DESC
      LIMIT $3 OFFSET $4`,
@@ -511,7 +512,7 @@ export async function listBridgeTargets(options: { query?: string; page?: number
 export async function setBridgeTargetEnabled(campaignRecordId: string, enabled: boolean) {
   await transaction(async (client) => {
     const result = await client.query(
-      "UPDATE tah_campaign_targets SET enabled=$2,updated_at=now() WHERE campaign_record_id=$1 RETURNING target_id",
+      "UPDATE tah_campaign_targets SET enabled=$2,updated_at=now() WHERE campaign_record_id=$1 AND archived_at IS NULL RETURNING target_id",
       [campaignRecordId, enabled],
     );
     if (result.rowCount !== 1) throw new Error("Campaign target was not found");
@@ -526,19 +527,74 @@ export async function setBridgeTargetEnabled(campaignRecordId: string, enabled: 
   });
 }
 
+export async function setBridgeTargetArchived(targetIdValue: string, archived: boolean) {
+  const id = targetIdValue.trim();
+  if (!/^[a-f0-9]{40}$/i.test(id)) throw new Error("A valid Fleet target ID is required");
+  return transaction(async (client) => {
+    const current = await client.query(
+      `SELECT target_id,campaign_record_id,campaign_name,manager_customer_id,shard_id,enabled,archived_at
+         FROM tah_campaign_targets WHERE target_id=$1 FOR UPDATE`,
+      [id],
+    );
+    if (current.rowCount !== 1) throw new Error("Campaign target was not found");
+    const target = current.rows[0];
+    if (!archived) {
+      const occupancy = await client.query(
+        `SELECT count(*)::int AS count,
+                min(NULLIF(manager_customer_id,'')) AS manager_customer_id,
+                count(DISTINCT NULLIF(manager_customer_id,''))::int AS manager_count
+           FROM tah_campaign_targets
+          WHERE enabled AND archived_at IS NULL AND shard_id=$1 AND target_id<>$2`,
+        [target.shard_id, id],
+      );
+      const occupied = Number(occupancy.rows[0]?.count || 0);
+      const existingManager = String(occupancy.rows[0]?.manager_customer_id || "");
+      const managerCount = Number(occupancy.rows[0]?.manager_count || 0);
+      if (managerCount > 1 || (existingManager && existingManager !== String(target.manager_customer_id || ""))) {
+        throw new Error(`Fleet shard ${target.shard_id} belongs to another MCC account`);
+      }
+      if (occupied >= SHARD_CAPACITY) throw new Error(`Fleet shard ${target.shard_id} is full`);
+    }
+    const updated = await client.query(
+      `UPDATE tah_campaign_targets
+          SET enabled=NOT $2,
+              archived_at=CASE WHEN $2 THEN COALESCE(archived_at,now()) ELSE NULL END,
+              updated_at=now()
+        WHERE target_id=$1
+        RETURNING target_id,campaign_record_id,campaign_name,shard_id,enabled,archived_at`,
+      [id, archived],
+    );
+    if (archived) {
+      await client.query(
+        `UPDATE tah_delivery_jobs SET state='superseded',leased_at=NULL,leased_until=NULL,
+           lease_token_hash=NULL,worker_id=NULL,updated_at=now()
+         WHERE target_id=$1 AND state IN ('pending','failed','leased')`,
+        [id],
+      );
+    }
+    await client.query(
+      `INSERT INTO tah_audit_log(actor_id,action,resource_type,resource_id,details)
+       VALUES ('dashboard-session',$1,'fleet_target',$2,
+               jsonb_build_object('campaign_record_id',$3::text,'campaign_name',$4::text,'shard_id',$5::text,'history_preserved',true))`,
+      [archived ? "fleet.target.archived" : "fleet.target.restored", id, target.campaign_record_id, target.campaign_name, target.shard_id],
+    );
+    return updated.rows[0];
+  });
+}
+
 export async function bridgeShardStatus() {
   const result = await getPool().query(
     `WITH shard_ids AS (
        SELECT shard_id FROM tah_script_shards
        UNION
-       SELECT shard_id FROM tah_campaign_targets WHERE enabled
+       SELECT shard_id FROM tah_campaign_targets WHERE enabled AND archived_at IS NULL
      )
      SELECT ids.shard_id,
             COALESCE(s.enabled,false) AS enabled,
             (s.shard_id IS NOT NULL) AS registered,
             s.last_poll_at,s.last_ack_at,s.last_error,s.updated_at,
-            (count(t.target_id) FILTER (WHERE t.enabled))::int AS campaign_count,
-            min(NULLIF(t.manager_customer_id,'')) FILTER (WHERE t.enabled) AS manager_customer_id,
+            (count(t.target_id) FILTER (WHERE t.enabled AND t.archived_at IS NULL))::int AS campaign_count,
+            min(NULLIF(t.manager_customer_id,'')) FILTER (WHERE t.enabled AND t.archived_at IS NULL) AS manager_customer_id,
             ${SHARD_CAPACITY}::int AS capacity
        FROM shard_ids ids
        LEFT JOIN tah_script_shards s ON s.shard_id=ids.shard_id
