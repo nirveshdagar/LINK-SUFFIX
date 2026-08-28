@@ -6,9 +6,8 @@ geo:
   state: CA
   city: LosAngeles
 proxy_mode: rotating-residential
-repeats: 20
+repeats: 50
 concurrent: 5
-expected_verdict: challenge
 verdict_detection:
   challenge_signatures: [cloudflare, hcaptcha, datadome, perimeterx, akamai, generic]
   challenge_html: true

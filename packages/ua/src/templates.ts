@@ -35,8 +35,8 @@ const macSafariTpl = (id: string, buildMajor: number, locale: string, cityAffini
 
 const macChromeTpl = (id: string, buildMajor: number, locale: string, cityAffinity: UaTemplate['cityAffinity']): UaTemplate => ({
   id, family: 'mac-chrome', cityAffinity,
-  uaPattern: `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/__BUILD__.0.0.0 Safari/537.36`,
-  buildRange: { minMajor: buildMajor, maxMajor: buildMajor, minMinor: 0, maxMinor: 99 },
+  uaPattern: `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/__BUILD__ Safari/537.36`,
+  buildRange: { minMajor: buildMajor, maxMajor: buildMajor, minMinor: buildMajor === 118 ? 5993 : 6367, maxMinor: buildMajor === 118 ? 5993 : 6367 },
   viewport: { w: 2560, h: 1440, dpr: 2 },
   hardware: { cores: [8, 12], memoryGb: [16, 32] },
   webgl: { vendors: ['Google Inc. (NVIDIA)'], renderers: ['ANGLE (NVIDIA GeForce RTX)'] },
@@ -46,8 +46,8 @@ const macChromeTpl = (id: string, buildMajor: number, locale: string, cityAffini
 
 const winChromeTpl = (id: string, buildMajor: number, locale: string, cityAffinity: UaTemplate['cityAffinity']): UaTemplate => ({
   id, family: 'windows-chrome', cityAffinity,
-  uaPattern: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/__BUILD__.0.0.0 Safari/537.36`,
-  buildRange: { minMajor: buildMajor, maxMajor: buildMajor, minMinor: 0, maxMinor: 99 },
+  uaPattern: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/__BUILD__ Safari/537.36`,
+  buildRange: { minMajor: buildMajor, maxMajor: buildMajor, minMinor: buildMajor === 110 ? 5481 : buildMajor === 118 ? 5993 : 6367, maxMinor: buildMajor === 110 ? 5481 : buildMajor === 118 ? 5993 : 6367 },
   viewport: { w: 1920, h: 1080, dpr: 1 },
   hardware: { cores: [4, 16], memoryGb: [8, 32] },
   webgl: { vendors: ['Google Inc. (NVIDIA)'], renderers: ['ANGLE (NVIDIA GeForce RTX)'] },
@@ -57,7 +57,7 @@ const winChromeTpl = (id: string, buildMajor: number, locale: string, cityAffini
 
 const winEdgeTpl = (id: string, buildMajor: number, locale: string, cityAffinity: UaTemplate['cityAffinity']): UaTemplate => ({
   id, family: 'windows-edge', cityAffinity,
-  uaPattern: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/__BUILD__.0.0.0 Safari/537.36 Edg/__BUILD__.0.0.0`,
+  uaPattern: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/__BUILD__ Safari/537.36 Edg/__BUILD__`,
   buildRange: { minMajor: buildMajor, maxMajor: buildMajor, minMinor: 0, maxMinor: 99 },
   viewport: { w: 1920, h: 1080, dpr: 1 },
   hardware: { cores: [4, 16], memoryGb: [8, 32] },

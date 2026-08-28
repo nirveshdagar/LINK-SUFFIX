@@ -13,64 +13,40 @@
       "path": "../contracts"
     },
     {
-      "path": {
-        "path": "../antidetect"
-      }
+      "path": "../antidetect"
     },
     {
-      "path": {
-        "path": "../dashboard"
-      }
+      "path": "../dashboard"
     },
     {
-      "path": {
-        "path": "../mitm"
-      }
+      "path": "../mitm"
     },
     {
-      "path": {
-        "path": "../profiles"
-      }
+      "path": "../profiles"
     },
     {
-      "path": {
-        "path": "../proxy"
-      }
+      "path": "../proxy"
     },
     {
-      "path": {
-        "path": "../tiers/headless-browser"
-      }
+      "path": "../tiers/headless-browser"
     },
     {
-      "path": {
-        "path": "../tiers/human-sim"
-      }
+      "path": "../tiers/human-sim"
     },
     {
-      "path": {
-        "path": "../tiers/stealth-browser"
-      }
+      "path": "../tiers/stealth-browser"
     },
     {
-      "path": {
-        "path": "../tiers/trivial-http"
-      }
+      "path": "../tiers/trivial-http"
     },
     {
-      "path": {
-        "path": "../tz"
-      }
+      "path": "../tz"
     },
     {
-      "path": {
-        "path": "../ua"
-      }
+      "path": "../ua"
     },
     {
-      "path": {
-        "path": "../verdict"
-      }
+      "path": "../verdict"
     }
   ]
 }

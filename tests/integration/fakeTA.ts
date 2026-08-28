@@ -29,8 +29,6 @@ const execFileP = promisify(execFile);
 
 const IMAGE_TAG = 'tah-fake-ta:dev';
 const CONTAINER_NAME = `tah-fake-ta-${process.pid}-${Date.now()}`;
-const HOST_PORT = 8080;
-const PUBLIC_URL = `http://127.0.0.1:${HOST_PORT}`;
 
 export interface FakeTAHandle {
   url: string;
@@ -90,7 +88,8 @@ async function resolveDocker(): Promise<string> {
 }
 
 /**
- * Build the fake-TA image (idempotent) and run it bound to HOST_PORT.
+ * Build the fake-TA image (idempotent) and let Docker allocate a free
+ * loopback host port.
  * Polls `GET /` for up to ~10s and returns the URL once nginx is up.
  */
 export async function startFakeTA(imageContextDir?: string): Promise<FakeTAHandle> {
@@ -108,31 +107,40 @@ export async function startFakeTA(imageContextDir?: string): Promise<FakeTAHandl
   // Best-effort cleanup of any stale container with the same name.
   await execFileP(docker, ['rm', '-f', CONTAINER_NAME]).catch(() => undefined);
 
-  // Run detached, bind 8080->8080, auto-remove on exit.
+  // Run detached, publish container port 8080 on an available loopback port,
+  // and discover the assigned mapping. This avoids collisions with local
+  // development services.
   await execFileP(docker, [
     'run', '-d',
     '--name', CONTAINER_NAME,
-    '-p', `${HOST_PORT}:8080`,
+    '-p', '127.0.0.1::8080',
     '--rm',
     IMAGE_TAG,
   ]);
+  const { stdout: mapping } = await execFileP(docker, ['port', CONTAINER_NAME, '8080/tcp']);
+  const port = mapping.match(/:(\d+)\s*$/m)?.[1];
+  if (!port) {
+    await execFileP(docker, ['rm', '-f', CONTAINER_NAME]).catch(() => undefined);
+    throw new Error(`Docker did not publish fake TA port 8080: ${mapping.trim()}`);
+  }
+  const publicUrl = `http://127.0.0.1:${port}`;
 
   // Poll until nginx answers (max 10s).
   const deadline = Date.now() + 10_000;
   let lastErr: unknown;
   while (Date.now() < deadline) {
     try {
-      const res = await request(PUBLIC_URL, { method: 'GET' });
+      const res = await request(publicUrl, { method: 'GET' });
       await res.body.dump();
       if (res.statusCode === 200 || res.statusCode === 403) {
-        return { url: PUBLIC_URL, containerName: CONTAINER_NAME, imageTag: IMAGE_TAG };
+        return { url: publicUrl, containerName: CONTAINER_NAME, imageTag: IMAGE_TAG };
       }
     } catch (e) {
       lastErr = e;
     }
     await delay(250);
   }
-  throw new Error(`fake TA never came up at ${PUBLIC_URL}: ${String(lastErr)}`);
+  throw new Error(`fake TA never came up at ${publicUrl}: ${String(lastErr)}`);
 }
 
 /** Stop and remove the container. Safe to call multiple times. */

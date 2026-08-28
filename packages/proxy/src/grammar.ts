@@ -2,7 +2,7 @@
 // configured per-session inside the proxy URL path via IP Royal's session
 // router (e.g. /country-US-state-CA-city-LosAngeles/), or via the account
 // dashboard. The username is the literal account name.
-export const IPROYAL_USERNAME_REGEX = /^[A-Za-z0-9_-]+$/;
+export const IPROYAL_USERNAME_REGEX = /^[A-Za-z0-9._-]+$/;
 
 export interface Hostnames {
   'rotating-residential': string;
@@ -16,4 +16,4 @@ export const HOSTNAMES: Hostnames = {
   'sticky-residential': process.env.IPROYAL_HOSTNAME ?? DEFAULT_IPROYAL_HOSTNAME,
 };
 
-export const PROXY_PORT = 51230;
+export const PROXY_PORT = Number(process.env.IPROYAL_PORT ?? 12321);

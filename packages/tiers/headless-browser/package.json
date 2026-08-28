@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@tah/orchestrator": "*",
+    "@tah/antidetect": "*",
     "@tah/proxy": "*",
     "@tah/verdict": "*",
     "@tah/profiles": "*",
@@ -20,6 +21,6 @@
     "undici": "^6.20.0"
   },
   "devDependencies": {
-    "vitest": "^1.6.0"
+    "vitest": "^4.1.11"
   }
 }

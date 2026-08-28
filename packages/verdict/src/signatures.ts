@@ -17,7 +17,9 @@ export interface Signature {
 
 export const DEFAULT_SIGNATURES: Record<SignatureName, Signature> = {
   cloudflare: {
-    headers: ['cf-ray', 'cf-cache-status', 'server:cloudflare', 'server:cloudflare,'],
+    // CDN presence is not challenge evidence. Only mitigation-specific headers
+    // should vote challenge; ordinary cf-ray/server headers are telemetry only.
+    headers: ['cf-mitigated:challenge', 'cf-chl-out', 'x-cf-chl-bypass'],
     cookies: ['cf_clearance', '__cf_bm'],
     body: ['cf-chl-bypass', 'cf-challenge', '/cdn-cgi/challenge-platform/', 'cf-captcha-container'],
   },
@@ -32,7 +34,7 @@ export const DEFAULT_SIGNATURES: Record<SignatureName, Signature> = {
   perimeterx: {
     headers: ['x-px', 'x-perimeterx'],
     cookies: ['_px3', '_pxde', '_pxvid'],
-    body: ['px-captcha', 'client.perimeterx.net'],
+    body: ['px-captcha', 'client.perimeterx.net', 'captcha.px-cdn.net', 'press and hold', '_pxhd', 'perimeterx'],
   },
   akamai: {
     headers: ['x-akamai', 'x-true-client-ip', 'x-akamai-grn-'],

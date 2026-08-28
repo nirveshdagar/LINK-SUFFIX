@@ -1,0 +1,31 @@
+groups:
+  - name: tah-control
+    rules:
+      - alert: TahControlUnavailable
+        expr: up{job="tah-control"} == 0
+        for: 1m
+        labels: { severity: critical }
+      - alert: TahLeaderLost
+        expr: tah_control_leader < 1
+        for: 30s
+        labels: { severity: critical }
+      - alert: TahDatabaseUnavailable
+        expr: tah_postgres_healthy < 1 or tah_redis_healthy < 1
+        for: 30s
+        labels: { severity: critical }
+      - alert: TahQueueBacklog
+        expr: tah_campaigns_queued > 100
+        for: 10m
+        labels: { severity: warning }
+      - alert: TahWorkerFailures
+        expr: tah_campaigns_error > 0
+        for: 5m
+        labels: { severity: warning }
+      - alert: TahAdsFailures
+        expr: tah_ads_errors > 0
+        for: 5m
+        labels: { severity: warning }
+      - alert: TahProxyUnavailable
+        expr: tah_proxy_verified < 1
+        for: 2m
+        labels: { severity: warning }

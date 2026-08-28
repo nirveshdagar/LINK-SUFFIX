@@ -18,7 +18,19 @@ export function synthesizeUA(
   template: UaTemplate,
   opts: SynthesizeOpts = {},
 ): SynthesizedFingerprint {
-  const build = opts.build ?? `${pickInt(template.buildRange.minMajor, template.buildRange.maxMajor)}_${pickInt(template.buildRange.minMinor, template.buildRange.maxMinor)}`;
+  const major = pickInt(template.buildRange.minMajor, template.buildRange.maxMajor);
+  const minor = pickInt(template.buildRange.minMinor, template.buildRange.maxMinor);
+  const generatedBuild = /Android __BUILD__/.test(template.uaPattern)
+    ? `${major}`
+    : /(?:iPhone OS|CPU OS)/.test(template.uaPattern)
+      ? `${major}_${minor}`
+      : /(?:Chrome|Edg)\/__BUILD__/.test(template.uaPattern)
+        ? `${major}.0.${minor}.${pickInt(40, 199)}`
+        : `${major}.${minor}`;
+  const requestedBuild = opts.build ?? generatedBuild;
+  const build = template.uaPattern.includes('Chrome/') && /^\d+$/.test(requestedBuild)
+    ? `${requestedBuild}.0.0.0`
+    : requestedBuild;
   const ua = template.uaPattern.replace(/__BUILD__/g, build);
   const cores = pickInt(template.hardware.cores[0], template.hardware.cores[1]);
   const mem = pickInt(template.hardware.memoryGb[0], template.hardware.memoryGb[1]);

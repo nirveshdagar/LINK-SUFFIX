@@ -206,7 +206,7 @@ coverage/
 ```
 IPROYAL_USER=
 IPROYAL_PASS=
-MAXMIND_DB_PATH=./GeoLite2-City.mmdb
+<set-in-environment>
 ```
 
 - [ ] **Step 5: Write minimal `README.md`**
@@ -2331,7 +2331,7 @@ async function main() {
 main().catch((e) => { console.error(e); process.exit(99); });
 ```
 
-- [ ] **Step 6: Smoke test:** `IPROYAL_USER=u IPROYAL_PASS=p TAH_RUN_SMOKE=1 npm run run -- --scenario scenarios/trivial-burst-homepage.yaml` — expect JSONL line emitted, dashboard reachable, exit 0 (or the appropriate error from the fake TA / no-network path).
+- [ ] **Step 6: Smoke test:** `IPROYAL_USER=u IPROYAL_PASS=<set-in-environment>
 
 - [ ] **Step 7: Type-check + commit**
 

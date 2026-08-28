@@ -2,8 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { loadProfile, listProfiles } from './loader.js';
 
 describe('profiles', () => {
-  it('lists 5 default profiles', () => {
-    expect(listProfiles()).toHaveLength(5);
+  it('lists the expanded desktop and mobile profile pool', () => {
+    const profiles = listProfiles();
+    expect(profiles.length).toBeGreaterThanOrEqual(20);
+    expect(profiles.some((profile) => profile.touch)).toBe(true);
+    expect(profiles.some((profile) => !profile.touch)).toBe(true);
   });
   it('loads iphone-15-safari', () => {
     const p = loadProfile('iphone-15-safari');

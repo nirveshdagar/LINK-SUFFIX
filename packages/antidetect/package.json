@@ -9,11 +9,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@tah/orchestrator": "*",
     "@tah/ua": "*",
     "@tah/tz": "*"
   },
   "devDependencies": {
-    "vitest": "^1.6.0"
+    "vitest": "^4.1.11"
   }
 }

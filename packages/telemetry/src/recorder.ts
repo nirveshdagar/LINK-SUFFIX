@@ -8,18 +8,36 @@
 
 import { writeFileSync } from 'node:fs';
 
+const TAH_MAX_TELEMETRY_FRAMES = Math.max(100, Number(process.env.TAH_MAX_TELEMETRY_FRAMES) || 2000);
+const TAH_MAX_TELEMETRY_EVENTS = Math.max(1000, Number(process.env.TAH_MAX_TELEMETRY_EVENTS) || 20000);
 export type TelemetryEvent =
-  | { type: 'mouse_move'; t: number; x: number; y: number }
-  | { type: 'click'; t: number; x: number; y: number; button: 'left' | 'right' | 'middle'; target: string }
-  | { type: 'scroll'; t: number; deltaY: number; x: number; y: number }
-  | { type: 'keypress'; t: number; key: string; intervalMs: number }
-  | { type: 'focus'; t: number; focused: boolean }
-  | { type: 'hover'; t: number; x: number; y: number; target: string };
+  | { type: 'mouse_move'; t: number; frame_t?: number; x: number; y: number }
+  | { type: 'click'; t: number; frame_t?: number; x: number; y: number; button: 'left' | 'right' | 'middle'; target: string }
+  | { type: 'scroll'; t: number; frame_t?: number; deltaY: number; x: number; y: number }
+  | { type: 'keypress'; t: number; frame_t?: number; keyCategory: string; intervalMs: number }
+  | { type: 'focus'; t: number; frame_t?: number; focused: boolean }
+  | { type: 'hover'; t: number; frame_t?: number; x: number; y: number; target: string };
+
+export type BrowserFrameEvent =
+  | { type: 'mouse_move'; x: number; y: number }
+  | { type: 'click'; x: number; y: number; button: 'left' | 'right' | 'middle'; target: string }
+  | { type: 'scroll'; deltaY: number; x: number; y: number }
+  | { type: 'keypress'; keyCategory: string }
+  | { type: 'focus'; focused: boolean }
+  | { type: 'hover'; x: number; y: number; target: string };
+
+export interface TelemetryFrame {
+  type: 'frame';
+  frame_t: number;
+  wall_time: number;
+  events: BrowserFrameEvent[];
+}
 
 export interface PageSummary {
   page_url: string;
   started_at: number;
   duration_ms: number;
+  frame_count: number;
   event_count: number;
   mouse_move_count: number;
   click_count: number;
@@ -32,6 +50,7 @@ export interface PageSummary {
 
 export class TelemetryRecorder {
   private events: TelemetryEvent[] = [];
+  private frames: TelemetryFrame[] = [];
   private startedAt = Date.now();
   private pageUrl: string;
   private lastKeyTime = 0;
@@ -42,6 +61,7 @@ export class TelemetryRecorder {
 
   record(event: Record<string, unknown>, baseT = Date.now()): void {
     this.events.push({ ...event, t: baseT } as TelemetryEvent);
+    if (this.events.length > TAH_MAX_TELEMETRY_EVENTS) this.events.splice(0, this.events.length - TAH_MAX_TELEMETRY_EVENTS);
   }
 
   recordMouseMove(x: number, y: number): void {
@@ -57,7 +77,7 @@ export class TelemetryRecorder {
     const now = Date.now();
     const intervalMs = this.lastKeyTime ? now - this.lastKeyTime : 0;
     this.lastKeyTime = now;
-    this.record({ type: 'keypress', key, intervalMs });
+    this.record({ type: 'keypress', keyCategory: key.length === 1 ? 'printable' : key.toLowerCase(), intervalMs });
   }
   recordFocus(focused: boolean): void {
     this.record({ type: 'focus', focused });
@@ -66,13 +86,32 @@ export class TelemetryRecorder {
     this.record({ type: 'hover', x, y, target });
   }
 
+  recordFrame(frameT: number, wallTime: number, events: BrowserFrameEvent[]): void {
+    if (!Number.isFinite(frameT) || !Number.isFinite(wallTime) || !Array.isArray(events) || events.length === 0) return;
+    const safeEvents = events.slice(0, 500);
+    this.frames.push({ type: 'frame', frame_t: frameT, wall_time: wallTime, events: safeEvents });
+    if (this.frames.length > TAH_MAX_TELEMETRY_FRAMES) this.frames.splice(0, this.frames.length - TAH_MAX_TELEMETRY_FRAMES);
+    for (const event of safeEvents) {
+      if (event.type === 'keypress') {
+        const intervalMs = this.lastKeyTime ? wallTime - this.lastKeyTime : 0;
+        this.lastKeyTime = wallTime;
+        this.events.push({ ...event, t: wallTime, frame_t: frameT, intervalMs });
+        if (this.events.length > TAH_MAX_TELEMETRY_EVENTS) this.events.splice(0, this.events.length - TAH_MAX_TELEMETRY_EVENTS);
+      } else {
+        this.events.push({ ...event, t: wallTime, frame_t: frameT } as TelemetryEvent);
+        if (this.events.length > TAH_MAX_TELEMETRY_EVENTS) this.events.splice(0, this.events.length - TAH_MAX_TELEMETRY_EVENTS);
+      }
+    }
+  }
+
   /**
    * Convert the accumulated events to JSONL lines. Each line is one event;
    * the final line is the summary with derived statistics.
    */
   flush(): string {
     const endedAt = Date.now();
-    const lines = this.events.map((e) => JSON.stringify(e));
+    const lines = this.frames.map((frame) => JSON.stringify(frame));
+    if (this.frames.length === 0) lines.push(...this.events.map((e) => JSON.stringify(e)));
     lines.push(JSON.stringify(this.buildSummary(endedAt)));
     return lines.join('\n') + '\n';
   }
@@ -100,6 +139,7 @@ export class TelemetryRecorder {
       page_url: this.pageUrl,
       started_at: this.startedAt,
       duration_ms: endedAt - this.startedAt,
+      frame_count: this.frames.length,
       event_count: this.events.length,
       mouse_move_count: moves.length,
       click_count: clicks.length,

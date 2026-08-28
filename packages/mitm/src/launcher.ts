@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync, existsSync, readFileSync, copyFileSync } from 'node:fs';
+import { closeSync, copyFileSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -21,10 +21,12 @@ export interface MitmHandle {
 }
 
 export interface Ja3Record {
+  timestamp: number;
+  correlation_id: string;
   url: string;
-  ja3: string | null;
   ja3_hash: string | null;
-  ja4: string | null;
+  ja3_raw: string | null;
+  sni: string | null;
   tls_version: string | null;
   cipher_suites: number[];
   extensions: number[];
@@ -35,7 +37,7 @@ export async function startMitm(opts: MitmOptions): Promise<MitmHandle> {
   // not bare `tsc -b` invocations which wipe dist without re-running the copy step.
   const addonSrc = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'ja3_addon.py');
   const addonDist = path.join(path.dirname(fileURLToPath(import.meta.url)), 'ja3_addon.py');
-  if (existsSync(addonSrc) && !existsSync(addonDist)) {
+  if (existsSync(addonSrc)) {
     copyFileSync(addonSrc, addonDist);
   }
 
@@ -54,17 +56,20 @@ export async function startMitm(opts: MitmOptions): Promise<MitmHandle> {
   const args = [
     '-s', ADDON_PATH,
     '--mode', `upstream:${upstreamHostPort}`,
+    '--listen-host', '127.0.0.1',
     '--listen-port', String(opts.listenPort),
-    '--set', 'block_global=false',
-    '--set', 'ssl_insecure=true',
+    '--set', 'block_global=true',
     '--set', `confdir=${tmp}`,
   ];
-  if (upstreamAuth) args.push('--upstream-auth', upstreamAuth);
-
   // Pass recorder path to the addon via env var (addon reads it).
-  const proc = spawn('mitmdump', args, {
+  const proc = spawn(process.env.TAH_MITMDUMP_BIN ?? 'mitmdump', args, {
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, TAH_JA3_RECORDER: recorderPath },
+    env: {
+      ...process.env,
+      TAH_JA3_RECORDER: recorderPath,
+      TAH_MITM_UPSTREAM_AUTH: upstreamAuth ?? '',
+    },
+    windowsHide: true,
   });
 
   proc.stdout.on('data', (chunk: Buffer) => {
@@ -77,8 +82,28 @@ export async function startMitm(opts: MitmOptions): Promise<MitmHandle> {
     process.stderr.write(`[mitm] ${chunk.toString('utf8')}`);
   });
 
-  await waitForPort('127.0.0.1', opts.listenPort, 30_000);
-  await waitForCert(caCertPath, 30_000);
+  const stopProcess = async () => {
+    if (proc.exitCode !== null || proc.signalCode !== null) return;
+    const exited = new Promise<void>((resolve) => proc.once('exit', () => resolve()));
+    try { proc.kill('SIGTERM'); } catch { return; }
+    await Promise.race([
+      exited,
+      new Promise<void>((resolve) => setTimeout(() => {
+        try { proc.kill('SIGKILL'); } catch { /* already dead */ }
+        resolve();
+      }, 5_000)),
+    ]);
+  };
+  const cleanupTemp = () => rmSync(tmp, { recursive: true, force: true });
+
+  try {
+    await waitForPort('127.0.0.1', opts.listenPort, 30_000);
+    await waitForCert(caCertPath, 30_000);
+  } catch (error) {
+    await stopProcess();
+    cleanupTemp();
+    throw error;
+  }
 
   return {
     proc,
@@ -86,11 +111,8 @@ export async function startMitm(opts: MitmOptions): Promise<MitmHandle> {
     recorderPath,
     caCertPath,
     shutdown: async () => {
-      // Register exit listener BEFORE killing so a fast exit between
-      // the call and listener attachment doesn't hang the caller.
-      const exited = new Promise<void>((r) => proc.once('exit', () => r()));
-      try { proc.kill('SIGTERM'); } catch { /* already dead */ }
-      await exited;
+      await stopProcess();
+      cleanupTemp();
     },
   };
 }
@@ -126,5 +148,43 @@ export function readJa3Records(recorderPath: string): Ja3Record[] {
   return text
     .split('\n')
     .filter(Boolean)
-    .map((line) => JSON.parse(line) as Ja3Record);
+    .flatMap((line) => {
+      try { return [JSON.parse(line) as Ja3Record]; } catch { return []; }
+    });
+}
+
+export async function waitForJa3Record(recorderPath: string, correlationId: string, timeoutMs = 2_000): Promise<Ja3Record | null> {
+  const startedAt = Date.now();
+  let offset = 0;
+  let partial = '';
+  while (Date.now() - startedAt < timeoutMs) {
+    if (existsSync(recorderPath)) {
+      const size = statSync(recorderPath).size;
+      if (size < offset) {
+        offset = 0;
+        partial = '';
+      }
+      const available = Math.min(size - offset, 1024 * 1024);
+      if (available > 0) {
+        const descriptor = openSync(recorderPath, 'r');
+        try {
+          const buffer = Buffer.allocUnsafe(available);
+          const bytesRead = readSync(descriptor, buffer, 0, available, offset);
+          offset += bytesRead;
+          const lines = (partial + buffer.subarray(0, bytesRead).toString('utf8')).split('\n');
+          partial = lines.pop() ?? '';
+          for (const line of lines) {
+            try {
+              const record = JSON.parse(line) as Ja3Record;
+              if (record.correlation_id === correlationId) return record;
+            } catch { /* an incomplete or corrupt line is not evidence */ }
+          }
+        } finally {
+          closeSync(descriptor);
+        }
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return null;
 }

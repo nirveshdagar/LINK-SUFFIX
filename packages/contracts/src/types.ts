@@ -19,6 +19,18 @@ export interface RawRequestRecord {
   body_snippet?: string;
 }
 
+export interface BehavioralTelemetrySummary {
+  frame_count: number;
+  event_count: number;
+  mouse_move_count: number;
+  click_count: number;
+  scroll_count: number;
+  keypress_count: number;
+  duration_ms: number;
+  mouse_velocity_avg: number;
+  mouse_velocity_max: number;
+}
+
 export type Tier = 'trivial-http' | 'headless' | 'stealth' | 'human';
 
 export interface RequestEvent {
@@ -29,9 +41,20 @@ export interface RequestEvent {
   geo_resolved?: { ip: string; country: string; state?: string; city?: string; verified: boolean };
   proxy_mode: ProxyMode;
   session_id?: string;
+  expected_verdict?: 'block' | 'challenge' | 'allow';
+  expectation_met?: boolean;
   started_at: string;
   pages?: string[];
+  final_landing_url?: string;
   events: RawRequestRecord[];
+  behavior?: BehavioralTelemetrySummary;
+  challenge?: { id?: string; vendor: string; challenge_type: string; reference_id?: string; status: 'pending' | 'resolved' | 'skipped' | 'stopped' | 'timed_out'; redirects: Array<{ from: string; to: string; status: number; at: string }> };
+  affiliate_attribution?: {
+    parameter: 'irclickid';
+    click_id: string;
+    source_url: string;
+    captured_at: string;
+  };
   final_verdict: Vote | 'error';
   timing: { total_ms: number; pages_visited?: number; mouse_moves?: number; scroll_pulses?: number };
   error?: string;
@@ -44,10 +67,14 @@ export interface Scenario {
   device_pool?: string[];
   geo: GeoTarget;
   proxy_mode: ProxyMode;
-  session?: { pages?: { min: number; max: number }; internal_link_probability?: number };
+  session?: { pages?: { min: number; max: number }; internal_link_probability?: number; headless?: boolean; follow_external_redirects?: boolean; visible_hold_seconds?: number; challenge_handling?: { enabled: boolean; persistent?: boolean; timeout_seconds: number; on_timeout: 'skip' | 'stop' } };
+  test_environment?: { mode: 'production' | 'staging' };
+  fingerprint?: { mode?: 'balanced' | 'hardened'; strict_timezone?: boolean };
   concurrent?: number;
+  load_profile?: { mode: 'burst'; target_rps: number; duration_seconds: number; ramp_seconds: number; max_requests: number };
   repeats: number;
-  expected_verdict: 'block' | 'challenge' | 'allow';
+  continuous?: boolean;
+  expected_verdict?: 'block' | 'challenge' | 'allow';
   verdict_detection?: {
     http_status?: boolean;
     challenge_html?: boolean;

@@ -1,0 +1,231 @@
+services:
+  migrate:
+    image: traffic-armour-app:${TAH_IMAGE_TAG:-latest}
+    restart: on-failure:5
+    command:
+      - node
+      - tooling/migrate.mjs
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      NODE_ENV: production
+      TAH_DISTRIBUTED_REQUIRED: "1"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - private
+  web:
+    build: .
+    restart: unless-stopped
+    command:
+      - npm
+      - --workspace
+      - web
+      - run
+      - start
+    expose:
+      - "3100"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3100/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      NODE_ENV: production
+      TAH_DISTRIBUTED_REQUIRED: "1"
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    volumes:
+      - tah_runs:/app/runs
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - private
+    image: traffic-armour-app:${TAH_IMAGE_TAG:-latest}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  control:
+    restart: unless-stopped
+    command:
+      - node
+      - web/server/control.mjs
+    expose:
+      - "3101"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - const net=require('node:net');const s=net.connect(3101,'127.0.0.1',()=>{s.end();process.exit(0)});s.setTimeout(3000,()=>process.exit(1));s.on('error',()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      NODE_ENV: production
+      TAH_DISTRIBUTED_REQUIRED: "1"
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    volumes:
+      - tah_runs:/app/runs
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    shm_size: 2gb
+    networks:
+      - private
+    image: traffic-armour-app:${TAH_IMAGE_TAG:-latest}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - 80:80
+      - 443:443
+    environment:
+      TAH_DOMAIN: ${TAH_DOMAIN:?set TAH_DOMAIN}
+      TAH_TLS_EMAIL: ${TAH_TLS_EMAIL:?set TAH_TLS_EMAIL}
+      TAH_ADMIN_USER: ${TAH_ADMIN_USER:?set TAH_ADMIN_USER}
+      TAH_ADMIN_PASSWORD_HASH: ${TAH_ADMIN_PASSWORD_HASH:?set TAH_ADMIN_PASSWORD_HASH}
+    volumes:
+      - ./Caddyfile.production:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+      control:
+        condition: service_healthy
+    networks:
+      - private
+  metrics-exporter:
+    restart: unless-stopped
+    command:
+      - node
+      - tooling/metrics-exporter.mjs
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      NODE_ENV: production
+    expose:
+      - "3198"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - private
+    image: traffic-armour-app:${TAH_IMAGE_TAG:-latest}
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./monitoring/prometheus.production.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts-production.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - control
+      - alertmanager
+    networks:
+      - private
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    networks:
+      - private
+  alert-dispatcher:
+    restart: unless-stopped
+    command:
+      - node
+      - tooling/alert-dispatcher.mjs
+    env_file:
+      - path: .env.production
+        required: false
+    expose:
+      - "3199"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - private
+    image: traffic-armour-app:${TAH_IMAGE_TAG:-latest}
+  backup:
+    build:
+      context: .
+      dockerfile: Dockerfile.backup
+      args:
+        POSTGRES_MAJOR: ${TAH_POSTGRES_MAJOR:-16}
+    restart: unless-stopped
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      NODE_ENV: production
+      BACKUP_DIR: /backups
+    volumes:
+      - postgres_backups:/backups
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - private
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -f /backups/.last-success && find /backups/.last-success
+          -mmin -1560 | grep -q .
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 10m
+networks:
+  private:
+    internal: false
+volumes:
+  caddy_data: null
+  caddy_config: null
+  prometheus_data: null
+  alertmanager_data: null
+  tah_runs: {}
+  postgres_backups: {}

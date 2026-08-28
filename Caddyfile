@@ -1,0 +1,15 @@
+https://localhost:3443 {
+  tls internal
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+  reverse_proxy host.docker.internal:3100
+}
+
+https://localhost:3444 {
+  tls internal
+  reverse_proxy host.docker.internal:3101
+}

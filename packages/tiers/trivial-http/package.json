@@ -9,12 +9,13 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@tah/mitm": "*",
     "@tah/orchestrator": "*",
     "@tah/proxy": "*",
     "@tah/verdict": "*",
     "undici": "^6.20.0"
   },
   "devDependencies": {
-    "vitest": "^1.6.0"
+    "vitest": "^4.1.11"
   }
 }

@@ -95,13 +95,22 @@ export async function fireWithJa3(
     };
     const req = httpRequest(reqOpts);
     const chunks: Buffer[] = [];
+    let bufferedBytes = 0;
     req.on('response', (res) => {
       const hdrs: Record<string, string> = {};
       for (const [k, v] of Object.entries(res.headers)) {
         if (Array.isArray(v)) hdrs[k] = v.join(', ');
         else if (v != null) hdrs[k] = String(v);
       }
-      res.on('data', (c) => chunks.push(c));
+      res.on('data', (c) => {
+        const incomingChunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
+        const maxBytes = Number(process.env.TAH_MAX_RESPONSE_BODY_BYTES) || 2_000_000;
+        const remaining = Math.max(0, maxBytes - bufferedBytes);
+        if (remaining <= 0) return;
+        const boundedChunk = incomingChunk.length <= remaining ? incomingChunk : incomingChunk.subarray(0, remaining);
+        chunks.push(boundedChunk);
+        bufferedBytes += boundedChunk.length;
+      });
       res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: hdrs, body: Buffer.concat(chunks), fp }));
       res.on('error', reject);
     });

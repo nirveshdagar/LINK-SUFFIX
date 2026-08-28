@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { aggregateVerdict } from './aggregate.js';
-import { defaultStrategies } from './index.js';
+import { DEFAULT_SIGNATURES, defaultStrategies, signatureMatches } from './index.js';
 import type { VerdictInput, VerdictStrategy } from './types.js';
 
 const base: VerdictInput = {
@@ -66,5 +66,18 @@ describe('aggregateVerdict', () => {
     };
     const out = aggregateVerdict(input, ['http_status', 'challenge_html', 'cookies'], defaultStrategies());
     expect(out.final).toBe('challenge');
+  });
+
+  it('does not treat ordinary Cloudflare CDN headers as a challenge', () => {
+    const match = signatureMatches({
+      headers: {
+        server: 'cloudflare',
+        'cf-ray': 'abc-LAX',
+        'cf-cache-status': 'DYNAMIC',
+      },
+      bodySnippet: '',
+      setCookies: [],
+    }, DEFAULT_SIGNATURES.cloudflare);
+    expect(match.matched).toBe(false);
   });
 });

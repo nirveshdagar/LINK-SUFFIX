@@ -1,0 +1,77 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tah
+      POSTGRES_PASSWORD: tah_local_dev
+      POSTGRES_DB: tah
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - tah_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tah -d tah"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:56379:6379"
+    volumes:
+      - tah_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  postgres-backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: tah_local_dev
+    volumes:
+      - ./backups/postgres:/backups
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        while true; do
+          pg_dump -h postgres -U tah -d tah -Fc -f "/backups/tah_$$(date -u +%Y%m%dT%H%M%SZ).dump"
+          find /backups -type f -name 'tah_*.dump' -mtime +14 -delete
+          sleep 86400
+        done
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3443:3443"
+      - "127.0.0.1:3444:3444"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - tah_caddy_data:/data
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:59090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - tah_prometheus_data:/prometheus
+
+volumes:
+  tah_postgres_data:
+  tah_redis_data:
+  tah_caddy_data:
+  tah_prometheus_data:

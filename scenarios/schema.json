@@ -3,12 +3,12 @@
   "$schema": "https://json-schema.org/draft-07/schema#",
   "title": "Traffic Armour scenario",
   "type": "object",
-  "required": ["id", "tier", "seed_url", "geo", "proxy_mode", "repeats", "expected_verdict"],
+  "required": ["id", "tier", "seed_url", "geo", "proxy_mode", "repeats"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "minLength": 1 },
     "tier": { "enum": ["trivial-http", "headless", "stealth", "human"] },
-    "seed_url": { "type": "string", "format": "uri" },
+    "seed_url": { "type": "string", "format": "uri", "pattern": "^https?://" },
     "device_pool": {
       "type": "array",
       "minItems": 1,
@@ -20,11 +20,19 @@
       "additionalProperties": false,
       "properties": {
         "country": { "type": "string", "pattern": "^[A-Z]{2}$" },
-        "state": { "type": "string", "pattern": "^[A-Za-z]+$" },
+        "state": { "type": "string", "pattern": "^[A-Za-z0-9 -]+$" },
         "city": { "type": "string", "pattern": "^[A-Za-z -]+$" }
       }
     },
     "proxy_mode": { "enum": ["rotating-residential", "sticky-residential"] },
+    "fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["balanced", "hardened"], "default": "hardened" },
+        "strict_timezone": { "type": "boolean", "default": true }
+      }
+    },
     "session": {
       "type": "object",
       "additionalProperties": false,
@@ -37,11 +45,44 @@
             "max": { "type": "integer", "minimum": 1 }
           }
         },
-        "internal_link_probability": { "type": "number", "minimum": 0, "maximum": 1 }
+        "internal_link_probability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "headless": { "type": "boolean", "default": true },
+        "follow_external_redirects": { "type": "boolean", "default": false },
+        "visible_hold_seconds": { "type": "integer", "minimum": 0, "maximum": 120, "default": 0 },
+        "challenge_handling": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "timeout_seconds", "on_timeout"],
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "persistent": { "type": "boolean", "default": false },
+            "timeout_seconds": { "type": "integer", "minimum": 30, "maximum": 3600, "default": 300 },
+            "on_timeout": { "enum": ["skip", "stop"], "default": "skip" }
+          }
+        }
       }
     },
-    "concurrent": { "type": "integer", "minimum": 1, "default": 16 },
-    "repeats": { "type": "integer", "minimum": 1 },
+    "test_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": { "mode": { "enum": ["production", "staging"], "default": "production" } }
+    },
+    "concurrent": { "type": "integer", "minimum": 1, "maximum": 100, "default": 16 },
+    "load_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "target_rps", "duration_seconds", "ramp_seconds", "max_requests"],
+      "properties": {
+        "mode": { "const": "burst" },
+        "target_rps": { "type": "integer", "minimum": 1, "maximum": 500 },
+        "duration_seconds": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "ramp_seconds": { "type": "integer", "minimum": 0, "maximum": 60 },
+        "max_requests": { "type": "integer", "minimum": 1, "maximum": 10000 }
+      }
+    },
+    "repeats": { "type": "integer", "minimum": 1, "maximum": 5000 },
+    "continuous": { "type": "boolean", "default": false },
     "expected_verdict": { "enum": ["block", "challenge", "allow"] },
     "verdict_detection": {
       "type": "object",

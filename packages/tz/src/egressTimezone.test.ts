@@ -1,26 +1,27 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { timeZoneFromIP, resetTzCache } from './egressTimezone.js';
 
-// We mock the entire geoip2-lite module because we don't ship a real .mmdb.
-vi.mock('geoip2-lite', () => ({
-  default: {
-    get: (ip: string) => {
-      if (ip === '203.0.113.42') {
-        return {
-          country: { iso_code: 'IN' },
-          subdivisions: [{ iso_code: 'Maharashtra' }],
-          city: { names: { en: 'Mumbai' } },
-        };
-      }
-      if (ip === '198.51.100.5') {
-        return {
-          country: { iso_code: 'US' },
-          subdivisions: [{ iso_code: 'NY' }],
-          city: { names: { en: 'New York' } },
-        };
-      }
-      return null;
-    },
+const { requestMock } = vi.hoisted(() => ({
+  requestMock: vi.fn(async (url: string) => {
+    const timezone = url.includes('203.0.113.42')
+      ? 'Asia/Kolkata'
+      : url.includes('198.51.100.5')
+        ? 'America/New_York'
+        : undefined;
+    return {
+      statusCode: 200,
+      body: {
+        json: async () => ({ timezone }),
+        dump: async () => undefined,
+      },
+    };
+  }),
+}));
+
+vi.mock('undici', () => ({
+  request: requestMock,
+  ProxyAgent: class {
+    close = async () => undefined;
   },
 }));
 
@@ -28,7 +29,6 @@ describe('timeZoneFromIP', () => {
   beforeEach(() => resetTzCache());
 
   it('returns Asia/Kolkata for Mumbai IP', async () => {
-    const buf = Buffer.from('');
     const tz = await timeZoneFromIP('203.0.113.42');
     expect(tz).toBe('Asia/Kolkata');
   });
@@ -44,9 +44,10 @@ describe('timeZoneFromIP', () => {
   });
 
   it('caches result per IP within session', async () => {
-    // First call caches, second call uses cache (no mock call)
+    requestMock.mockClear();
     const t1 = await timeZoneFromIP('203.0.113.42');
     const t2 = await timeZoneFromIP('203.0.113.42');
     expect(t1).toBe(t2);
+    expect(requestMock).toHaveBeenCalledTimes(1);
   });
 });

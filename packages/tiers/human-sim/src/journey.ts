@@ -35,7 +35,9 @@ export async function extractInternalLinks(page: Page, base: URL): Promise<URL[]
  */
 export function pickNextUrl(links: URL[], visitCounts: Map<string, number>): URL | null {
   if (!links.length) return null;
-  const weights = links.map((u) => 1 / (visitCounts.get(u.toString()) ?? 0) + 1);
+  const unseen = links.filter((u) => !visitCounts.has(u.toString()));
+  if (unseen.length) return unseen[Math.floor(Math.random() * unseen.length)]!;
+  const weights = links.map((u) => 1 / ((visitCounts.get(u.toString()) ?? 0) + 1));
   const total = weights.reduce((a, b) => a + b, 0);
   let r = Math.random() * total;
   for (let i = 0; i < links.length; i++) {

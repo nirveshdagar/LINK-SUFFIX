@@ -13,14 +13,10 @@
       "path": "../contracts"
     },
     {
-      "path": {
-        "path": "../ua"
-      }
+      "path": "../ua"
     },
     {
-      "path": {
-        "path": "../tz"
-      }
+      "path": "../tz"
     }
   ]
 }

@@ -12,3 +12,21 @@ __pycache__/
 .browse-state/
 .gstack/
 New folder/
+
+# Production secrets and runtime artifacts
+.env.production
+.env.production.local
+backups/
+*.dump
+*.dump.sha256
+full-project-lines.txt
+.legacy-disabled/
+web/scripts/rolling-script-mesh/
+
+# Machine-local runtime state and generated analysis
+.runtime/
+graphify-out/
+web/ads-capture-state.json
+web/ads-sites.json
+scenarios/test-*-run-*.yaml
+scenarios/ui-*-run-*.yaml

@@ -7,7 +7,7 @@
     "hardware": { "cores": 8, "memoryGb": 16 },
     "webgl": { "vendor": "Google Inc. (NVIDIA)", "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)" },
     "locale": "en-US",
-    "templateIds": ["windows-chrome-110", "windows-chrome-118", "windows-chrome-124", "windows-edge-124"]
+    "templateIds": ["windows-chrome-110", "windows-chrome-118", "windows-chrome-124"]
   },
   {
     "id": "desktop-mac-safari",
@@ -17,7 +17,7 @@
     "hardware": { "cores": 10, "memoryGb": 16 },
     "webgl": { "vendor": "Apple Inc.", "renderer": "Apple M2 Pro" },
     "locale": "en-US",
-    "templateIds": ["mac-safari-15", "mac-safari-16", "mac-safari-17", "mac-chrome-118", "mac-chrome-124"]
+    "templateIds": ["mac-safari-15", "mac-safari-16", "mac-safari-17"]
   },
   {
     "id": "iphone-15-safari",
@@ -48,5 +48,50 @@
     "webgl": { "vendor": "Apple Inc.", "renderer": "Apple M1 GPU" },
     "locale": "en-US",
     "templateIds": ["ipad-air-5-safari", "ipad-pro-11-safari", "ipad-pro-12-9-safari", "ipad-mini-6-safari"]
+  },
+  {
+    "id": "desktop-windows-office-chrome", "uaFamily": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "viewport": { "w": 1920, "h": 1080, "dpr": 1 }, "touch": false, "hardware": { "cores": 8, "memoryGb": 16 }, "webgl": { "vendor": "Google Inc. (Intel)", "renderer": "ANGLE (Intel, Intel Iris Xe Graphics Direct3D11)" }, "locale": "en-US", "templateIds": ["windows-chrome-118", "windows-chrome-124"]
+  },
+  {
+    "id": "desktop-windows-laptop", "uaFamily": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "viewport": { "w": 1536, "h": 864, "dpr": 1.25 }, "touch": false, "hardware": { "cores": 8, "memoryGb": 8 }, "webgl": { "vendor": "Google Inc. (Intel)", "renderer": "ANGLE (Intel UHD Graphics Direct3D11)" }, "locale": "en-US", "templateIds": ["windows-chrome-110", "windows-chrome-118", "windows-chrome-124"]
+  },
+  {
+    "id": "desktop-mac-safari-compact", "uaFamily": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15", "viewport": { "w": 1728, "h": 1117, "dpr": 2 }, "touch": false, "hardware": { "cores": 10, "memoryGb": 16 }, "webgl": { "vendor": "Apple Inc.", "renderer": "Apple M2" }, "locale": "en-US", "templateIds": ["mac-safari-16", "mac-safari-17"]
+  },
+  {
+    "id": "desktop-windows-workstation-chrome", "uaFamily": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "viewport": { "w": 1920, "h": 1080, "dpr": 1 }, "touch": false, "hardware": { "cores": 8, "memoryGb": 16 }, "webgl": { "vendor": "Google Inc. (AMD)", "renderer": "ANGLE (AMD Radeon Graphics Direct3D11)" }, "locale": "en-US", "templateIds": ["windows-chrome-118", "windows-chrome-124"]
+  },
+  {
+    "id": "iphone-14-safari", "uaFamily": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1", "viewport": { "w": 390, "h": 844, "dpr": 3 }, "touch": true, "hardware": { "cores": 6, "memoryGb": 6 }, "webgl": { "vendor": "Apple Inc.", "renderer": "Apple A15 GPU" }, "locale": "en-US", "templateIds": ["iphone-14-pro-safari", "iphone-15-safari"]
+  },
+  {
+    "id": "iphone-se-safari", "uaFamily": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1", "viewport": { "w": 375, "h": 667, "dpr": 2 }, "touch": true, "hardware": { "cores": 6, "memoryGb": 4 }, "webgl": { "vendor": "Apple Inc.", "renderer": "Apple A15 GPU" }, "locale": "en-US", "templateIds": ["iphone-se-3-safari"]
+  },
+  {
+    "id": "android-samsung-s24", "uaFamily": "Mozilla/5.0 (Linux; Android 14; SM-S921B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36", "viewport": { "w": 360, "h": 780, "dpr": 3 }, "touch": true, "hardware": { "cores": 8, "memoryGb": 8 }, "webgl": { "vendor": "Qualcomm", "renderer": "Adreno 750" }, "locale": "en-US", "templateIds": ["samsung-s23-chrome", "samsung-s24-chrome"]
+  },
+  {
+    "id": "android-oneplus", "uaFamily": "Mozilla/5.0 (Linux; Android 14; CPH2581) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36", "viewport": { "w": 412, "h": 915, "dpr": 3.5 }, "touch": true, "hardware": { "cores": 8, "memoryGb": 12 }, "webgl": { "vendor": "Qualcomm", "renderer": "Adreno 750" }, "locale": "en-IN", "templateIds": ["oneplus-11-chrome", "pixel-8-pro-chrome"]
+  },
+  {
+    "id": "android-pixel-compact", "uaFamily": "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36", "viewport": { "w": 393, "h": 851, "dpr": 2.75 }, "touch": true, "hardware": { "cores": 8, "memoryGb": 8 }, "webgl": { "vendor": "Google", "renderer": "Mali-G710" }, "locale": "en-GB", "templateIds": ["pixel-7-chrome", "pixel-8-chrome"]
+  },
+  {
+    "id": "android-tablet-chrome", "uaFamily": "Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "viewport": { "w": 800, "h": 1280, "dpr": 2 }, "touch": true, "hardware": { "cores": 8, "memoryGb": 8 }, "webgl": { "vendor": "Qualcomm", "renderer": "Adreno 730" }, "locale": "en-US", "templateIds": ["samsung-s24-chrome", "pixel-8-chrome"]
+  },
+  {
+    "id": "desktop-nvidia-chrome", "uaFamily": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "viewport": { "w": 1920, "h": 1080, "dpr": 1 }, "touch": false, "hardware": { "cores": 8, "memoryGb": 16 }, "webgl": { "vendor": "Google Inc. (NVIDIA)", "renderer": "ANGLE (NVIDIA GeForce Graphics Direct3D11)" }, "locale": "fr-FR", "templateIds": ["windows-chrome-118", "windows-chrome-124"]
+  },
+  {
+    "id": "desktop-intel-wide-chrome", "uaFamily": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "viewport": { "w": 1920, "h": 1200, "dpr": 1 }, "touch": false, "hardware": { "cores": 8, "memoryGb": 16 }, "webgl": { "vendor": "Google Inc. (Intel)", "renderer": "ANGLE (Intel Iris Xe Graphics Direct3D11)" }, "locale": "de-DE", "templateIds": ["windows-chrome-118", "windows-chrome-124"]
+  },
+  {
+    "id": "desktop-compact-chrome", "uaFamily": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "viewport": { "w": 1366, "h": 768, "dpr": 1 }, "touch": false, "hardware": { "cores": 4, "memoryGb": 8 }, "webgl": { "vendor": "Google Inc. (Intel)", "renderer": "ANGLE (Intel UHD Graphics Direct3D11)" }, "locale": "pt-BR", "templateIds": ["windows-chrome-110", "windows-chrome-118"]
+  },
+  {
+    "id": "desktop-hd-chrome", "uaFamily": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "viewport": { "w": 1920, "h": 1080, "dpr": 1 }, "touch": false, "hardware": { "cores": 8, "memoryGb": 16 }, "webgl": { "vendor": "Google Inc. (NVIDIA)", "renderer": "ANGLE (NVIDIA GeForce Graphics Direct3D11)" }, "locale": "ja-JP", "templateIds": ["windows-chrome-118", "windows-chrome-124"]
+  },
+  {
+    "id": "mobile-android-standard", "uaFamily": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36", "viewport": { "w": 412, "h": 915, "dpr": 2.625 }, "touch": true, "hardware": { "cores": 8, "memoryGb": 8 }, "webgl": { "vendor": "Qualcomm", "renderer": "Adreno 740" }, "locale": "en-IN", "templateIds": ["pixel-8-chrome", "oneplus-11-chrome"]
   }
 ]

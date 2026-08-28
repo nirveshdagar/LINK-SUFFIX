@@ -1,5 +1,7 @@
 # Traffic Armour Test Harness
 
+> The current operator application is the Next.js dashboard on port 3100 with the campaign control service on port 3101. See [web/PROXY_README.md](web/PROXY_README.md) for the current security, capacity, scheduling, proxy, and Ads pipeline. Older sections below describe the original CLI harness.
+
 A Node + TypeScript operator-facing run book for the Traffic Armour test harness. The
 harness is a four-tier bot-traffic generator (`trivial-http`, `headless`,
 `stealth`, `human`) that drives synthetic traffic at a reverse-proxy

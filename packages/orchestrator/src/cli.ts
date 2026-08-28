@@ -2,11 +2,14 @@
 import { Command } from 'commander';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import fs, { readFileSync, existsSync } from 'node:fs';
+import fs from 'node:fs';
 import { EventBus } from '@tah/contracts';
 import { runScenario } from './runner.js';
 import { startDashboard } from '@tah/dashboard';
 import { startMitm } from '@tah/mitm';
+import { buildProxyEndpoint } from '@tah/proxy';
+import { writeHarFile } from '@tah/antidetect';
+import { loadScenario } from './scenarioLoader.js';
 
 async function main(): Promise<void> {
   const program = new Command();
@@ -30,7 +33,7 @@ async function main(): Promise<void> {
     mitmPort: string;
   }>();
 
-  const runId = new Date().toISOString().replace(/[:.]/g, '-');
+  const runId = process.env.TAH_RUN_ID ?? new Date().toISOString().replace(/[:.]/g, '-');
   const runDir = path.resolve(`runs/${runId}`);
 
   // Check credentials first so a missing-env failure does not also leave a
@@ -45,6 +48,8 @@ async function main(): Promise<void> {
     console.error('IPROYAL_USER and IPROYAL_PASS must be set in env');
     process.exit(1);
   }
+  const serviceScenario = await loadScenario(opts.scenario);
+  process.env.TAH_TELEMETRY_DIR = path.join(runDir, 'telemetry');
 
   const bus = new EventBus();
   if (opts.dashboard) {
@@ -57,67 +62,42 @@ async function main(): Promise<void> {
   // itself proxies upstream to IP Royal. JA3/JA4 are written to recorderPath
   // and merged into ta_signal at the end of the run.
   let mitmHandle: Awaited<ReturnType<typeof startMitm>> | undefined;
-  if (opts.mitm) {
+  if (opts.mitm && serviceScenario.tier !== 'trivial-http') {
+    console.error('mitm capture is restricted to trivial-http so browser journeys retain one residential session per browser');
+  } else if (opts.mitm) {
     try {
       // Upstream URL is the IP Royal gateway — mitm forwards all browser
       // and trivial-http traffic to it.
-      const upstream = `http://${encodeURIComponent(creds.user)}:${encodeURIComponent(creds.pass)}@geo.iproyal.com:51230`;
+      const upstream = buildProxyEndpoint(serviceScenario.geo, serviceScenario.proxy_mode, creds, `mitm${Date.now().toString(36)}`).url.toString();
       mitmHandle = await startMitm({ upstreamUrl: upstream, listenPort: Number(opts.mitmPort) });
       console.log(`mitm at ${mitmHandle.listenUrl} (recorder: ${mitmHandle.recorderPath})`);
       // Browser tiers use this to trust mitmproxy's CA cert.
       process.env.TAH_MITM_CA_PATH = mitmHandle.caCertPath;
-      // Tell browser tiers where to dump per-page telemetry JSONL.
-      process.env.TAH_TELEMETRY_DIR = path.join(runDir, 'telemetry');
+      process.env.TAH_JA3_RECORDER = mitmHandle.recorderPath;
     } catch (e) {
       console.error(`mitm start failed: ${(e as Error).message}`);
       console.error('continuing without mitm — JA3 will not be captured');
     }
   }
 
-  await runScenario({
-    scenarioFile: opts.scenario,
-    runDir,
-    bus,
-    creds,
-    parallel: opts.parallel,
-    mitmUrl: mitmHandle?.listenUrl,
-  });
-
-  // Stop mitmproxy and merge JA3/JA4 records into scenarios.jsonl.
-  if (mitmHandle) {
+  let cleaned = false;
+  const cleanup = async () => {
+    if (cleaned) return;
+    cleaned = true;
+    if (!mitmHandle) return;
     await mitmHandle.shutdown();
-    try {
-      const records = readFileSync(mitmHandle.recorderPath, 'utf8')
-        .split('\n').filter(Boolean).map((l) => JSON.parse(l));
-      // Merge: JA3 records carry `sni` (TLS server_name from the ClientHello),
-      // which is the destination hostname. Match against RequestEvent's
-      // URL host so we attach ja3/ja4 to the right request.
-      const eventsPath = path.join(runDir, 'scenarios.jsonl');
-      if (existsSync(eventsPath)) {
-        const events = readFileSync(eventsPath, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
-        const byHost = new Map<string, any[]>();
-        for (const rec of records) {
-          const key = rec.sni ?? rec.host;
-          if (!key) continue;
-          if (!byHost.has(key)) byHost.set(key, []);
-          byHost.get(key)!.push(rec);
-        }
-        let merged = 0;
-        for (const e of events) {
-          const url = new URL(e.url);
-          const ta = (e.ta_signal ?? (e.ta_signal = {}));
-          const hits = byHost.get(url.hostname) ?? [];
-          if (hits.length) {
-            const h = hits[merged++ % hits.length];
-            ta.ja3 = h.ja3;
-            ta.tls_version = h.tls_version;
-          }
-        }
-        fs.writeFileSync(eventsPath, events.map((e: any) => JSON.stringify(e)).join('\n') + '\n');
-      }
-    } catch (e) {
-      console.error(`JA3 merge failed: ${(e as Error).message}`);
-    }
+    try { fs.copyFileSync(mitmHandle.recorderPath, path.join(runDir, 'tls-clienthello.jsonl')); }
+    catch (e) { console.error(`JA3 archive failed: ${(e as Error).message}`); }
+  };
+  const terminate = () => { void cleanup().finally(() => process.exit(143)); };
+  process.once('SIGTERM', terminate);
+  process.once('SIGINT', terminate);
+  try {
+    await runScenario({ scenarioFile: opts.scenario, runDir, bus, creds, parallel: opts.parallel, mitmUrl: mitmHandle?.listenUrl });
+  } finally {
+    process.off('SIGTERM', terminate);
+    process.off('SIGINT', terminate);
+    await cleanup();
   }
 
 // Post-run: invoke verify_geo.py (writes mismatches.csv + geo_resolved.jsonl)
@@ -148,6 +128,8 @@ async function main(): Promise<void> {
     console.log('MAXMIND_DB_PATH unset; skipping verify_geo + pool check');
     writeSummary(runDir);
   }
+  try { writeHarFile(path.join(runDir, 'scenarios.jsonl'), path.join(runDir, 'run.har'), { runId, geo: [serviceScenario.geo.country, serviceScenario.geo.state, serviceScenario.geo.city].filter(Boolean).join('/') }); }
+  catch (e) { console.error(`HAR export failed: ${(e as Error).message}`); }
 }
 
 /**
@@ -164,10 +146,12 @@ function writeSummary(runDir: string): void {
     const byGeo: Record<string, Record<string, number>> = {};
     const latencies: number[] = [];
     let errors = 0;
+    let expectationFailures = 0;
     let total = 0;
     for (const line of lines) {
       let e: any;
       try { e = JSON.parse(line); } catch { continue; }
+      if (e.expectation_met === false) expectationFailures++;
       total++;
       const tier = String(e.tier ?? 'unknown');
       const verdict = String(e.final_verdict ?? 'unknown');
@@ -190,14 +174,16 @@ function writeSummary(runDir: string): void {
       by_geo: byGeo,
       latency_ms: { p50: pct(50), p95: pct(95), p99: pct(99) },
       errors,
+      expectation_failures: expectationFailures,
     };
     fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
+    if (expectationFailures > 0) process.exitCode = process.exitCode || 3;
   } catch (e) {
     console.error(`summary.json write failed: ${(e as Error).message}`);
   }
 }
 
-main().catch((e) => {
+main().then(() => process.exit(process.exitCode ?? 0)).catch((e) => {
   console.error(e);
   process.exit(99);
 });

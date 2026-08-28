@@ -13,12 +13,15 @@ describe('synthesizeUA', () => {
     expect(out.ua).not.toContain('__BUILD__');
     expect(out.build).toBe('17_5');
   });
-  it('picks a random build within template range when no override', () => {
+  it('generates a valid four-part Chrome version within the template range', () => {
     const out = synthesizeUA(sampleChrome);
-    const [maj, min] = out.build.split('_').map(Number);
+    const [maj, branch, build, patch] = out.build.split('.').map(Number);
     expect(maj).toBe(124);
-    expect(min).toBeGreaterThanOrEqual(0);
-    expect(min).toBeLessThanOrEqual(99);
+    expect(branch).toBe(0);
+    expect(build).toBeGreaterThanOrEqual(sampleChrome.buildRange.minMinor);
+    expect(build).toBeLessThanOrEqual(sampleChrome.buildRange.maxMinor);
+    expect(patch).toBeGreaterThanOrEqual(40);
+    expect(patch).toBeLessThanOrEqual(199);
   });
   it('produces fingerprint fields within template ranges', () => {
     const out = synthesizeUA(sampleIphone);

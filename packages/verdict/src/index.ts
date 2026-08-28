@@ -1,6 +1,6 @@
 export * from './types.js';
 export * from './aggregate.js';
-export { DEFAULT_SIGNATURES, type SignatureName } from './signatures.js';
+export { DEFAULT_SIGNATURES, signatureMatches, type SignatureName } from './signatures.js';
 import { httpStatusStrategy } from './strategies/httpStatus.js';
 import { challengeHtmlStrategy } from './strategies/challengeHtml.js';
 import { headerSignalsStrategy } from './strategies/headerSignals.js';
@@ -11,7 +11,7 @@ import type { SignatureName } from './signatures.js';
 import type { VerdictStrategy } from './types.js';
 
 export function defaultStrategies(signatureNames: SignatureName[] = [
-  'cloudflare', 'hcaptcha', 'datadome', 'perimeterx', 'akamai', 'generic',
+  'cloudflare', 'hcaptcha', 'datadome', 'perimeterx', 'akamai', 'kasada', 'shape', 'fingerprintjs', 'generic',
 ]): VerdictStrategy[] {
   return [
     httpStatusStrategy,

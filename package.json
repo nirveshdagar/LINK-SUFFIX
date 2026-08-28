@@ -2,25 +2,55 @@
   "name": "traffic-armour-harness",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["packages/*", "packages/*/*", "web"],
+  "workspaces": [
+    "packages/*",
+    "packages/*/*",
+    "web"
+  ],
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run",
+    "test": "npm run test:vitest && npm run test:web",
     "test:unit": "vitest run tests/unit packages",
-    "test:integration": "vitest run tests/integration",
+    "test:integration": "node --env-file=.env --test web/tests/*.integration.test.ts",
+    "test:production": "node tooling/production-smoke.mjs",
     "lint": "node tools/lint.mjs",
-    "web:dev": "next dev --port 3000 --prefix web",
-    "web:build": "next build --prefix web",
-    "web:start": "next start --port 3000 --prefix web",
-    "control": "node web/server/control.mjs"
+    "web:dev": "node tooling/start-next.mjs dev web --hostname 127.0.0.1 --port 3100",
+    "web:build": "npm --prefix web run build",
+    "web:start": "node tooling/start-next.mjs start web --hostname 127.0.0.1 --port 3100",
+    "control": "node --env-file=.env web/server/control.mjs",
+    "check:dashboard": "node tooling/dashboard-hardening-check.mjs",
+    "check:dashboard:api": "node tooling/dashboard-hardening-check.mjs --api-only",
+    "check:dashboard:dom": "node tooling/dashboard-hardening-check.mjs --dom-only",
+    "check:dashboard:baseline": "node tooling/dashboard-hardening-check.mjs --update",
+    "db:migrate": "node --env-file=.env tooling/migrate.mjs",
+    "test:web": "node --test web/tests/*.test.ts",
+    "test:vitest": "vitest run",
+    "db:migrate:legacy": "node --env-file=.env tooling/migrate-legacy-state.mjs --apply",
+    "db:migrate:legacy:dry": "node --env-file=.env tooling/migrate-legacy-state.mjs",
+    "test:soak": "node --env-file=.env --experimental-strip-types tooling/soak-script-bridge.mjs"
+  },
+  "overrides": {
+    "gaxios@6.7.1": {
+      "uuid": "^11.1.1"
+    }
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
-    "vitest": "^1.6.0",
     "@types/node": "^20.12.0",
-    "next": "^16.0.0",
+    "@types/pg": "^8.23.1",
+    "next": "^16.3.2",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^4.1.11"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "google-ads-api": "^24.1.0",
+    "https-proxy-agent": "^9.1.0",
+    "node-fetch": "^3.3.2",
+    "pg": "^8.23.0",
+    "redis": "^6.2.1"
+  }
 }

@@ -25,4 +25,12 @@ describe('TelemetryRecorder', () => {
     expect(s.mouse_move_count).toBe(50);
     expect(s.mouse_velocity_max).toBeGreaterThan(0);
   });
+
+  it('retains browser frame and wall-clock timestamps', () => {
+    const r = new TelemetryRecorder('https://example.com/');
+    r.recordFrame(16.67, 1_700_000_000_000, [{ type: 'mouse_move', x: 10, y: 20 }]);
+    const summary = r.buildSummary(1_700_000_000_050);
+    expect(summary.frame_count).toBe(1);
+    expect(summary.event_count).toBe(1);
+  });
 });

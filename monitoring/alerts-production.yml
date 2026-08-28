@@ -1,0 +1,86 @@
+groups:
+  - name: traffic-armour-production
+    rules:
+      - alert: ControlServerDown
+        expr: up{job="traffic-armour-control"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: Traffic Armour control service is unreachable
+
+      - alert: DistributedLeaderMissing
+        expr: tah_control_leader == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: No valid fenced control leader lease exists
+
+      - alert: DatabaseUnavailable
+        expr: tah_database_up == 0 or tah_postgres_healthy == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: PostgreSQL health check is failing
+
+      - alert: RedisUnavailable
+        expr: tah_redis_up == 0 or tah_redis_healthy == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: Redis health check is failing
+
+      - alert: CampaignQueueBacklog
+        expr: tah_campaigns_queued > 100 or tah_script_pending_jobs > 500
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: Campaign or suffix-delivery queue is growing
+
+      - alert: DeliveryDeadLetters
+        expr: tah_script_dead_jobs > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: At least one suffix delivery exhausted all retries
+
+      - alert: WorkerFailureBurst
+        expr: increase(tah_worker_failures_total[15m]) > 10
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: Script Fleet workers are failing repeatedly
+
+      - alert: FleetPollingStale
+        expr: tah_script_stale_poll_shards > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: One or more enabled Script Fleet shards stopped polling
+
+      - alert: FleetAcknowledgementStale
+        expr: tah_script_stale_ack_shards > 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: Leased suffix jobs are not being acknowledged
+
+      - alert: GoogleAdsMutationErrors
+        expr: tah_ads_errors > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Google Ads mutations are failing
+
+      - alert: ProxyVerificationFailed
+        expr: tah_proxy_verified == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: Residential proxy verification is failing
+
+      - alert: ProxyFailureRateHigh
+        expr: rate(tah_proxy_failures_total[10m]) / clamp_min(rate(tah_proxy_requests_total[10m]), 0.001) > 0.15
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: More than 15 percent of recent proxy events are failures

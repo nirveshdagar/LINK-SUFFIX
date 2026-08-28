@@ -1,0 +1,31 @@
+{
+	email {$TAH_TLS_EMAIL}
+	admin off
+}
+
+{$TAH_DOMAIN} {
+	encode zstd gzip
+
+	basic_auth {
+		{$TAH_ADMIN_USER} {$TAH_ADMIN_PASSWORD_HASH}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		-Server
+	}
+
+	@controlSocket path /control-ws*
+	reverse_proxy @controlSocket control:3101
+
+	reverse_proxy web:3100
+
+	log {
+		output stdout
+		format json
+	}
+}

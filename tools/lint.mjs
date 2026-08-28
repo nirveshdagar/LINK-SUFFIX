@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // Cross-platform `npm run lint` driver. Walks every package's tsconfig and
-// runs `tsc --noEmit` against each. Replaces the prior `tsc -b` (which was
-// a no-op because the root tsconfig has no `references`). Keeping this in
+// runs `tsc --noEmit` against each. Keeping this in
 // JS avoids the cross-platform shell-glob headache (`packages/*/*/*.json`
 // expands differently in cmd.exe vs bash).
 import { spawnSync } from 'node:child_process';
@@ -31,9 +30,13 @@ if (!configs.length) {
   process.exit(1);
 }
 let bad = 0;
+const tsc = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
 for (const c of configs) {
   console.log(`>> ${c}`);
-  const r = spawnSync('npx', ['tsc', '--noEmit', '-p', c], { stdio: 'inherit' });
-  if (r.status !== 0) bad++;
+  const r = spawnSync(process.execPath, [tsc, '--noEmit', '-p', c], { stdio: 'inherit' });
+  if (r.error) {
+    console.error(r.error.message);
+    bad++;
+  } else if (r.status !== 0) bad++;
 }
 process.exit(bad ? 1 : 0);

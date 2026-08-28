@@ -74,7 +74,7 @@ function pick<T>(arr: T[]): T {
 }
 
 async function fireTrivial(url: string, n: number): Promise<VerdictStats> {
-  // Direct undici requests — no proxy, we are talking to localhost:8080.
+  // Direct undici requests to Docker's dynamically allocated loopback port.
   const stats = emptyStats();
   for (let i = 0; i < n; i++) {
     const ua = pick(UA_POOL);

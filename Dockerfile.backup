@@ -1,0 +1,11 @@
+ARG POSTGRES_MAJOR=16
+FROM postgres:${POSTGRES_MAJOR}-bookworm
+
+COPY --chmod=755 tooling/backup-postgres.sh /usr/local/bin/backup-postgres.sh
+COPY --chmod=755 tooling/restore-test-postgres.sh /usr/local/bin/restore-test-postgres.sh
+COPY --chmod=755 tooling/backup-loop.sh /usr/local/bin/backup-loop.sh
+
+RUN mkdir -p /backups && chown postgres:postgres /backups
+USER postgres
+ENV BACKUP_DIR=/backups
+ENTRYPOINT ["/usr/local/bin/backup-loop.sh"]

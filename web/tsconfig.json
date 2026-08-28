@@ -13,9 +13,10 @@
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
     "plugins": [
       {
@@ -25,6 +26,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@tah/google-ads": [
+        "../packages/google-ads/src/index.ts"
       ]
     }
   },

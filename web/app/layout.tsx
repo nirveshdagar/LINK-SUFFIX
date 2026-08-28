@@ -3,9 +3,8 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Traffic Armour | Harness Overview',
-  description: 'Live traffic policy evaluation and replay control plane.',
-  generator: 'v0.app',
+  title: 'Traffic Armour | Control Plane',
+  description: 'Authorized geo-targeted residential traffic testing and policy telemetry.',
   icons: {
     icon: [
       {
@@ -39,8 +38,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="dark bg-[#090c10]">
-      <body className="antialiased">
+    <html lang="en">
+      <body>
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

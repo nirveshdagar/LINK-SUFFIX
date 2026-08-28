@@ -3,13 +3,15 @@
   "configurations": [
     {
       "name": "web-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "--prefix", "packages/web", "dev"],
-      "port": 5173
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["next", "dev", "-p", "3100"],
+      "port": 3100
     },
     {
-      "name": "aura-build",
-      "url": "http://localhost:5500"
+      "name": "dashboard",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["next", "dev", "-p", "3100"],
+      "port": 3100
     }
   ]
 }
