@@ -695,6 +695,10 @@ button.scenario-item { width: 100%; color: inherit; font: inherit; text-align: l
 .fleet-campaign-picker article > div:last-child { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
 .fleet-campaign-picker article button { min-height: 34px; }
 .fleet-campaign-picker > small { display: block; margin-top: 8px; color: #66736c; font-size: 10px; }
+.fleet-worker-shard-picker { display: grid; gap: 7px; margin-top: 20px; }
+.fleet-worker-shard-picker > select { width: 100%; min-height: 44px; }
+.fleet-worker-shard-picker > small { color: #66736c; font-size: 10px; line-height: 1.45; }
+.fleet-worker-shard-picker + .fleet-script-shard { margin-top: 12px; }
 .fleet-script-shard { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 20px 0; padding: 13px; border: 1px solid #bbc3b8; background: #dfe9dc; }
 .fleet-script-shard span,
 .fleet-script-shard strong { display: block; }

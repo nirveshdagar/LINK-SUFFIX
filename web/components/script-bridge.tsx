@@ -587,7 +587,20 @@ export function ScriptBridge({
         </section>
 
         <section className="fleet-script-card" aria-labelledby="fleet-script-title">
-          <header><p className="eyebrow">Selected shard worker</p><h3 id="fleet-script-title">Generate the two-phase v5 shard script</h3><p>The generated script belongs only to the selected shard and MCC. It runs child accounts in parallel, continues in the manager callback, and can service at most 40 assigned campaigns.</p></header>
+          <header><p className="eyebrow">Selected shard worker</p><h3 id="fleet-script-title">Generate the two-phase v5 shard script</h3><p>Choose the exact shard below before generating. The script belongs only to that shard and MCC, runs child accounts in parallel, and can service at most 40 assigned campaigns.</p></header>
+
+          <div className="fleet-worker-shard-picker">
+            <label htmlFor="fleet-worker-shard">Shard to generate</label>
+            <select id="fleet-worker-shard" value={selectedShardId} onChange={(event) => setSelectedShardId(event.target.value)}>
+              {shardOptions.length === 0 && <option value="">No shard selected</option>}
+              {shardOptions.map((shard) => (
+                <option key={shard.shard_id} value={shard.shard_id}>
+                  {shard.shard_id} · {Number(shard.campaign_count || 0)}/{Number(shard.capacity || SHARD_CAPACITY)} campaigns · {shardHealth(shard).label}
+                </option>
+              ))}
+            </select>
+            <small>New shards appear here automatically. Select the new shard before generating or rotating its worker.</small>
+          </div>
 
           <div className="fleet-script-shard">
             <div><span>Shard ID</span><strong>{selectedShardId || "Not selected"}</strong><small>MCC {selectedShard?.manager_customer_id || "assigned by the first campaign"}</small></div>
