@@ -13,8 +13,9 @@ import { extractExactQuerySuffix } from "@/lib/url-security";
 
 export const runtime = "nodejs";
 const ROOT = process.env.WORKSPACE_ROOT ? path.join(process.env.WORKSPACE_ROOT, "web") : process.cwd();
+const RUNTIME_ROOT = process.env.WORKSPACE_ROOT || path.resolve(ROOT, "..");
 const STATE_FILE = path.join(ROOT, "ads-state.json");
-const CAPTURE_STATE_FILE = path.join(ROOT, "ads-capture-state.json");
+const CAPTURE_STATE_FILE = process.env.TAH_ADS_CAPTURE_STATE_PATH || path.join(RUNTIME_ROOT, "runs", "ads-capture-state.json");
 const MAX_TEXT = 2048;
 const MAX_HISTORY = Math.max(20, Math.min(500, Number(process.env.TAH_ADS_MAX_PUSH_HISTORY) || 100));
 

@@ -78,7 +78,7 @@ const controlSettingsPath = path.join(ROOT, "runs", "control-settings.json");
 const controlLockPath = path.join(ROOT, "runs", ".control-server.lock");
 const legacyCredentialKeyPath = path.join(ROOT, "runs", ".proxy-credentials.key");
 const credentialBlobPath = path.join(ROOT, "runs", "proxy-credentials.enc.json");
-const adsStatePath = path.join(ROOT, "web", "ads-capture-state.json");
+const adsStatePath = process.env.TAH_ADS_CAPTURE_STATE_PATH || path.join(ROOT, "runs", "ads-capture-state.json");
 const webAppUrl = process.env.TAH_WEB_APP_URL ?? "http://127.0.0.1:3100";
 let sequence = 0;
 let campaignSequence = 0;
@@ -257,17 +257,27 @@ function persistL4Capture(run, result) {
     }
   }
   const history = Array.isArray(state.l4CaptureHistory) ? state.l4CaptureHistory : [];
-  atomicWriteJson(adsStatePath, {
-    ...state,
-    suffix,
-    finalQuery: suffix,
-    finalUrl,
-    capturedAt,
-    capturedBy: "l4-browser",
-    capturedRunId: run.id,
-    capturedSessionId: result.session_id,
-    l4CaptureHistory: [...history, capture].slice(-100),
-  });
+  try {
+    atomicWriteJson(adsStatePath, {
+      ...state,
+      suffix,
+      finalQuery: suffix,
+      finalUrl,
+      capturedAt,
+      capturedBy: "l4-browser",
+      capturedRunId: run.id,
+      capturedSessionId: result.session_id,
+      l4CaptureHistory: [...history, capture].slice(-100),
+    });
+  } catch (error) {
+    process.stderr.write(`${JSON.stringify({
+      level: "warn",
+      event: "ads.capture_mirror_failed",
+      runId: run.id,
+      message: error instanceof Error ? error.message : String(error),
+      ts: new Date().toISOString(),
+    })}\n`);
+  }
   return capture;
 }
 
