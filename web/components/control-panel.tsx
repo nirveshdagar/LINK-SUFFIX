@@ -71,10 +71,8 @@ const WEEKDAYS = [
 ];
 const weekdaySummary = (days: number[]) => WEEKDAYS.filter((day) => days.includes(day.value)).map((day) => day.label).join(", ");
 
-export default function ControlPanel({ editCampaignId }: { editCampaignId?: string } = {}) {
+export default function ControlPanel() {
   const wsRef = useRef<WebSocket | null>(null);
-  const editHydratedRef = useRef("");
-  const pendingEditActionRef = useRef<"save" | "restart" | null>(null);
   const challengeAlertsEnabledRef = useRef(false);
   const seenChallengeIdsRef = useRef(new Set<string>());
   const [connected, setConnected] = useState(false);
@@ -210,25 +208,7 @@ export default function ControlPanel({ editCampaignId }: { editCampaignId?: stri
           if (msg.type === "campaigns") setSavedCampaigns(msg.payload as CampaignInfo[]);
           if (msg.type === "campaign_fleet_updated") { setNotice(String(msg.payload.name) + (msg.payload.config?.useScriptMesh ? " added to" : " removed from") + " the Rolling Apps Script Fleet."); send({ type: "list_campaigns" }); }
           if (msg.type === "capacity") { setActiveLimit(msg.payload?.activeLimit ?? 500); setLockedPorts(msg.payload?.lockedPorts ?? []); }
-          if (msg.type === "campaign_saved") {
-            const editAction = editCampaignId && msg.payload?.id === editCampaignId ? pendingEditActionRef.current : null;
-            if (editAction === "restart") {
-              ws.send(JSON.stringify({ type: "restart_campaign", payload: { id: editCampaignId } }));
-              setNotice(`Campaign ${String(msg.payload.number).padStart(3, "0")} saved. Restarting with the new configuration…`);
-            } else if (editAction === "save") {
-              pendingEditActionRef.current = null;
-              setNotice(`Campaign ${String(msg.payload.number).padStart(3, "0")} saved.`);
-              window.setTimeout(() => window.location.assign("/#campaigns"), 300);
-            } else {
-              setNotice(`Campaign ${String(msg.payload.number).padStart(3, "0")} saved and ${msg.payload.config?.schedule ? "scheduled" : "queued"}.`);
-            }
-            send({ type: "list_campaigns" });
-          }
-          if (msg.type === "campaign_restarted" && editCampaignId && msg.payload?.id === editCampaignId && pendingEditActionRef.current === "restart") {
-            pendingEditActionRef.current = null;
-            setNotice(`Campaign ${String(msg.payload.number).padStart(3, "0")} restarted with the saved configuration.`);
-            window.setTimeout(() => window.location.assign("/#campaigns"), 300);
-          }
+          if (msg.type === "campaign_saved") { setNotice(`Campaign ${String(msg.payload.number).padStart(3, "0")} saved and ${msg.payload.config?.schedule ? "scheduled" : "queued"}.`); send({ type: "list_campaigns" }); }
           if (msg.type === "run_started") { setNotice(`Run ${msg.payload.scenarioId} launched.`); send({ type: "list_runs" }); }
           if (msg.type === "schedule_saved") setNotice(`Daily L4 schedule saved: ${msg.payload.startTime}–${msg.payload.stopTime} ${msg.payload.timezone}.`);
           if (msg.type === "schedule_removed") setNotice(msg.payload?.ok ? "Daily L4 schedule removed." : "Schedule was already removed.");
@@ -254,54 +234,13 @@ export default function ControlPanel({ editCampaignId }: { editCampaignId?: stri
             const data = msg.payload?.data ?? msg.data ?? "";
             setLog((current) => [...current.slice(-149), `[${stream}] ${String(data).trim()}`]);
           }
-          if (msg.type === "error") { pendingEditActionRef.current = null; setProxyVerifying(false); setNotice(msg.payload?.message ?? "Control server error"); }
+          if (msg.type === "error") { setProxyVerifying(false); setNotice(msg.payload?.message ?? "Control server error"); }
         } catch { setNotice("Received an unreadable control-server message."); }
       };
     };
     connect();
     return () => { disposed = true; if (retry) clearTimeout(retry); wsRef.current?.close(); };
   }, []);
-
-  useEffect(() => {
-    if (!editCampaignId || editHydratedRef.current === editCampaignId) return;
-    const saved = savedCampaigns.find((item) => item.id === editCampaignId);
-    if (!saved) return;
-    const config = saved.config;
-    editHydratedRef.current = editCampaignId;
-    setCampaign(config.scenarioId || saved.name);
-    setUrl(config.seedUrl);
-    setTier(config.tier || "human");
-    setProxyMode(config.proxyMode || "sticky-residential");
-    setExpectedVerdict(config.expectedVerdict || "allow");
-    setProxyPort(config.proxyPort);
-    setGeo(config.geo || { country: "US", state: "", city: "" });
-    setRepeats(Number(config.repeats || 1));
-    setConcurrent(Number(config.concurrent || 1));
-    setDevicePool(Array.isArray(config.devicePool) ? config.devicePool : []);
-    setFingerprintMode(config.fingerprintMode || "hardened");
-    setTlsCapture(config.mitm === true);
-    setChallengeSignatures(Array.isArray(config.challengeSignatures) ? config.challengeSignatures.filter((item): item is SignatureName => SIGNATURES.includes(item)) : SIGNATURES);
-    setStagingMode(config.testEnvironment?.mode === "staging");
-    setVisibleBrowser(config.session?.headless === false);
-    setFollowExternalRedirects(config.session?.followExternalRedirects !== false);
-    setBurstMode(config.loadProfile?.mode === "burst");
-    setTargetRps(Number(config.loadProfile?.targetRps || 500));
-    setBurstDuration(Number(config.loadProfile?.durationSeconds || 2));
-    setRampSeconds(Number(config.loadProfile?.rampSeconds || 0));
-    setRequestCeiling(Number(config.loadProfile?.maxRequests || 1000));
-    setRunCustomerId(config.customerId || "");
-    setRunGoogleCampaignId(config.googleCampaignId || "");
-    setRunLoginCustomerId(config.loginCustomerId || "");
-    setSyncGoogleAds(config.syncGoogleAds === true);
-    setUseScriptMesh(config.useScriptMesh === true);
-    setDailySchedule(Boolean(config.schedule));
-    setScheduleTimezone(config.schedule?.timezone || "Asia/Kolkata");
-    setScheduleStartTime(config.schedule?.startTime || "09:00");
-    setScheduleStopTime(config.schedule?.stopTime || "22:00");
-    setScheduleDays(config.schedule?.days?.length ? config.schedule.days : WEEKDAYS.map((day) => day.value));
-    setAuthorized(true);
-    setNotice(`Editing ${String(saved.number).padStart(3, "0")} · ${saved.name}`);
-  }, [editCampaignId, savedCampaigns]);
 
   const browserTier = tier !== "trivial-http";
   const selectedCountry = WORLD_COUNTRIES.find((country) => country.code === geo.country);
@@ -356,11 +295,9 @@ export default function ControlPanel({ editCampaignId }: { editCampaignId?: stri
   const projectedRequests = tier === "trivial-http" ? (burstMode ? burstRequests : repeats * concurrent) : repeats;
   const targetHost = validUrl ? new URL(url).hostname : "invalid target";
 
-  const editingCampaign = editCampaignId ? savedCampaigns.find((item) => item.id === editCampaignId) : undefined;
   const campaignPayload = () => ({
       scenarioId: campaign.trim() || `campaign-${Date.now().toString(36)}`,
       tier, seedUrl: url, proxyMode, expectedVerdict, authorized, continuous: tier === "human", syncGoogleAds: tier === "human" && syncGoogleAds, useScriptMesh: tier === "human" && useScriptMesh,
-      scriptFleetShardId: editingCampaign?.config.scriptFleetShardId,
       proxyPort, customerId: runCustomerId, googleCampaignId: runGoogleCampaignId, loginCustomerId: runLoginCustomerId,
       geo: { country: geo.country.toUpperCase(), state: geo.state?.trim() || undefined, city: geo.city?.trim() || undefined },
       repeats: tier === "human" ? 1 : Number(repeats), concurrent: tier === "human" ? 1 : Math.min(100, Math.max(1, Math.trunc(Number(concurrent) || 1))),
@@ -373,18 +310,8 @@ export default function ControlPanel({ editCampaignId }: { editCampaignId?: stri
       session: tier === "human" ? { pages: { min: 1, max: 1 }, internalLinkProbability: 0, headless: !visibleBrowser, followExternalRedirects, challengeHandling: { enabled: false, persistent: false, timeoutSeconds: 300, onTimeout: "stop" as const } } : undefined,
       schedule: dailySchedule && tier === "human" ? { timezone: scheduleTimezone, startTime: scheduleStartTime, stopTime: scheduleStopTime, days: scheduleDays } : undefined,
   });
-  const submitCampaignEdit = (action: "save" | "restart") => {
-    if (!editCampaignId) return;
-    setNotice(action === "restart" ? "Saving campaign before restart…" : "Saving campaign…");
-    pendingEditActionRef.current = action;
-    if (!send({ type: "update_campaign", payload: { ...campaignPayload(), id: editCampaignId } })) {
-      pendingEditActionRef.current = null;
-      setNotice("Control server is offline. The campaign was not changed.");
-    }
-  };
   const start = () => {
     setNotice("");
-    if (editCampaignId) { submitCampaignEdit("save"); return; }
     send({ type: "create_campaign", payload: campaignPayload() });
   };
   const saveProxy = () => {
@@ -411,7 +338,7 @@ export default function ControlPanel({ editCampaignId }: { editCampaignId?: stri
 
       <div className="workspace">
         <header className="masthead">
-          <div><p className="kicker">{editCampaignId ? "Traffic Armour / Campaign Editor" : "Traffic Armour / Control Plane"}</p><h1>{editCampaignId ? "Edit the saved campaign." : "Launch traffic with intent."}</h1><p className="lede">{editCampaignId ? "Review the saved configuration below, then save it or save and restart the campaign." : "Build an authorized geo-targeted test, route it through residential egress, and watch the policy response."}</p></div>
+          <div><p className="kicker">Traffic Armour / Control Plane</p><h1>Launch traffic with intent.</h1><p className="lede">Build an authorized geo-targeted test, route it through residential egress, and watch the policy response.</p></div>
           <div className="system-state"><span className={connected ? "state-dot online" : "state-dot"} /><div><b>{connected ? "Control online" : "Control offline"}</b><small>{mounted ? ((window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost") ? `${window.location.hostname}:${CONTROL_PORT}` : `${window.location.host}/control-ws`) : "control service"}</small></div></div>
         </header>
 
@@ -467,7 +394,7 @@ export default function ControlPanel({ editCampaignId }: { editCampaignId?: stri
           </div>
 
           <aside className="launch-card">
-            <p className="kicker">{editCampaignId ? "Edit saved campaign" : "Launch review"}</p><h2>{campaign || "Untitled campaign"}</h2>
+            <p className="kicker">Launch review</p><h2>{campaign || "Untitled campaign"}</h2>
             <div className="route-visual"><span>{geo.city || geo.state || `${geo.country} · random IP`}</span><i /><span>{targetHost}</span></div>
             <dl><Summary label="Execution" value={burstMode && tier === "trivial-http" ? "Guarded Burst" : TIERS.find((item) => item.id === tier)?.title ?? tier} /><Summary label="Network" value={proxyMode === "rotating-residential" ? "Rotating" : "Sticky"} /><Summary label="Load" value={tier === "human" ? "Continuous · one at a time" : burstMode && tier === "trivial-http" ? `${projectedRequests} requests · ${targetRps} RPS · ${burstDuration}s` : browserTier ? `${projectedRequests} sessions · ${Math.min(concurrent, repeats)} concurrent` : `${projectedRequests} requests · ${concurrent} concurrent`} /><Summary label="Geo" value={geo.state || geo.city ? [geo.city, geo.state, geo.country].filter(Boolean).join(", ") : `${selectedCountry?.name ?? geo.country} · random country-wide exits`} /><Summary label="Evidence" value={tier === "trivial-http" && tlsCapture ? "JA3 + vendor signatures" : tier === "human" ? "Exact suffix · frame telemetry" : "Vendor signatures"} /></dl>
             <div className="checks"><CheckRow pass={connected} label="Control server" /><CheckRow pass={proxyConfigured} label="Verified residential exit" /><CheckRow pass={validUrl} label="Valid target URL" /><CheckRow pass={!browserTier || devicePool.length > 0} label="Device identity" /></div>
@@ -479,7 +406,7 @@ export default function ControlPanel({ editCampaignId }: { editCampaignId?: stri
             {tier === "human" && dailySchedule && <div className="devices"><p>Run on days <span>{scheduleDays.length} of 7 selected</span></p><div className="preset-row"><button type="button" className="preset" onClick={() => setScheduleDays([1, 2, 3, 4, 5])}>Monday–Friday</button><button type="button" className="preset" onClick={() => setScheduleDays([1, 2, 3, 4, 5, 6])}>Monday–Saturday</button><button type="button" className="preset" onClick={() => setScheduleDays(WEEKDAYS.map((day) => day.value))}>Every day</button></div><div>{WEEKDAYS.map((day) => <button type="button" key={day.value} onClick={() => setScheduleDays((current) => current.includes(day.value) ? current.filter((value) => value !== day.value) : [...current, day.value])} className={scheduleDays.includes(day.value) ? "device selected" : "device"}>{day.label}</button>)}</div></div>}
             {tier === "human" && schedules.length > 0 && <div className="checks">{schedules.map((schedule) => <p className={schedule.lastError ? "fail" : "pass"} key={schedule.id}><span>{schedule.lastError ? "!" : <Check size={14} />}</span>{schedule.scenarioId}: {weekdaySummary(schedule.days ?? [])} · {schedule.startTime}–{schedule.stopTime} {schedule.timezone}{schedule.lastError ? ` · ${schedule.lastError}` : ""}<button type="button" onClick={() => send({ type: "remove_schedule", payload: { id: schedule.id } })}>Remove</button></p>)}</div>}
             <label className="authorization"><input type="checkbox" checked={authorized} onChange={(event) => setAuthorized(event.target.checked)} /><span>I confirm I own or have written authorization to test this destination.</span></label>
-            {editCampaignId ? <div className="edit-launch-actions"><button type="button" className="launch" disabled={!ready || (tier === "human" && dailySchedule && scheduleDays.length === 0)} onClick={start}><Check size={18} />Save campaign</button><button type="button" className="launch is-secondary" disabled={!ready || (tier === "human" && dailySchedule && scheduleDays.length === 0)} onClick={() => submitCampaignEdit("restart")}><RefreshCw size={18} />Save and restart</button><Link className="edit-cancel" href="/#campaigns">Cancel editing</Link></div> : <button type="button" className="launch" disabled={!ready || (tier === "human" && dailySchedule && scheduleDays.length === 0)} onClick={start}><Play size={18} fill="currentColor" />{tier === "human" && dailySchedule ? "Save daily schedule" : "Launch authorized run"}</button>}
+            <button type="button" className="launch" disabled={!ready || (tier === "human" && dailySchedule && scheduleDays.length === 0)} onClick={start}><Play size={18} fill="currentColor" />{tier === "human" && dailySchedule ? "Save daily schedule" : "Launch authorized run"}</button>
             {!proxyConfigured && <p className="credential-note">Enter your IPRoyal gateway, port, username, and base password above, then connect it to the local backend.</p>}
             {notice && <p className="notice">{notice}</p>}
           </aside>
