@@ -25,7 +25,7 @@ while true; do
     printf '%s\n' "$count" > "$COUNTER_FILE"
     latest="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.dump' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
     if [[ -n "$latest" ]] && (( count % RESTORE_TEST_EVERY == 0 )); then
-      BACKUP_FILE="$latest" bash "$SCRIPT_DIR/restore-test-postgres.sh"
+      bash "$SCRIPT_DIR/restore-test-postgres.sh" "$latest"
     fi
     printf '%s\n' "$started" > "$BACKUP_DIR/.last-success"
   else
