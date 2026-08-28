@@ -677,7 +677,7 @@ function stagingTargetAllowed(rawUrl) {
 const activeRuns = () => [...runs.values()].filter(run => run.child?.exitCode === null || pidAlive(run.pid));
 
 const listRuns = () => [...runs.values()].map(publicRun).sort((a, b) => b.startedAt - a.startedAt);
-const lockedPorts = () => new Set(activeRuns().map(run => Number(run.proxyPort)).filter(Number.isInteger));
+const lockedPorts = () => new Set(activeRuns().map(run => Number(run.proxyPort)).filter(port => Number.isInteger(port) && port > 0));
 const publicCampaign = campaign => ({ ...campaign, config: { ...campaign.config, authorized: undefined } });
 const listCampaigns = () => [...campaigns.values()].map(publicCampaign).sort((a, b) => a.number - b.number);
 const broadcastCampaigns = () => {
@@ -879,8 +879,9 @@ async function startRun(payload) {
   if (payload.testEnvironment?.mode === "staging" && !stagingTargetAllowed(payload.seedUrl)) throw new Error("Staging mode requires the target in TAH_STAGING_TARGETS");
   const live = activeRuns();
   if (payload.campaignRecordId && live.some(run => run.campaignRecordId === payload.campaignRecordId)) throw new Error("This campaign already has an active journey process");
-  const requestedProxyPort = Number(payload.proxyPort ?? proxy?.port);
-  if (live.some(run => Number(run.proxyPort) === requestedProxyPort)) throw new Error(`Gateway port ${requestedProxyPort} is already leased by another active run`);
+  const noProxy = process.env.TAH_NO_PROXY === "1";
+  const requestedProxyPort = noProxy ? null : Number(payload.proxyPort ?? proxy?.port);
+  if (requestedProxyPort !== null && live.some(run => Number(run.proxyPort) === requestedProxyPort)) throw new Error(`Gateway port ${requestedProxyPort} is already leased by another active run`);
   const requestedConcurrency = Number(payload.concurrent ?? 1);
   const requestedRps = payload.loadProfile?.mode === "burst" ? Number(payload.loadProfile.targetRps ?? 0) : 0;
   const totalConcurrency = live.reduce((sum, run) => sum + Number(run.concurrent ?? 1), 0) + requestedConcurrency;
@@ -901,7 +902,7 @@ async function startRun(payload) {
   const challengeDir = path.join(ROOT, "runs", "challenge-queue", id);
   mkdirSync(challengeDir, { recursive: true });
   writeFileSync(scenarioPath, scenarioYaml({ ...payload, scenarioId }), { encoding: "utf8", mode: 0o600 });
-  const env = process.env.TAH_NO_PROXY === "1"
+  const env = noProxy
     ? { ...process.env, TAH_RUN_ID: id, TAH_CHALLENGE_DIR: challengeDir }
     : { ...process.env, TAH_RUN_ID: id, TAH_CHALLENGE_DIR: challengeDir, IPROYAL_HOSTNAME: proxy.host, IPROYAL_PORT: String(payload.proxyPort ?? proxy.port), IPROYAL_USER: proxy.user, IPROYAL_PASS: proxy.pass };
   const args = [ORCH, "--scenario", scenarioPath, "--dashboard-port", String(dashboardPort)];
@@ -909,7 +910,7 @@ async function startRun(payload) {
   else args.push("--mitm-port", String(Number(process.env.TAH_MITM_PORT_START ?? 8188) + (sequence % 50_000)));
   if (payload.concurrent > 1) args.push("--parallel");
   const child = spawn(process.execPath, args, { env, cwd: ROOT, windowsHide: true, detached: process.platform !== "win32" });
-  const run = { id, scenarioId, scenarioPath, challengeDir, dashboardPort, startedAt: Date.now(), mitmEnabled: payload.mitm === true, child, pid: child.pid, tier: payload.tier, scheduleId: payload.scheduleId, campaignRecordId: payload.campaignRecordId, proxyPort: Number(payload.proxyPort ?? proxy.port), continuous: payload.tier === "human" && payload.continuous === true, syncGoogleAds: payload.tier === "human" && payload.syncGoogleAds === true, useScriptMesh: payload.tier === "human" && payload.useScriptMesh === true, concurrent: requestedConcurrency, targetRps: requestedRps, exitCode: null };
+  const run = { id, scenarioId, scenarioPath, challengeDir, dashboardPort, startedAt: Date.now(), mitmEnabled: payload.mitm === true, child, pid: child.pid, tier: payload.tier, scheduleId: payload.scheduleId, campaignRecordId: payload.campaignRecordId, proxyPort: requestedProxyPort, continuous: payload.tier === "human" && payload.continuous === true, syncGoogleAds: payload.tier === "human" && payload.syncGoogleAds === true, useScriptMesh: payload.tier === "human" && payload.useScriptMesh === true, concurrent: requestedConcurrency, targetRps: requestedRps, exitCode: null };
   runs.set(id, run);
   persistRuns();
   let stdoutBuffer = "";
