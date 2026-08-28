@@ -1,9 +1,9 @@
 import { WebSocketServer } from "ws";
 import { spawn, spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, renameSync, openSync, closeSync, unlinkSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, renameSync, openSync, closeSync, unlinkSync, statfsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { cpus, freemem, loadavg, totalmem } from "node:os";
+import { arch, cpus, freemem, hostname, loadavg, platform, totalmem, uptime } from "node:os";
 import path from "node:path";
 import { resolveProxyEgress, resetTzCache } from "@tah/tz";
 import { createDistributedControlStore } from "./distributed-store.mjs";
@@ -1099,8 +1099,11 @@ const CONTROL_TOKEN = process.env.CONTROL_TOKEN ?? "";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 const CONTROL_HOST_NORMALIZED = CONTROL_HOST.replace(/^\[(.+)\]$/, "$1").toLowerCase();
 const CONTROL_HOST_IS_LOOPBACK = LOOPBACK_HOSTS.has(CONTROL_HOST_NORMALIZED);
+const INSECURE_LOCAL_CONTROL = CONTROL_HOST_IS_LOOPBACK
+  && process.env.NODE_ENV !== "production"
+  && ["1", "true"].includes(String(process.env.TAH_ALLOW_INSECURE_LOCAL_DEV ?? "").toLowerCase());
 if (!CONTROL_HOST_IS_LOOPBACK && !CONTROL_TOKEN) throw new Error("CONTROL_TOKEN is required for non-loopback control access");
-if (!CONTROL_TOKEN && !(process.env.NODE_ENV !== "production" && ["1", "true"].includes(String(process.env.TAH_ALLOW_INSECURE_LOCAL_DEV ?? "").toLowerCase()))) throw new Error("CONTROL_TOKEN is required unless insecure local development is explicitly enabled");
+if (!CONTROL_TOKEN && !INSECURE_LOCAL_CONTROL) throw new Error("CONTROL_TOKEN is required unless insecure local development is explicitly enabled");
 if (!CONTROL_HOST_IS_LOOPBACK && ALLOWED_TARGETS.length === 0) throw new Error("TAH_ALLOWED_TARGETS is required for non-loopback control access");
 const tokenMatches = candidate => {
   if (!CONTROL_TOKEN) return true;
@@ -1117,7 +1120,297 @@ const sessionCookieMatches = cookieHeader => {
   try { token = decodeURIComponent(encoded); } catch { return false; }
   return verifySessionToken(token, SESSION_SECRET, "control");
 };
+const CAPACITY_ESTIMATED_CAMPAIGN_MEMORY_BYTES = Math.max(128, Number(process.env.TAH_CAPACITY_CAMPAIGN_MEMORY_MB) || 512) * 1024 * 1024;
+const CAPACITY_ESTIMATED_CAMPAIGN_CPU_PERCENT = Math.min(100, Math.max(5, Number(process.env.TAH_CAPACITY_CAMPAIGN_CPU_PERCENT) || 35));
+const CAPACITY_TARGET_CPU_PERCENT = Math.min(95, Math.max(40, Number(process.env.TAH_CAPACITY_TARGET_CPU_PERCENT) || 75));
+const CAPACITY_MIN_FREE_DISK_RATIO = Math.min(0.5, Math.max(0.05, Number(process.env.TAH_CAPACITY_MIN_FREE_DISK_RATIO) || 0.15));
+const CAPACITY_STORAGE_SCAN_FILES = Math.max(1_000, Math.min(100_000, Number(process.env.TAH_CAPACITY_STORAGE_SCAN_FILES) || 25_000));
+const CAPACITY_STORAGE_CACHE_MS = Math.max(10_000, Number(process.env.TAH_CAPACITY_STORAGE_CACHE_MS) || 60_000);
+let previousSystemCpuSample = null;
+let previousControlCpuSample = { at: process.hrtime.bigint(), usage: process.cpuUsage() };
+let activeStorageCache = { key: "", measuredAt: 0, byRun: {}, totalBytes: 0, filesVisited: 0, truncated: false };
+
+function systemCpuPercent() {
+  const current = cpus().reduce((sum, cpu) => {
+    const total = Object.values(cpu.times).reduce((value, time) => value + time, 0);
+    return { idle: sum.idle + cpu.times.idle, total: sum.total + total };
+  }, { idle: 0, total: 0 });
+  if (!previousSystemCpuSample) {
+    previousSystemCpuSample = current;
+    return null;
+  }
+  const idle = current.idle - previousSystemCpuSample.idle;
+  const total = current.total - previousSystemCpuSample.total;
+  previousSystemCpuSample = current;
+  return total > 0 ? Math.max(0, Math.min(100, (1 - idle / total) * 100)) : null;
+}
+
+function controlCpuPercent() {
+  const at = process.hrtime.bigint();
+  const usage = process.cpuUsage();
+  const elapsedMicros = Number(at - previousControlCpuSample.at) / 1_000;
+  const usedMicros = usage.user + usage.system - previousControlCpuSample.usage.user - previousControlCpuSample.usage.system;
+  previousControlCpuSample = { at, usage };
+  return elapsedMicros > 0 ? Math.max(0, usedMicros / elapsedMicros * 100) : 0;
+}
+
+function readPositiveNumber(filePath) {
+  try {
+    const value = readFileSync(filePath, "utf8").trim();
+    if (!value || value === "max") return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  } catch { return null; }
+}
+
+function memoryCapacity() {
+  const hostTotal = totalmem();
+  const cgroupV2Limit = readPositiveNumber("/sys/fs/cgroup/memory.max");
+  const cgroupV2Current = readPositiveNumber("/sys/fs/cgroup/memory.current");
+  const cgroupV1Limit = readPositiveNumber("/sys/fs/cgroup/memory/memory.limit_in_bytes");
+  const cgroupV1Current = readPositiveNumber("/sys/fs/cgroup/memory/memory.usage_in_bytes");
+  const limit = cgroupV2Limit || cgroupV1Limit;
+  const current = cgroupV2Current || cgroupV1Current;
+  if (limit && current !== null && limit < hostTotal) {
+    return { totalBytes: limit, availableBytes: Math.max(0, limit - current), source: "container" };
+  }
+  return { totalBytes: hostTotal, availableBytes: freemem(), source: "host" };
+}
+
+function effectiveCpuCount() {
+  const hostCount = Math.max(1, cpus().length);
+  try {
+    const [quota, period] = readFileSync("/sys/fs/cgroup/cpu.max", "utf8").trim().split(/\s+/);
+    if (quota !== "max") {
+      const constrained = Number(quota) / Number(period);
+      if (Number.isFinite(constrained) && constrained > 0) return Math.max(0.1, Math.min(hostCount, constrained));
+    }
+  } catch {}
+  const quota = readPositiveNumber("/sys/fs/cgroup/cpu/cpu.cfs_quota_us");
+  const period = readPositiveNumber("/sys/fs/cgroup/cpu/cpu.cfs_period_us");
+  return quota && period ? Math.max(0.1, Math.min(hostCount, quota / period)) : hostCount;
+}
+
+function diskCapacity() {
+  try {
+    const value = statfsSync(ROOT, { bigint: true });
+    const totalBytes = Number(value.blocks * value.bsize);
+    const availableBytes = Number(value.bavail * value.bsize);
+    return { totalBytes, availableBytes, usedBytes: Math.max(0, totalBytes - availableBytes), availableRatio: totalBytes > 0 ? availableBytes / totalBytes : 1 };
+  } catch {
+    return { totalBytes: 0, availableBytes: 0, usedBytes: 0, availableRatio: 1 };
+  }
+}
+
+function measureActiveRunStorage(active) {
+  const key = active.map(run => run.id).sort().join("|");
+  if (key === activeStorageCache.key && Date.now() - activeStorageCache.measuredAt < CAPACITY_STORAGE_CACHE_MS) return activeStorageCache;
+  const byRun = {};
+  let totalBytes = 0;
+  let filesVisited = 0;
+  let truncated = false;
+  for (const run of active) {
+    let runBytes = 0;
+    const stack = [path.join(ROOT, "runs", run.id)];
+    while (stack.length && filesVisited < CAPACITY_STORAGE_SCAN_FILES) {
+      const directory = stack.pop();
+      let entries = [];
+      try { entries = readdirSync(directory, { withFileTypes: true }); } catch { continue; }
+      for (const entry of entries) {
+        if (filesVisited >= CAPACITY_STORAGE_SCAN_FILES) { truncated = true; break; }
+        const entryPath = path.join(directory, entry.name);
+        if (entry.isDirectory()) stack.push(entryPath);
+        else if (entry.isFile()) {
+          filesVisited += 1;
+          try { runBytes += statSync(entryPath).size; } catch {}
+        }
+      }
+    }
+    byRun[run.id] = runBytes;
+    totalBytes += runBytes;
+    if (filesVisited >= CAPACITY_STORAGE_SCAN_FILES) { truncated = true; break; }
+  }
+  activeStorageCache = { key, measuredAt: Date.now(), byRun, totalBytes, filesVisited, truncated };
+  return activeStorageCache;
+}
+
+function targetHostname(campaign) {
+  const raw = campaign?.config?.targetUrl || campaign?.config?.target || campaign?.config?.url || "";
+  try { return new URL(raw).hostname; } catch { return ""; }
+}
+
+async function capacitySnapshot() {
+  const generatedAt = Date.now();
+  const cpuList = cpus();
+  const effectiveCpus = effectiveCpuCount();
+  const systemCpu = systemCpuPercent();
+  const controlCpu = controlCpuPercent();
+  const memory = memoryCapacity();
+  const disk = diskCapacity();
+  const active = activeRuns();
+  const storage = measureActiveRunStorage(active);
+  const resourceAdmission = evaluateResourceAdmission({
+    availableMemoryBytes: memory.availableBytes,
+    totalMemoryBytes: memory.totalBytes,
+    oneMinuteLoad: loadavg()[0],
+    cpuCount: effectiveCpus,
+    minimumAvailableMemoryRatio: MIN_AVAILABLE_MEMORY_RATIO,
+    maximumNormalizedLoad: MAX_NORMALIZED_SYSTEM_LOAD,
+  });
+  const [infrastructure, health] = await Promise.all([
+    distributedStore.capacity?.().catch(() => null),
+    distributedStore.health().catch(() => ({ postgres: false, redis: false, leader: false })),
+  ]);
+  const queued = [...campaigns.values()].filter(campaign => campaign.status === "queued");
+  const errors = [...campaigns.values()].filter(campaign => campaign.status === "error");
+  const hardCeiling = Math.max(0, Math.min(activeLimit, MAX_LOCAL_WORKERS, MAX_BROWSER_CONCURRENCY, MAX_TOTAL_CONCURRENCY));
+  const limitHeadroom = Math.max(0, hardCeiling - active.length);
+  const reservedMemory = memory.totalBytes * MIN_AVAILABLE_MEMORY_RATIO;
+  const memoryHeadroom = Math.max(0, memory.availableBytes - reservedMemory);
+  const additionalByMemory = Math.max(0, Math.floor(memoryHeadroom / CAPACITY_ESTIMATED_CAMPAIGN_MEMORY_BYTES));
+  const additionalByCpu = systemCpu === null
+    ? limitHeadroom
+    : Math.max(0, Math.floor(Math.max(0, CAPACITY_TARGET_CPU_PERCENT - systemCpu) * effectiveCpus / CAPACITY_ESTIMATED_CAMPAIGN_CPU_PERCENT));
+  const diskBlocked = disk.totalBytes > 0 && disk.availableRatio < CAPACITY_MIN_FREE_DISK_RATIO;
+  const safeAdditional = Math.max(0, Math.min(limitHeadroom, additionalByMemory, additionalByCpu, diskBlocked ? 0 : limitHeadroom));
+  const memoryUsedRatio = memory.totalBytes > 0 ? 1 - memory.availableBytes / memory.totalBytes : 0;
+  const recommendations = [];
+  if (diskBlocked) recommendations.push("Increase disk capacity or remove old evidence before starting another campaign.");
+  if (memoryUsedRatio >= 0.85) recommendations.push("RAM pressure is critical; stop one or more active campaigns or increase memory.");
+  else if (memoryUsedRatio >= 0.7) recommendations.push("RAM headroom is narrowing; add campaigns cautiously.");
+  if (systemCpu !== null && systemCpu >= CAPACITY_TARGET_CPU_PERCENT) recommendations.push("CPU is at the planning ceiling; do not add campaigns until load falls.");
+  if (queued.length > 0) recommendations.push(`${queued.length} campaign${queued.length === 1 ? " is" : "s are"} queued; increase workers only when CPU and RAM headroom permit.`);
+  if (!health.postgres || !health.redis) recommendations.push("A state service is unhealthy; restore PostgreSQL and Redis before increasing capacity.");
+  if (recommendations.length === 0) recommendations.push(`Current headroom supports approximately ${safeAdditional} additional active campaign${safeAdditional === 1 ? "" : "s"} under the configured planning model.`);
+  const state = !resourceAdmission.allowed || diskBlocked || !health.postgres || !health.redis
+    ? "critical"
+    : systemCpu !== null && systemCpu >= 65 || memoryUsedRatio >= 0.7 || queued.length > 0
+      ? "warning"
+      : "healthy";
+  const processMemory = process.memoryUsage();
+  const campaignRows = active.map(run => {
+    const campaign = campaigns.get(run.campaignRecordId);
+    return {
+      campaignRecordId: run.campaignRecordId || null,
+      campaignNumber: campaign?.number || null,
+      campaignName: campaign?.name || run.scenarioId || run.id,
+      runId: run.id,
+      status: "running",
+      tier: run.tier,
+      pid: run.child?.pid || run.pid || null,
+      startedAt: run.startedAt,
+      runtimeMs: Math.max(0, generatedAt - Number(run.startedAt || generatedAt)),
+      proxyPort: run.proxyPort || null,
+      targetHost: targetHostname(campaign),
+      plannedCpuPercent: CAPACITY_ESTIMATED_CAMPAIGN_CPU_PERCENT,
+      plannedMemoryBytes: CAPACITY_ESTIMATED_CAMPAIGN_MEMORY_BYTES,
+      evidenceBytes: Number(storage.byRun[run.id] || 0),
+    };
+  });
+  return {
+    version: 1,
+    generatedAt,
+    state,
+    host: {
+      hostname: hostname(),
+      platform: platform(),
+      architecture: arch(),
+      nodeVersion: process.version,
+      uptimeSeconds: uptime(),
+      logicalCpuCount: cpuList.length,
+      effectiveCpuCount: effectiveCpus,
+      cpuModel: cpuList[0]?.model || "Unknown CPU",
+      memorySource: memory.source,
+    },
+    load: {
+      systemCpuPercent: systemCpu,
+      oneMinuteLoad: loadavg()[0],
+      normalizedLoad: resourceAdmission.normalizedLoad,
+      totalMemoryBytes: memory.totalBytes,
+      availableMemoryBytes: memory.availableBytes,
+      usedMemoryBytes: Math.max(0, memory.totalBytes - memory.availableBytes),
+      memoryUsedRatio,
+      disk,
+    },
+    process: {
+      pid: process.pid,
+      cpuPercent: controlCpu,
+      rssBytes: processMemory.rss,
+      heapUsedBytes: processMemory.heapUsed,
+      heapTotalBytes: processMemory.heapTotal,
+      externalBytes: processMemory.external,
+      uptimeSeconds: process.uptime(),
+    },
+    infrastructure: infrastructure || {
+      postgres: { configured: distributedStore.enabled, healthy: Boolean(health.postgres), sizeBytes: 0, connections: 0, maxConnections: 0 },
+      redis: { configured: distributedStore.enabled, healthy: Boolean(health.redis), usedMemoryBytes: 0, maxMemoryBytes: 0, keys: 0 },
+    },
+    services: {
+      leader: Boolean(health.leader),
+      postgresHealthy: Boolean(health.postgres),
+      redisHealthy: Boolean(health.redis),
+      proxyConfigured: Boolean(proxy),
+      proxyVerified: Boolean(proxy?.verified),
+      proxyLocation: proxy?.location || "",
+      proxyTimezone: proxy?.timezone || "",
+    },
+    limits: {
+      savedCampaignLimit: MAX_SAVED_CAMPAIGNS,
+      activeLimit,
+      maxLocalWorkers: MAX_LOCAL_WORKERS,
+      maxBrowserConcurrency: MAX_BROWSER_CONCURRENCY,
+      maxTotalConcurrency: MAX_TOTAL_CONCURRENCY,
+      maxTotalRps: MAX_TOTAL_RPS,
+      launchGapMs: CAMPAIGN_START_GAP_MS,
+      minimumAvailableMemoryRatio: MIN_AVAILABLE_MEMORY_RATIO,
+      maximumNormalizedLoad: MAX_NORMALIZED_SYSTEM_LOAD,
+      targetCpuPercent: CAPACITY_TARGET_CPU_PERCENT,
+      minimumFreeDiskRatio: CAPACITY_MIN_FREE_DISK_RATIO,
+      plannedCampaignMemoryBytes: CAPACITY_ESTIMATED_CAMPAIGN_MEMORY_BYTES,
+      plannedCampaignCpuPercent: CAPACITY_ESTIMATED_CAMPAIGN_CPU_PERCENT,
+    },
+    workload: {
+      savedCampaigns: campaigns.size,
+      activeCampaigns: active.length,
+      queuedCampaigns: queued.length,
+      errorCampaigns: errors.length,
+      lockedGatewayPorts: lockedPorts().size,
+      activeEvidenceBytes: storage.totalBytes,
+      evidenceFilesVisited: storage.filesVisited,
+      evidenceScanTruncated: storage.truncated,
+      resourceAdmissionAllowed: resourceAdmission.allowed,
+      resourceAdmissionReasons: resourceAdmission.reasons,
+      resourceAdmissionBlocks,
+    },
+    capacity: {
+      hardActiveCeiling: hardCeiling,
+      safeActiveNow: active.length + safeAdditional,
+      safeAdditionalCampaigns: safeAdditional,
+      additionalByMemory,
+      additionalByCpu,
+      limitHeadroom,
+      recommendations,
+    },
+    campaigns: campaignRows,
+  };
+}
+
 const server = createServer((req, res) => {
+  if (req.method === "GET" && req.url === "/capacity") {
+    if (!CONTROL_HOST_IS_LOOPBACK && !tokenMatches(String(req.headers.authorization ?? "").replace(/^Bearer\s+/i, "")) && !sessionCookieMatches(req.headers.cookie)) {
+      res.writeHead(401, { "content-type": "application/json; charset=utf-8" }); res.end(JSON.stringify({ ok: false, error: "Unauthorized" })); return;
+    }
+    void capacitySnapshot().then(snapshot => {
+      const body = JSON.stringify(snapshot);
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(body), "cache-control": "no-store" });
+      res.end(body);
+    }).catch(error => {
+      const body = JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "Capacity snapshot failed" });
+      res.writeHead(500, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(body), "cache-control": "no-store" });
+      res.end(body);
+    });
+    return;
+  }
   if (req.method === "GET" && req.url === "/metrics") {
     const active = activeRuns().length;
     const queued = [...campaigns.values()].filter(campaign => campaign.status === "queued").length;
@@ -1167,7 +1460,7 @@ const wss = new WebSocketServer({
     const protocols = String(req.headers["sec-websocket-protocol"] ?? "").split(",").map(value => value.trim());
     return ORIGINS.has(origin)
       && protocols.includes("tah-control")
-      && (sessionCookieMatches(req.headers.cookie) || tokenMatches(protocols.find(value => value !== "tah-control")));
+      && (INSECURE_LOCAL_CONTROL || sessionCookieMatches(req.headers.cookie) || tokenMatches(protocols.find(value => value !== "tah-control")));
   },
 });
 server.listen(PORT, CONTROL_HOST, () => {

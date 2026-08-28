@@ -332,6 +332,7 @@ export default function ControlPanel() {
           <a className="rail-link" href="#ads" aria-label="Google Ads operations" title="Ads"><Megaphone size={18} /><span>Ads</span></a>
           <a className="rail-link" href="#runs" aria-label="Run operations" title="Runs"><Activity size={18} /><span>Runs</span></a>
           <Link className="rail-link" href="/dashboard" aria-label="Telemetry dashboard" title="Telemetry"><TerminalSquare size={18} /><span>Telemetry</span></Link>
+          <Link className="rail-link" href="/capacity" aria-label="Server capacity" title="Capacity"><Activity size={18} /><span>Capacity</span></Link>
         </nav>
         <div className="rail-foot">v0.1</div>
       </aside>

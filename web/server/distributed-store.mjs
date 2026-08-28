@@ -95,6 +95,12 @@ export async function createDistributedControlStore({
       async health() {
         return { postgres: false, redis: false, leader: memoryLeader, fencingToken: memoryLeader ? 1 : null };
       },
+      async capacity() {
+        return {
+          postgres: { configured: false, healthy: false, sizeBytes: 0, connections: 0, maxConnections: 0 },
+          redis: { configured: false, healthy: false, usedMemoryBytes: 0, maxMemoryBytes: 0, keys: 0 },
+        };
+      },
       async close() {
         memoryLeader = false;
       },
@@ -291,6 +297,41 @@ export async function createDistributedControlStore({
     };
   }
 
+  async function capacity() {
+    const result = {
+      postgres: { configured: true, healthy: false, sizeBytes: 0, connections: 0, maxConnections: 0 },
+      redis: { configured: Boolean(redisUrl), healthy: !redisUrl, usedMemoryBytes: 0, maxMemoryBytes: 0, keys: 0 },
+    };
+    try {
+      const database = await pool.query(
+        `SELECT pg_database_size(current_database())::bigint AS size_bytes,
+                (SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database())::int AS connections,
+                current_setting('max_connections')::int AS max_connections`,
+      );
+      result.postgres = {
+        configured: true,
+        healthy: true,
+        sizeBytes: Number(database.rows[0]?.size_bytes || 0),
+        connections: Number(database.rows[0]?.connections || 0),
+        maxConnections: Number(database.rows[0]?.max_connections || 0),
+      };
+    } catch {}
+    if (redis) {
+      try {
+        const info = await redis.info("memory");
+        const value = (name) => Number(info.match(new RegExp(`^${name}:(\\d+)`, "m"))?.[1] || 0);
+        result.redis = {
+          configured: true,
+          healthy: redis.isReady,
+          usedMemoryBytes: value("used_memory"),
+          maxMemoryBytes: value("maxmemory"),
+          keys: Number(await redis.dbSize()),
+        };
+      } catch {}
+    }
+    return result;
+  }
+
   async function close() {
     if (closed) return;
     await releaseLeader().catch(() => {});
@@ -309,6 +350,7 @@ export async function createDistributedControlStore({
     saveState,
     appendEvent,
     health,
+    capacity,
     close,
   };
 }

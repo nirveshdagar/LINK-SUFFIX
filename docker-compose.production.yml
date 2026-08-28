@@ -105,6 +105,7 @@ services:
     environment:
       NODE_ENV: production
       TAH_DISTRIBUTED_REQUIRED: "1"
+      TAH_CONTROL_INTERNAL_URL: http://control:3101
     read_only: true
     tmpfs:
       - /tmp:size=512m,mode=1777
@@ -121,6 +122,8 @@ services:
       migrate:
         condition: service_completed_successfully
       redis:
+        condition: service_healthy
+      control:
         condition: service_healthy
   control:
     restart: unless-stopped
