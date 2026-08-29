@@ -9,7 +9,7 @@ The former `/ads` workflow is integrated into the main control dashboard. The tr
 
 ## Required production controls
 
-Set strong API, Ads, tracking, and control tokens. Configure `TAH_ALLOWED_TARGETS` with the exact authorized domains. Keep `TAH_ALLOW_INSECURE_LOCAL_DEV` and `TAH_ALLOW_UNLISTED_LOCAL_TARGETS` disabled outside isolated development.
+Set strong API, Ads, tracking, and control tokens. Use `TAH_TARGET_POLICY=allowlist` with exact authorized domains when destinations are known in advance. For authenticated campaigns whose tracking domains vary, use `TAH_TARGET_POLICY=public`; this accepts arbitrary public HTTP(S) destinations while rejecting local, private, reserved, and non-routable targets. Keep `TAH_ALLOW_INSECURE_LOCAL_DEV` and `TAH_ALLOW_UNLISTED_LOCAL_TARGETS` disabled outside isolated development.
 
 ## Capacity model
 

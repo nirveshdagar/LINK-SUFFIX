@@ -55,10 +55,10 @@ function allowedHostname(hostname: string) {
     .split(",")
     .map((value) => value.trim().toLowerCase().replace(/^\*\./, "."))
     .filter(Boolean);
-  if (!allowlist.length) {
-    return process.env.NODE_ENV !== "production" && process.env.TAH_ALLOW_UNLISTED_LOCAL_TARGETS === "1";
-  }
-  return allowlist.some((entry) => entry.startsWith(".") ? hostname.endsWith(entry) && hostname.length > entry.length : hostname === entry);
+  const explicitlyAllowed = allowlist.some((entry) => entry.startsWith(".") ? hostname.endsWith(entry) && hostname.length > entry.length : hostname === entry);
+  if (explicitlyAllowed) return true;
+  if (String(process.env.TAH_TARGET_POLICY ?? "allowlist").trim().toLowerCase() === "public") return true;
+  return !allowlist.length && process.env.NODE_ENV !== "production" && process.env.TAH_ALLOW_UNLISTED_LOCAL_TARGETS === "1";
 }
 
 async function resolveAll(hostname: string) {

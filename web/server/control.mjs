@@ -4,6 +4,8 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, rename
 import { createServer } from "node:http";
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { arch, cpus, freemem, hostname, loadavg, platform, totalmem, uptime } from "node:os";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import path from "node:path";
 import { resolveProxyEgress, resetTzCache } from "@tah/tz";
 import { createDistributedControlStore } from "./distributed-store.mjs";
@@ -71,6 +73,13 @@ const RESOURCE_ADMISSION_RETRY_MS = Math.max(1_000, Number(process.env.TAH_RESOU
 const MAX_TOTAL_RPS = Number(process.env.TAH_MAX_TOTAL_RPS ?? 500);
 const ALLOWED_TARGETS = (process.env.TAH_ALLOWED_TARGETS ?? "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean);
 const STAGING_TARGETS = (process.env.TAH_STAGING_TARGETS ?? "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean);
+const TARGET_POLICY = String(process.env.TAH_TARGET_POLICY ?? "allowlist").trim().toLowerCase();
+const PUBLIC_TARGETS_ENABLED = TARGET_POLICY === "public";
+const TARGET_DNS_TIMEOUT_MS = Math.max(500, Number(process.env.TAH_DNS_TIMEOUT_MS ?? 5_000));
+const TARGET_DNS_CACHE_MS = Math.min(3_600_000, Math.max(1_000, Number(process.env.TAH_TARGET_DNS_CACHE_MS ?? 300_000)));
+const BLOCKED_TARGET_HOSTS = new Set(["localhost", "metadata.google.internal", "metadata.google", "instance-data", "kubernetes.default"]);
+const BLOCKED_TARGET_SUFFIXES = [".localhost", ".local", ".internal", ".home", ".lan"];
+const targetDnsCache = new Map();
 const clients = new Set();
 const routeTelemetry = { since: Date.now(), preflightAttempts: 0, redirectFirstCaptures: 0, browserFallbacks: 0, cachedFallbacks: 0, fallbackReasons: new Map() };
 const orchestratorWorkers = createOrchestratorWorkerPool({
@@ -696,11 +705,88 @@ function validate(p) {
   if (process.env.TAH_NO_PROXY !== "1" && !proxy?.verified) throw new Error("Verify IPRoyal before launching traffic");
 }
 
-function targetAllowed(rawUrl) {
+function targetExplicitlyAllowed(hostname) {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  return ALLOWED_TARGETS.some(rawAllowed => {
+    const allowed = rawAllowed.replace(/\.$/, "").replace(/^\*\./, "");
+    return allowed && allowed !== "*" && (host === allowed || host.endsWith(`.${allowed}`));
+  });
+}
+
+function blockedTargetIpv4(address) {
+  const bytes = address.split(".").map(Number);
+  if (bytes.length !== 4 || bytes.some(value => !Number.isInteger(value) || value < 0 || value > 255)) return true;
+  const [a, b, c] = bytes;
+  return a === 0
+    || a === 10
+    || a === 127
+    || (a === 100 && b >= 64 && b <= 127)
+    || (a === 169 && b === 254)
+    || (a === 172 && b >= 16 && b <= 31)
+    || (a === 192 && b === 0 && c === 0)
+    || (a === 192 && b === 0 && c === 2)
+    || (a === 192 && b === 168)
+    || (a === 198 && (b === 18 || b === 19))
+    || (a === 198 && b === 51 && c === 100)
+    || (a === 203 && b === 0 && c === 113)
+    || a >= 224;
+}
+
+function blockedTargetAddress(address) {
+  const normalized = String(address).toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
+  const version = isIP(normalized);
+  if (version === 4) return blockedTargetIpv4(normalized);
+  if (version !== 6) return true;
+  if (normalized === "::" || normalized === "::1" || normalized.startsWith("::ffff:")) return true;
+  const first = Number.parseInt(normalized.split(":")[0] || "0", 16);
+  return (first & 0xfe00) === 0xfc00
+    || (first & 0xffc0) === 0xfe80
+    || (first & 0xff00) === 0xff00
+    || normalized.startsWith("2001:db8:");
+}
+
+async function assertPublicTargetHostname(hostname) {
+  if (BLOCKED_TARGET_HOSTS.has(hostname) || BLOCKED_TARGET_SUFFIXES.some(suffix => hostname.endsWith(suffix))) {
+    throw new Error("Local and internal target hosts are blocked");
+  }
+  if (isIP(hostname)) {
+    if (blockedTargetAddress(hostname)) throw new Error("Private, reserved, and non-routable targets are blocked");
+    return;
+  }
+  const cachedUntil = targetDnsCache.get(hostname) ?? 0;
+  if (cachedUntil > Date.now()) return;
+  let timeout;
   try {
-    const host = new URL(rawUrl).hostname.toLowerCase();
-    return ALLOWED_TARGETS.some(allowed => host === allowed || host.endsWith(`.${allowed}`));
-  } catch { return false; }
+    const records = await Promise.race([
+      lookup(hostname, { all: true, verbatim: true }),
+      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("Target DNS resolution timed out")), TARGET_DNS_TIMEOUT_MS); }),
+    ]);
+    if (!records.length) throw new Error("Target hostname did not resolve");
+    if (records.some(record => blockedTargetAddress(record.address))) {
+      throw new Error("Target hostname resolves to a private, reserved, or non-routable address");
+    }
+    const now = Date.now();
+    if (targetDnsCache.size >= 4_096) {
+      for (const [host, expiresAt] of targetDnsCache) if (expiresAt <= now) targetDnsCache.delete(host);
+      if (targetDnsCache.size >= 4_096) targetDnsCache.clear();
+    }
+    targetDnsCache.set(hostname, now + TARGET_DNS_CACHE_MS);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function assertTargetAllowed(rawUrl, allowUnlistedDev = false) {
+  let url;
+  try { url = new URL(rawUrl); } catch { throw new Error("Enter a valid target URL"); }
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("Target URL must use HTTP or HTTPS");
+  if (url.username || url.password) throw new Error("Target URLs cannot contain embedded credentials");
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (!host) throw new Error("Target URL must include a hostname");
+  if (targetExplicitlyAllowed(host) || allowUnlistedDev) return url;
+  if (!PUBLIC_TARGETS_ENABLED) throw new Error("Target is not present in TAH_ALLOWED_TARGETS");
+  await assertPublicTargetHostname(host);
+  return url;
 }
 function stagingTargetAllowed(rawUrl) {
   try { const host = new URL(rawUrl).hostname.toLowerCase(); return STAGING_TARGETS.some(allowed => host === allowed || host.endsWith(`.${allowed}`)); } catch { return false; }
@@ -953,7 +1039,7 @@ async function startRun(payload) {
     });
   }
   const allowUnlistedDev = CONTROL_HOST_IS_LOOPBACK && process.env.NODE_ENV !== "production" && process.env.TAH_ALLOW_UNLISTED_LOCAL_TARGETS === "true";
-  if (!targetAllowed(payload.seedUrl) && !allowUnlistedDev) throw new Error("Target is not present in TAH_ALLOWED_TARGETS");
+  await assertTargetAllowed(payload.seedUrl, allowUnlistedDev);
   if (payload.testEnvironment?.mode === "staging" && !stagingTargetAllowed(payload.seedUrl)) throw new Error("Staging mode requires the target in TAH_STAGING_TARGETS");
   const live = activeRuns();
   if (payload.campaignRecordId && live.some(run => run.campaignRecordId === payload.campaignRecordId)) throw new Error("This campaign already has an active journey process");
@@ -1172,7 +1258,8 @@ const INSECURE_LOCAL_CONTROL = CONTROL_HOST_IS_LOOPBACK
   && ["1", "true"].includes(String(process.env.TAH_ALLOW_INSECURE_LOCAL_DEV ?? "").toLowerCase());
 if (!CONTROL_HOST_IS_LOOPBACK && !CONTROL_TOKEN) throw new Error("CONTROL_TOKEN is required for non-loopback control access");
 if (!CONTROL_TOKEN && !INSECURE_LOCAL_CONTROL) throw new Error("CONTROL_TOKEN is required unless insecure local development is explicitly enabled");
-if (!CONTROL_HOST_IS_LOOPBACK && ALLOWED_TARGETS.length === 0) throw new Error("TAH_ALLOWED_TARGETS is required for non-loopback control access");
+if (!["allowlist", "public"].includes(TARGET_POLICY)) throw new Error("TAH_TARGET_POLICY must be either allowlist or public");
+if (!CONTROL_HOST_IS_LOOPBACK && !PUBLIC_TARGETS_ENABLED && ALLOWED_TARGETS.length === 0) throw new Error("TAH_ALLOWED_TARGETS is required for non-loopback control access when TAH_TARGET_POLICY=allowlist");
 const tokenMatches = candidate => {
   if (!CONTROL_TOKEN) return true;
   const expected = Buffer.from(CONTROL_TOKEN);

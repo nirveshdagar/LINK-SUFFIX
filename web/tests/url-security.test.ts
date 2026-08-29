@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractExactQuerySuffix, isBlockedAddress } from "../lib/url-security.ts";
+import { assertSafeOutboundUrl, extractExactQuerySuffix, isBlockedAddress } from "../lib/url-security.ts";
 
 test("extractExactQuerySuffix preserves order, encoding, and duplicate keys", () => {
   assert.equal(
@@ -19,4 +19,21 @@ test("private and reserved addresses are blocked", () => {
   }
   assert.equal(isBlockedAddress("8.8.8.8"), false);
   assert.equal(isBlockedAddress("2606:4700:4700::1111"), false);
+});
+
+test("public target policy accepts unlisted public targets but still blocks private targets", async (t) => {
+  const previousPolicy = process.env.TAH_TARGET_POLICY;
+  const previousAllowedHosts = process.env.TAH_TRAFFIC_ALLOWED_HOSTS;
+  const previousNodeEnv = process.env.NODE_ENV;
+  t.after(() => {
+    if (previousPolicy === undefined) delete process.env.TAH_TARGET_POLICY; else process.env.TAH_TARGET_POLICY = previousPolicy;
+    if (previousAllowedHosts === undefined) delete process.env.TAH_TRAFFIC_ALLOWED_HOSTS; else process.env.TAH_TRAFFIC_ALLOWED_HOSTS = previousAllowedHosts;
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousNodeEnv;
+  });
+  process.env.TAH_TARGET_POLICY = "public";
+  process.env.TAH_TRAFFIC_ALLOWED_HOSTS = "";
+  process.env.NODE_ENV = "production";
+
+  await assert.doesNotReject(() => assertSafeOutboundUrl("https://8.8.8.8/tracking"));
+  await assert.rejects(() => assertSafeOutboundUrl("http://127.0.0.1/internal"), /Private, reserved/);
 });
