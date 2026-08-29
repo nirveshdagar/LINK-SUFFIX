@@ -1,4 +1,4 @@
-import { run as runTrivial } from '@tah/trivial-http';
+import { resolveRedirectFirst, run as runTrivial } from '@tah/trivial-http';
 import { run as runHeadless } from '@tah/headless-browser';
 import { run as runStealth } from '@tah/stealth-browser';
 import { run as runHuman } from '@tah/human-sim';
@@ -17,6 +17,11 @@ import { burstOffsetMs, burstRequestCount } from './burst.js';
 import { continuousIntervalMs, remainingContinuousDelayMs } from './continuousCadence.js';
 
 const DEFAULT_PROFILE = 'desktop-windows-chrome';
+
+function enabled(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined || value.trim() === '') return fallback;
+  return !['0', 'false', 'off', 'no'].includes(value.trim().toLowerCase());
+}
 
 // Each tier's `run` has a slightly different 3rd argument (a concurrency number
 // for trivial-http, a DeviceProfile for the browser tiers), but they all take
@@ -173,7 +178,42 @@ async function runOneRepeat(
     const tierScenario = scenario.tier === 'trivial-http'
       ? { ...scenario, repeats: 1, concurrent: 1 }
       : scenario;
-    const iter = tierFn(tierScenario, proxyUrl, repeatProfile) as AsyncIterable<RequestEvent>;
+    let iter: AsyncIterable<RequestEvent>;
+    if (
+      scenario.tier === 'human'
+      && scenario.continuous === true
+      && enabled(process.env.TAH_REDIRECT_FIRST_ENABLED, true)
+    ) {
+      const resolved = await resolveRedirectFirst(scenario, proxyUrl);
+      if (resolved.outcome === 'captured' && resolved.finalUrl) {
+        const lightweightEvent: RequestEvent = {
+          scenario_id: scenario.id,
+          repeat_index: i,
+          tier: 'human',
+          geo_requested: scenario.geo,
+          proxy_mode: scenario.proxy_mode,
+          started_at: resolved.startedAt,
+          pages: [scenario.seed_url, ...resolved.redirects.map((redirect) => redirect.to)],
+          final_landing_url: resolved.finalUrl,
+          events: resolved.events,
+          final_verdict: 'unsure',
+          timing: {
+            total_ms: resolved.totalMs,
+            pages_visited: resolved.redirects.length + 1,
+          },
+        };
+        iter = (async function* lightweightCapture() {
+          yield lightweightEvent;
+        })();
+      } else {
+        if (process.env.TAH_REDIRECT_FIRST_DEBUG === '1') {
+          console.log(`TAH_REDIRECT_FALLBACK ${JSON.stringify({ reason: resolved.reason, scenario_id: scenario.id })}`);
+        }
+        iter = tierFn(tierScenario, proxyUrl, repeatProfile) as AsyncIterable<RequestEvent>;
+      }
+    } else {
+      iter = tierFn(tierScenario, proxyUrl, repeatProfile) as AsyncIterable<RequestEvent>;
+    }
     for await (const evt of iter) {
       evt.repeat_index = i;
       const last = [...evt.events].reverse().find((event) => event.ta_signal?.main_document === 'true') ?? evt.events.at(-1);

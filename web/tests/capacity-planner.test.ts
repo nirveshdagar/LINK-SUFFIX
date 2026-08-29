@@ -7,9 +7,9 @@ test("current capacity distinguishes managed queue from 500-way browser parallel
   const plan = planCapacity({ tunnelMode: "quick" });
 
   assert.equal(plan.input.campaigns, 500);
-  assert.equal(plan.browser.admittedConcurrentCampaigns, 20);
-  assert.equal(plan.browser.queuedCampaigns, 480);
-  assert.equal(plan.browser.workerShortfall, 480);
+  assert.equal(plan.browser.admittedConcurrentCampaigns, 8);
+  assert.equal(plan.browser.queuedCampaigns, 492);
+  assert.equal(plan.browser.workerShortfall, 492);
   assert.equal(plan.browser.gatewayPortShortfall, 396);
   assert.equal(plan.browser.trueParallelReady, false);
   assert.equal(plan.managedQueueReady, true);

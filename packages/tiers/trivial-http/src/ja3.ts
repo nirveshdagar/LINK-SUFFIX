@@ -16,7 +16,15 @@ export interface TlsFingerprint {
 export async function fireWithJa3(
   url: URL,
   proxyUrl: URL | null,
-  opts: { headers?: Record<string, string>; ca?: Buffer | string; method?: string; fpSink?: { fp?: TlsFingerprint } },
+  opts: {
+    headers?: Record<string, string>;
+    ca?: Buffer | string;
+    method?: string;
+    fpSink?: { fp?: TlsFingerprint };
+    headersOnly?: boolean;
+    maxBodyBytes?: number;
+    timeoutMs?: number;
+  },
 ): Promise<{
   status: number;
   headers: Record<string, string>;
@@ -27,6 +35,7 @@ export async function fireWithJa3(
   const sink = opts.fpSink ?? { fp: undefined };
   const method = opts.method ?? 'GET';
   const headers = opts.headers ?? {};
+  const timeoutMs = Math.max(1_000, Math.min(120_000, Number(opts.timeoutMs) || 15_000));
 
   // 1. Open CONNECT tunnel through proxy (or direct).
   const openSocket = async (): Promise<any> => {
@@ -52,6 +61,7 @@ export async function fireWithJa3(
         else resolve(socket);
       });
       req.once('error', reject);
+      req.setTimeout(timeoutMs, () => req.destroy(new Error(`CONNECT timed out after ${timeoutMs}ms`)));
       req.end();
     });
   };
@@ -69,7 +79,9 @@ export async function fireWithJa3(
           ...(opts.ca ? { ca: opts.ca } : {}),
         };
         const sock = tlsConnect(tlsOpts);
+        sock.setTimeout(timeoutMs, () => sock.destroy(new Error(`TLS handshake timed out after ${timeoutMs}ms`)));
         sock.once('secureConnect', () => {
+          sock.setTimeout(0);
           const cert = sock.getPeerCertificate() as any;
           fp.tls_version = sock.getProtocol() ?? undefined;
           sink.fp = fp;
@@ -84,7 +96,23 @@ export async function fireWithJa3(
     : tunneled;
 
   // 3. Send HTTP request over TLS socket (or plain socket for http://).
-  return await new Promise((resolve, reject) => {
+  return await new Promise<{
+    status: number;
+    headers: Record<string, string>;
+    body: Buffer;
+    fp: TlsFingerprint;
+  }>((resolve, reject) => {
+    let settled = false;
+    const succeed = (value: { status: number; headers: Record<string, string>; body: Buffer; fp: TlsFingerprint }) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
     const reqOpts: HttpRequestOptions = {
       host: targetHost,
       port: targetPort,
@@ -102,19 +130,26 @@ export async function fireWithJa3(
         if (Array.isArray(v)) hdrs[k] = v.join(', ');
         else if (v != null) hdrs[k] = String(v);
       }
+      if (opts.headersOnly) {
+        succeed({ status: res.statusCode ?? 0, headers: hdrs, body: Buffer.alloc(0), fp });
+        res.destroy();
+        return;
+      }
       res.on('data', (c) => {
         const incomingChunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
-        const maxBytes = Number(process.env.TAH_MAX_RESPONSE_BODY_BYTES) || 2_000_000;
+        const configured = opts.maxBodyBytes ?? Number(process.env.TAH_MAX_RESPONSE_BODY_BYTES ?? 262_144);
+        const maxBytes = Math.max(0, Math.min(2_000_000, Number.isFinite(configured) ? configured : 262_144));
         const remaining = Math.max(0, maxBytes - bufferedBytes);
         if (remaining <= 0) return;
         const boundedChunk = incomingChunk.length <= remaining ? incomingChunk : incomingChunk.subarray(0, remaining);
         chunks.push(boundedChunk);
         bufferedBytes += boundedChunk.length;
       });
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: hdrs, body: Buffer.concat(chunks), fp }));
-      res.on('error', reject);
+      res.on('end', () => succeed({ status: res.statusCode ?? 0, headers: hdrs, body: Buffer.concat(chunks), fp }));
+      res.on('error', fail);
     });
-    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => req.destroy(new Error(`Request timed out after ${timeoutMs}ms`)));
+    req.on('error', fail);
     req.end();
   });
 }

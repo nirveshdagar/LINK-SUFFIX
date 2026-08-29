@@ -17,9 +17,11 @@ function isLoopback(hostname: string) {
 }
 
 function insecureLocalDevAllowed(request: Request) {
-  if (process.env.NODE_ENV === "production" || !["1", "true"].includes(process.env.TAH_ALLOW_INSECURE_LOCAL_DEV?.toLowerCase() || "")) return false;
+  if (!["1", "true"].includes(process.env.TAH_ALLOW_INSECURE_LOCAL_DEV?.toLowerCase() || "")) return false;
   try {
-    return isLoopback(new URL(request.url).hostname);
+    const host = request.headers.get("host");
+    if (!host) return false;
+    return isLoopback(new URL(request.url).hostname) && isLoopback(new URL(`http://${host}`).hostname);
   } catch {
     return false;
   }

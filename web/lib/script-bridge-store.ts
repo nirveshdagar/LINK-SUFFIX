@@ -143,22 +143,47 @@ export async function upsertBridgeTarget(input: BridgeTargetInput) {
           assignedShardId = `${shardPrefix}${String(highest + 1).padStart(3, "0")}`;
         }
       }
-      const saved = await client.query(
-        `INSERT INTO tah_campaign_targets
-          (target_id, campaign_record_id, campaign_name, manager_customer_id, customer_id, google_campaign_id, shard_id, min_delivery_interval_ms)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         ON CONFLICT (campaign_record_id) DO UPDATE SET
-           campaign_name=EXCLUDED.campaign_name,
-           manager_customer_id=EXCLUDED.manager_customer_id,
-           customer_id=EXCLUDED.customer_id,
-           google_campaign_id=EXCLUDED.google_campaign_id,
-           shard_id=EXCLUDED.shard_id,
-           enabled=true,
-           archived_at=NULL,
-           updated_at=now()
-         RETURNING target_id,shard_id`,
-        [id, input.campaignRecordId, input.campaignName, managerCustomerId, customerId, googleCampaignId, assignedShardId, MIN_INTERVAL_MS],
+      const conflicts = await client.query(
+        `SELECT target_id,campaign_record_id,enabled,archived_at
+           FROM tah_campaign_targets
+          WHERE target_id=$1 OR campaign_record_id=$2
+          FOR UPDATE`,
+        [id, input.campaignRecordId],
       );
+      const targetOwner = conflicts.rows.find((row) => String(row.target_id) === id);
+      const recordOwner = conflicts.rows.find((row) => String(row.campaign_record_id) === input.campaignRecordId);
+      if (targetOwner && String(targetOwner.campaign_record_id) !== input.campaignRecordId
+          && targetOwner.enabled === true && !targetOwner.archived_at) {
+        throw new Error("Another saved campaign already owns this Google Ads target");
+      }
+      if (recordOwner && String(recordOwner.target_id) !== id) {
+        throw new Error("This saved campaign is already assigned to a different Google Ads target; remove it from Fleet first");
+      }
+      const values = [id, input.campaignRecordId, input.campaignName, managerCustomerId, customerId, googleCampaignId, assignedShardId, MIN_INTERVAL_MS];
+      const saved = targetOwner
+        ? await client.query(
+          `UPDATE tah_campaign_targets SET
+             campaign_record_id=$2,
+             campaign_name=$3,
+             manager_customer_id=$4,
+             customer_id=$5,
+             google_campaign_id=$6,
+             shard_id=$7,
+             min_delivery_interval_ms=$8,
+             enabled=true,
+             archived_at=NULL,
+             updated_at=now()
+           WHERE target_id=$1
+           RETURNING target_id,shard_id`,
+          values,
+        )
+        : await client.query(
+          `INSERT INTO tah_campaign_targets
+            (target_id, campaign_record_id, campaign_name, manager_customer_id, customer_id, google_campaign_id, shard_id, min_delivery_interval_ms)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           RETURNING target_id,shard_id`,
+          values,
+        );
       assignment = { targetId: String(saved.rows[0].target_id), shardId: String(saved.rows[0].shard_id) };
     });
   } catch (error) {
@@ -527,58 +552,31 @@ export async function setBridgeTargetEnabled(campaignRecordId: string, enabled: 
   });
 }
 
-export async function setBridgeTargetArchived(targetIdValue: string, archived: boolean) {
-  const id = targetIdValue.trim();
-  if (!/^[a-f0-9]{40}$/i.test(id)) throw new Error("A valid Fleet target ID is required");
+export async function deleteBridgeTarget(input: { targetId?: string; campaignRecordId?: string }) {
+  const targetIdValue = String(input.targetId || "").trim();
+  const campaignRecordId = String(input.campaignRecordId || "").trim();
+  if (targetIdValue && !/^[a-f0-9]{40}$/i.test(targetIdValue)) throw new Error("A valid Fleet target ID is required");
+  if (!targetIdValue && !campaignRecordId) throw new Error("A Fleet target ID or saved campaign record ID is required");
+  if (campaignRecordId.length > 120) throw new Error("Invalid saved campaign record ID");
   return transaction(async (client) => {
+    const selector = targetIdValue ? "target_id=$1" : "campaign_record_id=$1";
+    const selectorValue = targetIdValue || campaignRecordId;
     const current = await client.query(
       `SELECT target_id,campaign_record_id,campaign_name,manager_customer_id,shard_id,enabled,archived_at
-         FROM tah_campaign_targets WHERE target_id=$1 FOR UPDATE`,
-      [id],
+         FROM tah_campaign_targets WHERE ${selector} FOR UPDATE`,
+      [selectorValue],
     );
-    if (current.rowCount !== 1) throw new Error("Campaign target was not found");
+    if (current.rowCount !== 1) return { deleted: false, target: null };
     const target = current.rows[0];
-    if (!archived) {
-      const occupancy = await client.query(
-        `SELECT count(*)::int AS count,
-                min(NULLIF(manager_customer_id,'')) AS manager_customer_id,
-                count(DISTINCT NULLIF(manager_customer_id,''))::int AS manager_count
-           FROM tah_campaign_targets
-          WHERE enabled AND archived_at IS NULL AND shard_id=$1 AND target_id<>$2`,
-        [target.shard_id, id],
-      );
-      const occupied = Number(occupancy.rows[0]?.count || 0);
-      const existingManager = String(occupancy.rows[0]?.manager_customer_id || "");
-      const managerCount = Number(occupancy.rows[0]?.manager_count || 0);
-      if (managerCount > 1 || (existingManager && existingManager !== String(target.manager_customer_id || ""))) {
-        throw new Error(`Fleet shard ${target.shard_id} belongs to another MCC account`);
-      }
-      if (occupied >= SHARD_CAPACITY) throw new Error(`Fleet shard ${target.shard_id} is full`);
-    }
-    const updated = await client.query(
-      `UPDATE tah_campaign_targets
-          SET enabled=NOT $2,
-              archived_at=CASE WHEN $2 THEN COALESCE(archived_at,now()) ELSE NULL END,
-              updated_at=now()
-        WHERE target_id=$1
-        RETURNING target_id,campaign_record_id,campaign_name,shard_id,enabled,archived_at`,
-      [id, archived],
-    );
-    if (archived) {
-      await client.query(
-        `UPDATE tah_delivery_jobs SET state='superseded',leased_at=NULL,leased_until=NULL,
-           lease_token_hash=NULL,worker_id=NULL,updated_at=now()
-         WHERE target_id=$1 AND state IN ('pending','failed','leased')`,
-        [id],
-      );
-    }
     await client.query(
       `INSERT INTO tah_audit_log(actor_id,action,resource_type,resource_id,details)
-       VALUES ('dashboard-session',$1,'fleet_target',$2,
-               jsonb_build_object('campaign_record_id',$3::text,'campaign_name',$4::text,'shard_id',$5::text,'history_preserved',true))`,
-      [archived ? "fleet.target.archived" : "fleet.target.restored", id, target.campaign_record_id, target.campaign_name, target.shard_id],
+       VALUES ('dashboard-session','fleet.target.deleted','fleet_target',$1,
+               jsonb_build_object('campaign_record_id',$2::text,'campaign_name',$3::text,'shard_id',$4::text,
+                                  'history_preserved',false,'captures_and_jobs_deleted',true))`,
+      [target.target_id, target.campaign_record_id, target.campaign_name, target.shard_id],
     );
-    return updated.rows[0];
+    await client.query("DELETE FROM tah_campaign_targets WHERE target_id=$1", [target.target_id]);
+    return { deleted: true, target };
   });
 }
 

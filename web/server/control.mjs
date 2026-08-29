@@ -54,13 +54,13 @@ const SCENARIOS = process.env.SCENARIO_DIR ?? path.join(ROOT, "runs", "scenarios
 const ORIGINS = new Set((process.env.CONTROL_ALLOWED_ORIGINS ?? "http://127.0.0.1:3100,http://localhost:3100").split(","));
 const MAX_SAVED_CAMPAIGNS = 5_000;
 let activeLimit = Math.min(5_000, Math.max(1, Number(process.env.TAH_MAX_ACTIVE_RUNS ?? 500)));
-const MAX_LOCAL_WORKERS = Math.min(5_000, Math.max(1, Number(process.env.TAH_MAX_LOCAL_WORKERS ?? 20)));
-const MAX_TOTAL_CONCURRENCY = Number(process.env.TAH_MAX_TOTAL_CONCURRENCY ?? 5_000);
-const MAX_BROWSER_CONCURRENCY = Number(process.env.TAH_MAX_BROWSER_CONCURRENCY ?? 20);
+const MAX_LOCAL_WORKERS = Math.min(5_000, Math.max(1, Number(process.env.TAH_MAX_LOCAL_WORKERS ?? 8)));
+const MAX_TOTAL_CONCURRENCY = Number(process.env.TAH_MAX_TOTAL_CONCURRENCY ?? 64);
+const MAX_BROWSER_CONCURRENCY = Number(process.env.TAH_MAX_BROWSER_CONCURRENCY ?? 8);
 const CAMPAIGN_START_SPREAD_MS = Math.max(0, Number(process.env.TAH_CAMPAIGN_START_SPREAD_MS ?? 58_000));
 const CAMPAIGN_START_GAP_MS = Math.max(0, Number(process.env.TAH_CAMPAIGN_START_GAP_MS ?? computeCampaignLaunchGapMs(MAX_LOCAL_WORKERS, CAMPAIGN_START_SPREAD_MS)));
 const MIN_AVAILABLE_MEMORY_RATIO = Math.min(0.5, Math.max(0.05, Number(process.env.TAH_MIN_AVAILABLE_MEMORY_RATIO ?? 0.15)));
-const MAX_NORMALIZED_SYSTEM_LOAD = Math.min(4, Math.max(0.5, Number(process.env.TAH_MAX_NORMALIZED_SYSTEM_LOAD ?? 1.25)));
+const MAX_NORMALIZED_SYSTEM_LOAD = Math.min(4, Math.max(0.5, Number(process.env.TAH_MAX_NORMALIZED_SYSTEM_LOAD ?? 0.85)));
 const RESOURCE_ADMISSION_RETRY_MS = Math.max(1_000, Number(process.env.TAH_RESOURCE_ADMISSION_RETRY_MS ?? 5_000));
 const MAX_TOTAL_RPS = Number(process.env.TAH_MAX_TOTAL_RPS ?? 500);
 const ALLOWED_TARGETS = (process.env.TAH_ALLOWED_TARGETS ?? "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean);
@@ -389,14 +389,11 @@ async function setCampaignFleetEnrollment(payload) {
     });
     assignedShardId = clean(enrollment?.shardId || shardId, 80) || shardId;
   } else {
-    try {
-      await scriptBridgeRequest({ action: "set-enabled", campaignRecordId: campaign.id, enabled: false });
-    } catch (error) {
-      if (!/not found/i.test(error instanceof Error ? error.message : String(error))) throw error;
-    }
+    await scriptBridgeRequest({ action: "delete-target", campaignRecordId: campaign.id });
   }
   campaign.config.useScriptMesh = enabled;
-  campaign.config.scriptFleetShardId = assignedShardId;
+  if (enabled) campaign.config.scriptFleetShardId = assignedShardId;
+  else delete campaign.config.scriptFleetShardId;
   if (enabled) campaign.config.syncGoogleAds = false;
   campaign.updatedAt = new Date().toISOString();
   const active = activeRuns().find((run) => run.campaignRecordId === campaign.id);
@@ -1047,7 +1044,12 @@ async function handle(ws, msg) {
       const campaign = campaigns.get(id);
       if (!campaign) throw new Error("Campaign was not found");
       const run = activeRuns().find(item => item.campaignRecordId === id);
-      if (run) terminateRun(run);
+      if (run) {
+        run.useScriptMesh = false;
+        persistRuns();
+        terminateRun(run);
+      }
+      await scriptBridgeRequest({ action: "delete-target", campaignRecordId: id });
       campaigns.delete(id);
       persistCampaigns();
       broadcastCampaigns();

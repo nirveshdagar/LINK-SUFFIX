@@ -83,8 +83,8 @@ function readTrackState(): RawState {
     }
   } catch { /* ignore */ }
   try {
-    if (existsSync(CAPTURE_STATE_FILE)) {
-      const captureState = JSON.parse(readFileSync(CAPTURE_STATE_FILE, "utf8")) as RawState;
+    if (existsSync(/* turbopackIgnore: true */ CAPTURE_STATE_FILE)) {
+      const captureState = JSON.parse(readFileSync(/* turbopackIgnore: true */ CAPTURE_STATE_FILE, "utf8")) as RawState;
       return { ...state, ...captureState };
     }
   } catch { /* ignore */ }

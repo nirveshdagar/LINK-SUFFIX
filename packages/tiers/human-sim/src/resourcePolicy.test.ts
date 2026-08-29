@@ -19,7 +19,8 @@ describe('human journey resource policy', () => {
 
   it('captures bodies only for bounded decision-relevant response types', () => {
     const policy = resourcePolicyFromEnvironment({});
-    expect(policy.maxResponseBodyBytes).toBe(262_144);
+    expect(policy.maxResponseBodyBytes).toBe(65_536);
+    expect(policy.maxEventRecords).toBe(200);
     expect(shouldCaptureResponseBody(policy, 'document')).toBe(true);
     expect(shouldCaptureResponseBody(policy, 'xhr')).toBe(true);
     expect(shouldCaptureResponseBody(policy, 'image')).toBe(false);

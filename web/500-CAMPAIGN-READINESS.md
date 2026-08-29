@@ -11,11 +11,11 @@ The current local system supports the first promise. It does not support the sec
 
 - Saved campaign capacity: 5,000
 - Requested active campaigns: 500
-- Local browser workers: 20
+- Local browser workers: 8
 - Dedicated gateway ports: 104
-- Immediate browser campaigns: 20
-- Queued campaigns: 480
-- Additional workers needed for true parallel operation: 480
+- Immediate browser campaigns: 8
+- Queued campaigns: 492
+- Additional workers needed for true parallel operation: 492
 - Additional dedicated gateway ports needed: 396
 - Hard Fleet shard minimum at 40 campaigns per shard: 13
 - Conservative Fleet recommendation at 65% maximum utilization: 18 shards

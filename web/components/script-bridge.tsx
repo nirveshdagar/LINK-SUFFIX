@@ -306,6 +306,7 @@ export function ScriptBridge({
     const nextShardId = selectedShardId.trim();
     setError("");
     setNotice("");
+    if (!enabled && !window.confirm(`Permanently delete ${campaign.name} from Fleet? Its captured suffixes and delivery-job history will also be deleted.`)) return;
     if (enabled && !hasCompleteTarget(campaign)) {
       setError("Add a valid 10-digit MCC ID, 10-digit customer ID, and Google Ads campaign ID to this saved campaign first.");
       return;
@@ -326,15 +327,15 @@ export function ScriptBridge({
     }
     setNotice(campaign.name + (enabled
       ? " is being assigned to shard " + nextShardId + "."
-      : " is being removed from Fleet delivery."));
+      : " is being permanently deleted from Fleet delivery."));
     window.setTimeout(() => {
       setActionCampaignId("");
       void refresh(undefined, true);
     }, 1200);
   }
 
-  async function archiveFleetTarget(campaign: BridgeCampaign) {
-    if (!window.confirm(`Archive ${campaign.campaign_name} from Fleet delivery? Its suffix and delivery history will be preserved.`)) return;
+  async function deleteFleetTarget(campaign: BridgeCampaign) {
+    if (!window.confirm(`Permanently delete ${campaign.campaign_name} from Fleet? Its captured suffixes and delivery-job history will also be deleted.`)) return;
     setActionCampaignId(campaign.campaign_record_id);
     setError("");
     setNotice("");
@@ -343,14 +344,14 @@ export function ScriptBridge({
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "archive-target", targetId: campaign.target_id, archived: true }),
+        body: JSON.stringify({ action: "delete-target", targetId: campaign.target_id }),
       });
       const body = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(body.error || "Fleet archive failed");
-      setNotice(`${campaign.campaign_name} was archived. Its captures and delivery history were preserved.`);
+      if (!response.ok) throw new Error(body.error || "Fleet deletion failed");
+      setNotice(`${campaign.campaign_name} and its Fleet delivery history were permanently deleted.`);
       await refresh(undefined, true);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Fleet archive failed");
+      setError(nextError instanceof Error ? nextError.message : "Fleet deletion failed");
     } finally {
       setActionCampaignId("");
     }
@@ -511,13 +512,8 @@ export function ScriptBridge({
                       <strong>{campaign.shard_id}</strong>
                       <small>{Number(shard?.campaign_count || 0)} / {Number(shard?.capacity || SHARD_CAPACITY)} campaigns</small>
                       <span className={"health-chip is-" + shardHealth(shard).tone}>{shardHealth(shard).label}</span>
-                      {savedCampaign && (
-                        <button className="bridge-inline-action" type="button" disabled={busy || !controlConnected} onClick={() => requestFleetUpdate(savedCampaign, !campaign.enabled)}>
-                          {busy ? "Saving..." : campaign.enabled ? "Pause" : "Resume"}
-                        </button>
-                      )}
-                      <button className="bridge-inline-action" type="button" disabled={busy} onClick={() => void archiveFleetTarget(campaign)}>
-                        {busy ? "Archiving..." : "Archive from Fleet"}
+                      <button className="bridge-inline-action" type="button" disabled={busy || Boolean(savedCampaign && !controlConnected)} onClick={() => savedCampaign ? requestFleetUpdate(savedCampaign, false) : void deleteFleetTarget(campaign)}>
+                        {busy ? "Deleting..." : "Delete from Fleet"}
                       </button>
                     </td>
                   </tr>
@@ -575,7 +571,7 @@ export function ScriptBridge({
                     </div>
                     <span className={"health-chip " + (inSelectedShard ? "is-healthy" : enrolled ? "is-active" : complete ? "is-waiting" : "is-attention")}>{inSelectedShard ? "In this shard" : enrolled ? currentShard : complete ? "Available" : "Incomplete"}</span>
                     <div>
-                      {enrolled && <button className="bridge-secondary-action" type="button" disabled={busy || !controlConnected} onClick={() => requestFleetUpdate(campaign, false)}>Remove</button>}
+                      {enrolled && <button className="bridge-secondary-action" type="button" disabled={busy || !controlConnected} onClick={() => requestFleetUpdate(campaign, false)}>{busy ? "Deleting..." : "Delete from Fleet"}</button>}
                       {!inSelectedShard && <button type="button" disabled={busy || !complete || !controlConnected || !selectedShardId} onClick={() => requestFleetUpdate(campaign, true)}>{busy ? "Saving..." : enrolled ? "Move to shard" : selectedShardFull ? "Add to next shard" : "Add to shard"}</button>}
                     </div>
                   </article>

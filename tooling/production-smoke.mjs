@@ -6,9 +6,9 @@ import { WebSocket } from 'ws';
 
 const root = new URL('../', import.meta.url).pathname.replace(/^\/(?:[A-Za-z]:)/, value => value.slice(1));
 const webRoot = new URL('../web/', import.meta.url).pathname.replace(/^\/(?:[A-Za-z]:)/, value => value.slice(1));
-const targetPort = 3199;
-const controlPort = 3198;
-const webPort = 3197;
+let targetPort = 0;
+let controlPort = 0;
+let webPort = 0;
 const controlToken = randomBytes(32).toString('hex');
 const children = [];
 const target = createServer((_request, response) => {
@@ -18,8 +18,21 @@ const target = createServer((_request, response) => {
 
 const stop = () => {
   for (const child of children) child.kill();
-  target.close();
+  if (target.listening) target.close();
 };
+
+async function availableLoopbackPort(excluded = new Set()) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const probe = createServer();
+    probe.listen(0, '127.0.0.1');
+    await once(probe, 'listening');
+    const address = probe.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    await new Promise((resolve, reject) => probe.close(error => error ? reject(error) : resolve()));
+    if (port > 0 && !excluded.has(port)) return port;
+  }
+  throw new Error('Unable to allocate an isolated smoke-test port');
+}
 
 async function waitFor(url, timeoutMs = 20_000) {
   const deadline = Date.now() + timeoutMs;
@@ -31,8 +44,12 @@ async function waitFor(url, timeoutMs = 20_000) {
 }
 
 try {
-  target.listen(targetPort, '127.0.0.1');
+  target.listen(0, '127.0.0.1');
   await once(target, 'listening');
+  const targetAddress = target.address();
+  targetPort = typeof targetAddress === 'object' && targetAddress ? targetAddress.port : 0;
+  controlPort = await availableLoopbackPort(new Set([targetPort]));
+  webPort = await availableLoopbackPort(new Set([targetPort, controlPort]));
   children.push(spawn(process.execPath, ['web/server/control.mjs'], {
     cwd: root,
     env: { ...process.env, WS_PORT: String(controlPort), CONTROL_HOST: '127.0.0.1', CONTROL_TOKEN: controlToken, CONTROL_ALLOWED_ORIGINS: `http://127.0.0.1:${webPort}`, TAH_ALLOWED_TARGETS: '127.0.0.1', TAH_NO_PROXY: '1' },

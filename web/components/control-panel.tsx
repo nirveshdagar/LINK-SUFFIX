@@ -206,7 +206,7 @@ export default function ControlPanel() {
           }
           if (msg.type === "schedules") setSchedules(msg.payload as ScheduleInfo[]);
           if (msg.type === "campaigns") setSavedCampaigns(msg.payload as CampaignInfo[]);
-          if (msg.type === "campaign_fleet_updated") { setNotice(String(msg.payload.name) + (msg.payload.config?.useScriptMesh ? " added to" : " removed from") + " the Rolling Apps Script Fleet."); send({ type: "list_campaigns" }); }
+          if (msg.type === "campaign_fleet_updated") { setNotice(String(msg.payload.name) + (msg.payload.config?.useScriptMesh ? " added to" : " permanently deleted from") + " the Rolling Apps Script Fleet."); send({ type: "list_campaigns" }); }
           if (msg.type === "capacity") { setActiveLimit(msg.payload?.activeLimit ?? 500); setLockedPorts(msg.payload?.lockedPorts ?? []); }
           if (msg.type === "campaign_saved") { setNotice(`Campaign ${String(msg.payload.number).padStart(3, "0")} saved and ${msg.payload.config?.schedule ? "scheduled" : "queued"}.`); send({ type: "list_campaigns" }); }
           if (msg.type === "run_started") { setNotice(`Run ${msg.payload.scenarioId} launched.`); send({ type: "list_runs" }); }

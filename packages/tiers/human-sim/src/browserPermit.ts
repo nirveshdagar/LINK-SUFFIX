@@ -71,7 +71,7 @@ export async function acquireBrowserPermit(options: BrowserPermitOptions = {}): 
     ?? path.join(root, 'runs', 'browser-permits');
   const maxPermits = positiveInteger(
     options.maxPermits ?? process.env.TAH_BROWSER_PERMITS ?? process.env.TAH_MAX_BROWSER_CONCURRENCY,
-    20,
+    8,
     1,
     5_000,
   );

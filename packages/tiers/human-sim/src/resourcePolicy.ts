@@ -31,8 +31,8 @@ export function resourcePolicyFromEnvironment(
     blockHeavyResources: enabled(env.TAH_BLOCK_HEAVY_RESOURCES, true),
     blockedResourceTypes: csvSet(env.TAH_BLOCKED_RESOURCE_TYPES, 'image,media,font'),
     bodyResourceTypes: csvSet(env.TAH_BODY_CAPTURE_RESOURCE_TYPES, 'document,xhr,fetch'),
-    maxResponseBodyBytes: boundedInteger(env.TAH_MAX_RESPONSE_BODY_BYTES, 262_144, 0, 2_000_000),
-    maxEventRecords: boundedInteger(env.TAH_MAX_JOURNEY_EVENT_RECORDS, 500, 50, 5_000),
+    maxResponseBodyBytes: boundedInteger(env.TAH_MAX_RESPONSE_BODY_BYTES, 65_536, 0, 2_000_000),
+    maxEventRecords: boundedInteger(env.TAH_MAX_JOURNEY_EVENT_RECORDS, 200, 50, 5_000),
   };
 }
 

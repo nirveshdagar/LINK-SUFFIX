@@ -83,7 +83,7 @@ export const DEFAULT_CAPACITY_INPUT: CapacityInputs = Object.freeze({
   campaigns: 500,
   savedCampaignLimit: 5_000,
   activeCampaignLimit: 500,
-  browserWorkers: 20,
+  browserWorkers: 8,
   dedicatedGatewayPorts: DEFAULT_DEDICATED_GATEWAY_PORT_COUNT,
   campaignsPerShard: 40,
   maxAccountsPerScript: 50,
