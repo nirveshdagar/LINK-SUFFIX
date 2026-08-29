@@ -18,10 +18,13 @@ interface CapacitySnapshot {
     redis: { configured: boolean; healthy: boolean; usedMemoryBytes: number; maxMemoryBytes: number; keys: number };
   };
   services: { leader: boolean; postgresHealthy: boolean; redisHealthy: boolean; proxyConfigured: boolean; proxyVerified: boolean; proxyLocation: string; proxyTimezone: string };
-  limits: { savedCampaignLimit: number; activeLimit: number; maxLocalWorkers: number; maxBrowserConcurrency: number; maxTotalConcurrency: number; maxTotalRps: number; launchGapMs: number; minimumAvailableMemoryRatio: number; maximumNormalizedLoad: number; targetCpuPercent: number; minimumFreeDiskRatio: number; plannedCampaignMemoryBytes: number; plannedCampaignCpuPercent: number };
+  limits: { savedCampaignLimit: number; activeLimit: number; maxLocalWorkers: number; maxBrowserConcurrency: number; maxTotalConcurrency: number; maxTotalRps: number; launchGapMs: number; launchSpreadMs: number; sharedOrchestratorEnabled: boolean; sharedWorkerProcesses: number; sharedWorkerSlots: number; minimumAvailableMemoryRatio: number; maximumNormalizedLoad: number; targetCpuPercent: number; minimumFreeDiskRatio: number; plannedCampaignMemoryBytes: number; plannedCampaignCpuPercent: number };
   workload: { savedCampaigns: number; activeCampaigns: number; queuedCampaigns: number; errorCampaigns: number; lockedGatewayPorts: number; activeEvidenceBytes: number; evidenceFilesVisited: number; evidenceScanTruncated: boolean; resourceAdmissionAllowed: boolean; resourceAdmissionReasons: string[]; resourceAdmissionBlocks: number };
   capacity: { hardActiveCeiling: number; safeActiveNow: number; safeAdditionalCampaigns: number; additionalByMemory: number; additionalByCpu: number; limitHeadroom: number; recommendations: string[] };
-  campaigns: Array<{ campaignRecordId: string | null; campaignNumber: number | null; campaignName: string; runId: string; status: string; tier: string; pid: number | null; startedAt: number; runtimeMs: number; proxyPort: number | null; targetHost: string; plannedCpuPercent: number; plannedMemoryBytes: number; evidenceBytes: number }>;
+  workerPool: { enabled: boolean; configuredProcesses: number; slotsPerProcess: number; taskCapacity: number; liveProcesses: number; activeTasks: number; browserInstances: number; activeBrowserContexts: number; workers: Array<{ id: string; pid: number | null; activeTasks: number; browserInstances: number; activeContexts: number }> };
+  routing: { since: number; preflightAttempts: number; redirectFirstCaptures: number; browserFallbacks: number; cachedFallbacks: number; fallbackReasons: Array<{ reason: string; count: number }> };
+  planning: { browserRequiredCampaignTarget: number; recommendedVcpu: number; effectiveVcpu: number; vcpuReady: boolean };
+  campaigns: Array<{ campaignRecordId: string | null; campaignNumber: number | null; campaignName: string; runId: string; status: string; tier: string; pid: number | null; workerId: string | null; executionMode: string; routeDecision: { outcome?: string; reason?: string; preflightSkipped?: boolean } | null; startedAt: number; runtimeMs: number; proxyPort: number | null; targetHost: string; plannedCpuPercent: number; plannedMemoryBytes: number; evidenceBytes: number }>;
 }
 
 const byteUnits = ["B", "KB", "MB", "GB", "TB"];
@@ -133,6 +136,17 @@ export default function CapacityDashboard() {
           <div className={styles.recommendations}><p>Operator guidance</p>{snapshot?.capacity.recommendations.map(item => <span key={item}>{item}</span>) || <span>Waiting for a complete sample.</span>}</div>
         </section>
 
+        <section className={styles.panel}>
+          <div className={styles.panelHeader}><div><p className="kicker">Adaptive routing / Shared execution</p><h2>Browser work avoided and pooled</h2><p>Browser-only domains are cached for 15–60 minutes, then probed again. Every active journey still receives an isolated proxy-bound browser context.</p></div><Network size={22} /></div>
+          <div className={styles.routingGrid}>
+            <div><span>Redirect-first captures</span><strong>{snapshot?.routing.redirectFirstCaptures ?? "-"}</strong><small>{snapshot ? `${snapshot.routing.preflightAttempts} HTTP preflights attempted` : "Collecting"}</small></div>
+            <div><span>Browser fallbacks</span><strong>{snapshot?.routing.browserFallbacks ?? "-"}</strong><small>{snapshot ? `${snapshot.routing.cachedFallbacks} redundant preflights skipped` : "Collecting"}</small></div>
+            <div><span>Shared worker tasks</span><strong>{snapshot ? `${snapshot.workerPool.activeTasks} / ${snapshot.workerPool.taskCapacity}` : "-"}</strong><small>{snapshot ? `${snapshot.workerPool.liveProcesses} Node workers · ${snapshot.workerPool.browserInstances} browser instances · ${snapshot.workerPool.activeBrowserContexts} active contexts` : "Collecting"}</small></div>
+            <div data-ready={snapshot?.planning.vcpuReady}><span>100-campaign CPU target</span><strong>{snapshot ? `${snapshot.planning.effectiveVcpu.toFixed(1)} / ${snapshot.planning.recommendedVcpu} vCPU` : "-"}</strong><small>{snapshot?.planning.vcpuReady ? "CPU requirement satisfied" : "Use at least 8 vCPU for 100 browser-required campaigns"}</small></div>
+          </div>
+          <div className={styles.reasonRow}><span>Fallback reasons</span>{snapshot?.routing.fallbackReasons.length ? snapshot.routing.fallbackReasons.map(item => <b key={item.reason}>{item.reason} <i>{item.count}</i></b>) : <b>No browser fallback recorded yet</b>}</div>
+        </section>
+
         <div className={styles.twoColumn}>
           <section className={styles.panel}>
             <div className={styles.panelHeader}><div><p className="kicker">Measured configuration</p><h2>Server and services</h2></div><Server size={22} /></div>
@@ -163,6 +177,8 @@ export default function CapacityDashboard() {
               <div><dt>Total concurrency</dt><dd>{snapshot?.limits.maxTotalConcurrency ?? "-"}</dd></div>
               <div><dt>Total request ceiling</dt><dd>{snapshot ? `${snapshot.limits.maxTotalRps} RPS` : "-"}</dd></div>
               <div><dt>Campaign launch gap</dt><dd>{snapshot ? `${(snapshot.limits.launchGapMs / 1000).toFixed(1)} sec` : "-"}</dd></div>
+              <div><dt>Full launch spread</dt><dd>{snapshot ? `${(snapshot.limits.launchSpreadMs / 1000).toFixed(0)} sec` : "-"}</dd></div>
+              <div><dt>Shared Node workers</dt><dd>{snapshot ? `${snapshot.limits.sharedWorkerProcesses} × ${snapshot.limits.sharedWorkerSlots} task slots` : "-"}</dd></div>
               <div><dt>Reserved memory floor</dt><dd>{snapshot ? formatPercent(snapshot.limits.minimumAvailableMemoryRatio * 100) : "-"}</dd></div>
               <div><dt>Required free disk</dt><dd>{snapshot ? formatPercent(snapshot.limits.minimumFreeDiskRatio * 100) : "-"}</dd></div>
             </dl>
@@ -191,7 +207,7 @@ export default function CapacityDashboard() {
                   <tr key={campaign.runId}>
                     <td><strong>{campaign.campaignNumber ? String(campaign.campaignNumber).padStart(3, "0") + " · " : ""}{campaign.campaignName}</strong><small>{campaign.targetHost || campaign.runId}</small></td>
                     <td>{formatDuration(campaign.runtimeMs / 1000)}</td>
-                    <td>PID {campaign.pid || "-"}<small>{campaign.tier}</small></td>
+                    <td>PID {campaign.pid || "-"}<small>{campaign.workerId ? `${campaign.workerId} · ${campaign.executionMode}` : campaign.tier}</small></td>
                     <td>{campaign.proxyPort || "-"}</td>
                     <td>{formatPercent(campaign.plannedCpuPercent)}</td>
                     <td>{formatBytes(campaign.plannedMemoryBytes)}</td>
@@ -203,7 +219,7 @@ export default function CapacityDashboard() {
           </div>
         </section>
 
-        <footer className={styles.methodNote}><strong>Capacity method:</strong> start permissions use measured free RAM, measured CPU load, measured disk headroom, and configured worker ceilings. Per-campaign CPU/RAM values are intentionally conservative budgets, configurable through server environment values, because exact browser-child attribution requires one cgroup per campaign.</footer>
+        <footer className={styles.methodNote}><strong>Capacity method:</strong> continuous L4 campaigns use shared Node workers and isolated browser contexts. Starts are distributed across the configured 58-second spread. CPU/RAM values remain conservative planning budgets until a production cgroup soak supplies exact per-context attribution.</footer>
       </div>
     </main>
   );

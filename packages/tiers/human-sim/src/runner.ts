@@ -1,4 +1,4 @@
-import { chromium, webkit, type Browser } from 'playwright';
+import type { BrowserContext } from 'playwright';
 import { synthesizeUA, templatesForProfile, installFingerprintProfile } from '@tah/ua';
 import { resolveProxyEgress, verifyProxyEgressStability, resetTzCache, tzForGeo, commonTzForLocale, type Geo } from '@tah/tz';
 import { bezierMove, humanClick } from './behavior/mouse.js';
@@ -9,6 +9,7 @@ import { logNormalTimeMs } from './behavior/timing.js';
 import { extractInternalLinks, pickNextUrl } from './journey.js';
 import { detectChallenge, pauseForIntervention, type DetectedChallenge, type RedirectHop } from './challenge.js';
 import { acquireBrowserPermit } from './browserPermit.js';
+import { acquireBrowserLease } from './browserPool.js';
 import {
   findExactSuffixUrl,
   resourcePolicyFromEnvironment,
@@ -52,6 +53,8 @@ export async function* run(
   proxyUrl: URL,
   device: DeviceProfile,
 ): AsyncIterable<RequestEvent> {
+  const runtime = (scenario as Scenario & { __tahRuntime?: { signal?: AbortSignal; telemetryDir?: string; challengeDir?: string } }).__tahRuntime;
+  if (runtime?.signal?.aborted) throw new Error('Campaign journey aborted');
   resetTzCache();
   const templates = templatesForProfile(device.id);
   const template = templates[Math.floor(Math.random() * templates.length)]!;
@@ -74,13 +77,11 @@ export async function* run(
     throw new Error('Unable to resolve timezone from the residential egress IP');
   }
   const browserPermit = await acquireBrowserPermit();
-  let browser: Browser;
+  let browserLease: Awaited<ReturnType<typeof acquireBrowserLease>> | undefined;
+  let ctx: BrowserContext | undefined;
+  const abortContext = () => { void ctx?.close().catch(() => undefined); };
   try {
-    browser = await (useWebKit ? webkit : chromium).launch({
-      // Server-safe by default. A visible window is an explicit local-debug option.
-      headless: scenario.session?.headless ?? true,
-      ...(useWebKit ? {} : { args: ['--force-webrtc-ip-handling-policy=disable_non_proxied_udp'] }),
-    });
+    browserLease = await acquireBrowserLease({ engine: useWebKit ? 'webkit' : 'chromium', headless: scenario.session?.headless ?? true });
   } catch (error) {
     browserPermit.release();
     throw error;
@@ -108,7 +109,7 @@ export async function* run(
   const fp = synthesizeUA(template, { timezone });
   const locale = LOCALE_BY_COUNTRY[String(egress.country ?? scenario.geo.country).toUpperCase()] ?? device.locale ?? 'en-US';
   const runtimeFp = { ...fp, fingerprint: { ...fp.fingerprint, viewport: { ...device.viewport }, locale, languages: [locale, locale.split('-')[0]!], hardware: { ...device.hardware }, webgl: { ...device.webgl } } };
-  const ctx = await browser.newContext({
+  ctx = await browserLease.browser.newContext({
     userAgent: runtimeFp.ua,
     viewport: { width: runtimeFp.fingerprint.viewport.w, height: runtimeFp.fingerprint.viewport.h },
     deviceScaleFactor: runtimeFp.fingerprint.viewport.dpr,
@@ -122,6 +123,7 @@ export async function* run(
       password: decodeURIComponent(proxyUrl.password),
     } }),
   });
+  runtime?.signal?.addEventListener('abort', abortContext, { once: true });
   let activeTelemetry: TelemetryRecorder | null = null;
   await ctx.exposeBinding('__tahTelemetry', (_source, payload: { frameTimestamp?: number; wallTime?: number; events?: BrowserFrameEvent[] }) => {
     if (activeTelemetry && Array.isArray(payload?.events)) {
@@ -301,6 +303,7 @@ export async function* run(
           timeoutSeconds: Math.min(3600, Math.max(30, handling.timeout_seconds ?? 300)),
           persistent: handling.persistent === true,
           onTimeout: handling.on_timeout ?? 'skip',
+          directory: runtime?.challengeDir,
         });
         challengeId = outcome.id;
         status = outcome.action === 'resume' ? 'resolved' : outcome.action === 'skip' ? 'skipped' : outcome.action === 'stop' ? 'stopped' : 'timed_out';
@@ -346,7 +349,7 @@ export async function* run(
     }
     // Flush only after the page interaction is complete so its final click
     // and frame are included in the page telemetry.
-    const tdir = process.env.TAH_TELEMETRY_DIR;
+    const tdir = runtime?.telemetryDir ?? process.env.TAH_TELEMETRY_DIR;
     if (tdir) {
       const { mkdirSync } = await import('node:fs');
       mkdirSync(tdir, { recursive: true });
@@ -412,9 +415,6 @@ export async function* run(
       main.ta_signal.affiliate_source_url = affiliateSourceUrl;
     }
   }
-  await page.close();
-  await ctx.close();
-  await browser.close();
   if (scenario.continuous && !suffixCaptured && challengeResult) await new Promise((resolve) => setTimeout(resolve, 10_000));
   yield {
     scenario_id: scenario.id,
@@ -444,7 +444,10 @@ export async function* run(
     error,
   };
   } finally {
-    await browser.close().catch(() => undefined);
+    runtime?.signal?.removeEventListener('abort', abortContext);
+    await ctx?.close().catch(() => undefined);
+    ctx = undefined;
+    browserLease?.release();
     browserPermit.release();
   }
 }

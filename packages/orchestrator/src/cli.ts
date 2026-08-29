@@ -93,7 +93,21 @@ async function main(): Promise<void> {
   process.once('SIGTERM', terminate);
   process.once('SIGINT', terminate);
   try {
-    await runScenario({ scenarioFile: opts.scenario, runDir, bus, creds, parallel: opts.parallel, mitmUrl: mitmHandle?.listenUrl });
+    await runScenario({
+      scenarioFile: opts.scenario,
+      runDir,
+      bus,
+      creds,
+      parallel: opts.parallel,
+      mitmUrl: mitmHandle?.listenUrl,
+      runId,
+      telemetryDir: path.join(runDir, 'telemetry'),
+      challengeDir: process.env.TAH_CHALLENGE_DIR,
+      proxyGateway: {
+        hostname: process.env.IPROYAL_HOSTNAME,
+        port: process.env.IPROYAL_PORT ? Number(process.env.IPROYAL_PORT) : undefined,
+      },
+    });
   } finally {
     process.off('SIGTERM', terminate);
     process.off('SIGINT', terminate);

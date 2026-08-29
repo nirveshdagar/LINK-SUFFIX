@@ -11,6 +11,7 @@ import { extractExactQuerySuffix } from "./exact-suffix.mjs";
 import { verifySessionToken } from "../lib/session-token.mjs";
 import { computeCampaignLaunchGapMs, evaluateResourceAdmission } from "./resource-admission.mjs";
 import { createSerializedStateWriter } from "./serialized-state-writer.mjs";
+import { createOrchestratorWorkerPool } from "./orchestrator-worker-pool.mjs";
 
 function normalizedGoogleAdsId(value) {
   return String(value ?? "").replace(/\D/g, "");
@@ -50,15 +51,20 @@ async function scriptBridgeRequest(body) {
 const PORT = Number(process.env.WS_PORT ?? 3101);
 const ROOT = process.env.WORKSPACE_ROOT ?? process.cwd();
 const ORCH = process.env.ORCH_BIN ?? path.join(ROOT, "packages/orchestrator/dist/cli.js");
+const ORCH_WORKER = process.env.ORCH_WORKER_BIN ?? path.join(ROOT, "packages/orchestrator/dist/worker.js");
 const SCENARIOS = process.env.SCENARIO_DIR ?? path.join(ROOT, "runs", "scenarios");
 const ORIGINS = new Set((process.env.CONTROL_ALLOWED_ORIGINS ?? "http://127.0.0.1:3100,http://localhost:3100").split(","));
 const MAX_SAVED_CAMPAIGNS = 5_000;
 let activeLimit = Math.min(5_000, Math.max(1, Number(process.env.TAH_MAX_ACTIVE_RUNS ?? 500)));
-const MAX_LOCAL_WORKERS = Math.min(5_000, Math.max(1, Number(process.env.TAH_MAX_LOCAL_WORKERS ?? 8)));
+const MAX_LOCAL_WORKERS = Math.min(5_000, Math.max(1, Number(process.env.TAH_MAX_LOCAL_WORKERS ?? 100)));
 const MAX_TOTAL_CONCURRENCY = Number(process.env.TAH_MAX_TOTAL_CONCURRENCY ?? 64);
 const MAX_BROWSER_CONCURRENCY = Number(process.env.TAH_MAX_BROWSER_CONCURRENCY ?? 8);
 const CAMPAIGN_START_SPREAD_MS = Math.max(0, Number(process.env.TAH_CAMPAIGN_START_SPREAD_MS ?? 58_000));
 const CAMPAIGN_START_GAP_MS = Math.max(0, Number(process.env.TAH_CAMPAIGN_START_GAP_MS ?? computeCampaignLaunchGapMs(MAX_LOCAL_WORKERS, CAMPAIGN_START_SPREAD_MS)));
+const SHARED_ORCHESTRATOR_ENABLED = process.env.TAH_SHARED_ORCHESTRATOR !== "false";
+const SHARED_WORKER_PROCESSES = Math.min(16, Math.max(1, Number(process.env.TAH_SHARED_WORKER_PROCESSES ?? Math.min(4, Math.max(1, cpus().length)))));
+const SHARED_WORKER_SLOTS = Math.min(5_000, Math.max(1, Number(process.env.TAH_SHARED_WORKER_SLOTS ?? Math.ceil(MAX_LOCAL_WORKERS / SHARED_WORKER_PROCESSES))));
+const RECOMMENDED_VCPU_FOR_100_BROWSER_CAMPAIGNS = Math.max(8, Number(process.env.TAH_RECOMMENDED_VCPU_FOR_100_BROWSER_CAMPAIGNS ?? 8));
 const MIN_AVAILABLE_MEMORY_RATIO = Math.min(0.5, Math.max(0.05, Number(process.env.TAH_MIN_AVAILABLE_MEMORY_RATIO ?? 0.15)));
 const MAX_NORMALIZED_SYSTEM_LOAD = Math.min(4, Math.max(0.5, Number(process.env.TAH_MAX_NORMALIZED_SYSTEM_LOAD ?? 0.85)));
 const RESOURCE_ADMISSION_RETRY_MS = Math.max(1_000, Number(process.env.TAH_RESOURCE_ADMISSION_RETRY_MS ?? 5_000));
@@ -66,6 +72,14 @@ const MAX_TOTAL_RPS = Number(process.env.TAH_MAX_TOTAL_RPS ?? 500);
 const ALLOWED_TARGETS = (process.env.TAH_ALLOWED_TARGETS ?? "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean);
 const STAGING_TARGETS = (process.env.TAH_STAGING_TARGETS ?? "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean);
 const clients = new Set();
+const routeTelemetry = { since: Date.now(), preflightAttempts: 0, redirectFirstCaptures: 0, browserFallbacks: 0, cachedFallbacks: 0, fallbackReasons: new Map() };
+const orchestratorWorkers = createOrchestratorWorkerPool({
+  workerFile: ORCH_WORKER,
+  cwd: ROOT,
+  processCount: SHARED_WORKER_PROCESSES,
+  slotsPerProcess: SHARED_WORKER_SLOTS,
+  onWorkerLog: (workerId, stream, data) => broadcast("log", { id: workerId, stream, data: String(data).slice(0, 16_384) }),
+});
 let leaderLosses = 0;
 const runs = new Map();
 const captureQueues = new Map();
@@ -324,6 +338,20 @@ function queueL4Capture(run, result) {
   captureQueues.set(run.id, next);
 }
 
+function recordRouteDecision(run, decision) {
+  if (!decision || typeof decision !== "object") return;
+  const reason = clean(decision.reason || "unknown", 120) || "unknown";
+  if (decision.preflightSkipped === true) routeTelemetry.cachedFallbacks++;
+  else routeTelemetry.preflightAttempts++;
+  if (decision.outcome === "redirect_capture") routeTelemetry.redirectFirstCaptures++;
+  else if (decision.outcome === "browser_fallback") {
+    routeTelemetry.browserFallbacks++;
+    routeTelemetry.fallbackReasons.set(reason, Number(routeTelemetry.fallbackReasons.get(reason) || 0) + 1);
+  }
+  run.lastRouteDecision = { ...decision, reason, at: new Date().toISOString() };
+  broadcast("route_decision", { id: run.id, decision: run.lastRouteDecision });
+}
+
 async function pushCapturedSuffixToAds(run, capture) {
   const token = process.env.TAH_ADS_API_TOKEN ?? process.env.TAH_API_TOKEN ?? process.env.TAH_BEARER_TOKEN ?? "";
   const headers = { "content-type": "application/json" };
@@ -414,7 +442,7 @@ const readChallenges = challengeDir => {
   if (!challengeDir || !existsSync(challengeDir)) return [];
   try { return readdirSync(challengeDir).filter(name => name.endsWith(".json") && !name.endsWith(".command.json")).map(name => { try { return JSON.parse(readFileSync(path.join(challengeDir, name), "utf8")); } catch { return null; } }).filter(Boolean).sort((a, b) => String(b.detectedAt).localeCompare(String(a.detectedAt))); } catch { return []; }
 };
-const publicRun = ({ child, scenarioPath, challengeDir, ...run }) => ({ ...run, challenges: readChallenges(challengeDir), alive: Boolean(child?.exitCode === null || pidAlive(run.pid)) });
+const publicRun = ({ child, scenarioPath, challengeDir, ...run }) => ({ ...run, challenges: readChallenges(challengeDir), alive: run.exitCode === null && (run.executionMode === "shared" ? orchestratorWorkers.has(run.id) : Boolean(child?.exitCode === null || pidAlive(run.pid))) });
 const publicSchedule = schedule => ({
   id: schedule.id,
   scenarioId: schedule.payload.scenarioId,
@@ -448,7 +476,7 @@ const persistControlSettings = () => {
 };
 try {
   for (const run of JSON.parse(readFileSync(registryPath, "utf8"))) {
-    const alive = pidAlive(run.pid);
+    const alive = run.executionMode === "shared" ? false : pidAlive(run.pid);
     runs.set(run.id, { ...run, child: null, exitCode: alive ? null : (run.exitCode ?? -1) });
     sequence = Math.max(sequence, Number(run.dashboardPort ?? 7499) - Number(process.env.TAH_RUN_DASHBOARD_PORT_START ?? 7500) + 1);
   }
@@ -574,8 +602,10 @@ async function runScheduleTick() {
 }
 
 function terminateRun(run) {
+  if (!run) return false;
+  if (run.executionMode === "shared") return orchestratorWorkers.stop(run.id);
   const pid = run?.child?.pid ?? run?.pid;
-  if (!run || !pidAlive(pid)) return false;
+  if (!pidAlive(pid)) return false;
   if (process.platform === "win32") return spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }).status === 0;
   try { process.kill(-pid, "SIGTERM"); return true; } catch { try { process.kill(pid, "SIGTERM"); return true; } catch { return false; } }
 }
@@ -672,7 +702,7 @@ function stagingTargetAllowed(rawUrl) {
   try { const host = new URL(rawUrl).hostname.toLowerCase(); return STAGING_TARGETS.some(allowed => host === allowed || host.endsWith(`.${allowed}`)); } catch { return false; }
 }
 
-const activeRuns = () => [...runs.values()].filter(run => run.child?.exitCode === null || pidAlive(run.pid));
+const activeRuns = () => [...runs.values()].filter(run => run.exitCode === null && (run.executionMode === "shared" ? orchestratorWorkers.has(run.id) : Boolean(run.child?.exitCode === null || pidAlive(run.pid))));
 
 const listRuns = () => [...runs.values()].map(publicRun).sort((a, b) => b.startedAt - a.startedAt);
 const lockedPorts = () => new Set(activeRuns().map(run => Number(run.proxyPort)).filter(port => Number.isInteger(port) && port > 0));
@@ -864,6 +894,48 @@ async function reconcileCampaignSchedules() {
   if (changed) persistCampaigns();
   await pumpCampaignQueue();
 }
+async function finalizeRun(run, code, errorMessage) {
+  if (run.exitCode !== null) return;
+  run.exitCode = code;
+  if (errorMessage) run.error = errorMessage;
+  await captureQueues.get(run.id);
+  let capture = null;
+  let adsPush = null;
+  let meshDelivery = null;
+  let syncError;
+  if (code === 0 && run.tier === "human" && !run.continuous) {
+    try {
+      capture = captureExactL4Suffix(run);
+      if (capture && run.syncGoogleAds) adsPush = await pushCapturedSuffixToAds(run, capture);
+      else if (capture && run.useScriptMesh) meshDelivery = await publishL4CaptureToMesh(run, capture);
+    } catch (error) { syncError = error instanceof Error ? error.message : String(error); }
+  }
+  run.suffixCaptured = capture?.suffix ?? run.suffixCaptured;
+  run.adsSyncedAt = adsPush?.at ?? run.adsSyncedAt;
+  run.meshQueuedVersion = meshDelivery?.version ?? run.meshQueuedVersion;
+  run.meshQueuedAt = meshDelivery ? new Date().toISOString() : run.meshQueuedAt;
+  run.syncError = syncError ?? run.syncError;
+  const campaign = run.campaignRecordId ? campaigns.get(run.campaignRecordId) : undefined;
+  if (campaign) {
+    campaign.activeRunId = undefined;
+    if (campaign.restartPending) {
+      campaign.restartPending = false; campaign.desiredRunning = true; campaign.status = "queued";
+    } else if (campaign.desiredRunning && run.continuous) campaign.status = "queued";
+    else {
+      campaign.desiredRunning = false;
+      campaign.status = campaign.config.schedule ? "scheduled" : code === 0 ? "completed" : "stopped";
+    }
+    campaign.lastError = code === 0 || code === 143 ? undefined : (run.error ?? `Run exited with code ${code}`);
+    campaign.updatedAt = new Date().toISOString();
+    persistCampaigns();
+  }
+  persistRuns();
+  broadcast("run_ended", { id: run.id, code, capture, adsPush, meshDelivery, syncError, error: errorMessage });
+  broadcast("runs", listRuns());
+  broadcastCampaigns();
+  void pumpCampaignQueue();
+}
+
 async function startRun(payload) {
   validate(payload);
   if (payload.authorized !== true) throw new Error("Confirm that you are authorized to test this target");
@@ -884,13 +956,13 @@ async function startRun(payload) {
   if (requestedProxyPort !== null && live.some(run => Number(run.proxyPort) === requestedProxyPort)) throw new Error(`Gateway port ${requestedProxyPort} is already leased by another active run`);
   const requestedConcurrency = Number(payload.concurrent ?? 1);
   const requestedRps = payload.loadProfile?.mode === "burst" ? Number(payload.loadProfile.targetRps ?? 0) : 0;
-  const totalConcurrency = live.reduce((sum, run) => sum + Number(run.concurrent ?? 1), 0) + requestedConcurrency;
-  const totalRps = live.reduce((sum, run) => sum + Number(run.targetRps ?? 0), 0) + requestedRps;
-  const effectiveActiveLimit = Math.min(activeLimit, MAX_LOCAL_WORKERS);
-  if (live.length >= effectiveActiveLimit) throw new Error(`Per-server active worker limit (${effectiveActiveLimit}) reached`);
-  if (totalConcurrency > MAX_TOTAL_CONCURRENCY) throw new Error(`Aggregate concurrency limit (${MAX_TOTAL_CONCURRENCY}) exceeded`);
   const permitManaged = run => run.tier === "human" && run.continuous === true;
   const requestedUsesPermits = payload.tier === "human" && payload.continuous === true;
+  const totalConcurrency = live.reduce((sum, run) => sum + Number(run.concurrent ?? 1), 0) + requestedConcurrency;
+  const totalRps = live.reduce((sum, run) => sum + Number(run.targetRps ?? 0), 0) + requestedRps;
+  const effectiveActiveLimit = Math.min(activeLimit, MAX_LOCAL_WORKERS, SHARED_ORCHESTRATOR_ENABLED ? orchestratorWorkers.capacity() : MAX_LOCAL_WORKERS);
+  if (live.length >= effectiveActiveLimit) throw new Error(`Per-server active worker limit (${effectiveActiveLimit}) reached`);
+  if (!requestedUsesPermits && totalConcurrency > MAX_TOTAL_CONCURRENCY) throw new Error(`Aggregate concurrency limit (${MAX_TOTAL_CONCURRENCY}) exceeded`);
   const aggregateBrowserConcurrency = live.filter(run => run.tier !== "trivial-http" && !permitManaged(run)).reduce((sum, run) => sum + Number(run.concurrent ?? 1), 0) + (payload.tier === "trivial-http" || requestedUsesPermits ? 0 : requestedConcurrency);
   if (aggregateBrowserConcurrency > MAX_BROWSER_CONCURRENCY) throw new Error(`Aggregate browser concurrency limit (${MAX_BROWSER_CONCURRENCY}) exceeded`);
   if (totalRps > MAX_TOTAL_RPS) throw new Error(`Aggregate request rate limit (${MAX_TOTAL_RPS} RPS) exceeded`);
@@ -909,10 +981,38 @@ async function startRun(payload) {
   if (payload.mitm !== true) args.push("--no-mitm");
   else args.push("--mitm-port", String(Number(process.env.TAH_MITM_PORT_START ?? 8188) + (sequence % 50_000)));
   if (payload.concurrent > 1) args.push("--parallel");
-  const child = spawn(process.execPath, args, { env, cwd: ROOT, windowsHide: true, detached: process.platform !== "win32" });
-  const run = { id, scenarioId, scenarioPath, challengeDir, dashboardPort, startedAt: Date.now(), mitmEnabled: payload.mitm === true, child, pid: child.pid, tier: payload.tier, scheduleId: payload.scheduleId, campaignRecordId: payload.campaignRecordId, proxyPort: requestedProxyPort, continuous: payload.tier === "human" && payload.continuous === true, syncGoogleAds: payload.tier === "human" && payload.syncGoogleAds === true, useScriptMesh: payload.tier === "human" && payload.useScriptMesh === true, concurrent: requestedConcurrency, targetRps: requestedRps, exitCode: null };
+  const useShared = SHARED_ORCHESTRATOR_ENABLED && payload.tier === "human" && payload.continuous === true && payload.mitm !== true;
+  const run = { id, scenarioId, scenarioPath, challengeDir, dashboardPort, startedAt: Date.now(), mitmEnabled: payload.mitm === true, child: null, pid: null, tier: payload.tier, scheduleId: payload.scheduleId, campaignRecordId: payload.campaignRecordId, proxyPort: requestedProxyPort, continuous: payload.tier === "human" && payload.continuous === true, syncGoogleAds: payload.tier === "human" && payload.syncGoogleAds === true, useScriptMesh: payload.tier === "human" && payload.useScriptMesh === true, concurrent: requestedConcurrency, targetRps: requestedRps, exitCode: null, executionMode: useShared ? "shared" : "dedicated" };
   runs.set(id, run);
   persistRuns();
+  if (useShared) {
+    try {
+      const assignment = await orchestratorWorkers.start({
+        runId: id,
+        scenarioPath,
+        runDir: path.join(ROOT, "runs", id),
+        challengeDir,
+        creds: noProxy ? { user: "", pass: "" } : { user: proxy.user, pass: proxy.pass },
+        proxyGateway: noProxy ? undefined : { hostname: proxy.host, port: Number(payload.proxyPort ?? proxy.port) },
+      }, {
+        onCapture: capture => queueL4Capture(run, capture),
+        onRouteDecision: decision => recordRouteDecision(run, decision),
+        onExit: (code, error) => { void finalizeRun(run, code, error); },
+      });
+      run.workerId = assignment.workerId;
+      run.pid = assignment.pid;
+      persistRuns();
+      broadcast("runs", listRuns());
+      return run;
+    } catch (error) {
+      runs.delete(id);
+      persistRuns();
+      throw error;
+    }
+  }
+  const child = spawn(process.execPath, args, { env, cwd: ROOT, windowsHide: true, detached: process.platform !== "win32" });
+  run.child = child;
+  run.pid = child.pid;
   let stdoutBuffer = "";
   child.stdout.on("data", c => {
     stdoutBuffer += c.toString("utf8");
@@ -923,55 +1023,15 @@ async function startRun(payload) {
       if (line.startsWith("TAH_L4_CAPTURE ")) {
         try { queueL4Capture(run, JSON.parse(line.slice("TAH_L4_CAPTURE ".length))); }
         catch (error) { broadcast("l4_capture", { id, capture: null, syncError: error instanceof Error ? error.message : String(error) }); }
+      } else if (line.startsWith("TAH_ROUTE_DECISION ")) {
+        try { recordRouteDecision(run, JSON.parse(line.slice("TAH_ROUTE_DECISION ".length))); }
+        catch { broadcast("log", { id, stream: "stdout", data: `${line}\n` }); }
       } else if (line) broadcast("log", { id, stream: "stdout", data: `${line}\n` });
     }
   });
   child.stderr.on("data", c => broadcast("log", { id, stream: "stderr", data: c.toString("utf8").slice(0, 16_384) }));
-  child.on("exit", async code => {
-    run.exitCode = code;
-    await captureQueues.get(id);
-    let capture = null;
-    let adsPush = null;
-    let meshDelivery = null;
-    let syncError;
-    if (code === 0 && run.tier === "human" && !run.continuous) {
-      try {
-        capture = captureExactL4Suffix(run);
-        if (capture && run.syncGoogleAds) adsPush = await pushCapturedSuffixToAds(run, capture);
-        else if (capture && run.useScriptMesh) meshDelivery = await publishL4CaptureToMesh(run, capture);
-      } catch (error) {
-        syncError = error instanceof Error ? error.message : String(error);
-      }
-    }
-    run.suffixCaptured = capture?.suffix;
-    run.adsSyncedAt = adsPush?.at;
-    run.meshQueuedVersion = meshDelivery?.version;
-    run.meshQueuedAt = meshDelivery ? new Date().toISOString() : undefined;
-    run.syncError = syncError;
-    const campaign = run.campaignRecordId ? campaigns.get(run.campaignRecordId) : undefined;
-    if (campaign) {
-      campaign.activeRunId = undefined;
-      if (campaign.restartPending) {
-        campaign.restartPending = false;
-        campaign.desiredRunning = true;
-        campaign.status = "queued";
-      } else if (campaign.desiredRunning && run.continuous) {
-        campaign.status = "queued";
-      } else {
-        campaign.desiredRunning = false;
-        campaign.status = campaign.config.schedule ? "scheduled" : code === 0 ? "completed" : "stopped";
-      }
-      campaign.lastError = code === 0 ? undefined : (run.error ?? `Run exited with code ${code}`);
-      campaign.updatedAt = new Date().toISOString();
-      persistCampaigns();
-    }
-    persistRuns();
-    broadcast("run_ended", { id, code, capture, adsPush, meshDelivery, syncError });
-    broadcast("runs", listRuns());
-    broadcastCampaigns();
-    void pumpCampaignQueue();
-  });
-  child.on("error", error => { run.exitCode = -1; run.error = error.message; persistRuns(); broadcast("run_ended", { id, code: -1, error: error.message }); broadcast("runs", listRuns()); });
+  child.on("exit", code => { void finalizeRun(run, Number(code ?? 99)); });
+  child.on("error", error => { void finalizeRun(run, -1, error.message); });
   broadcast("runs", listRuns());
   return run;
 }
@@ -1124,6 +1184,8 @@ const sessionCookieMatches = cookieHeader => {
 };
 const CAPACITY_ESTIMATED_CAMPAIGN_MEMORY_BYTES = Math.max(128, Number(process.env.TAH_CAPACITY_CAMPAIGN_MEMORY_MB) || 512) * 1024 * 1024;
 const CAPACITY_ESTIMATED_CAMPAIGN_CPU_PERCENT = Math.min(100, Math.max(5, Number(process.env.TAH_CAPACITY_CAMPAIGN_CPU_PERCENT) || 35));
+const CAPACITY_ESTIMATED_SHARED_TASK_MEMORY_BYTES = Math.max(32, Number(process.env.TAH_CAPACITY_SHARED_TASK_MEMORY_MB) || 96) * 1024 * 1024;
+const CAPACITY_ESTIMATED_SHARED_TASK_CPU_PERCENT = Math.min(100, Math.max(1, Number(process.env.TAH_CAPACITY_SHARED_TASK_CPU_PERCENT) || 6));
 const CAPACITY_TARGET_CPU_PERCENT = Math.min(95, Math.max(40, Number(process.env.TAH_CAPACITY_TARGET_CPU_PERCENT) || 75));
 const CAPACITY_MIN_FREE_DISK_RATIO = Math.min(0.5, Math.max(0.05, Number(process.env.TAH_CAPACITY_MIN_FREE_DISK_RATIO) || 0.15));
 const CAPACITY_STORAGE_SCAN_FILES = Math.max(1_000, Math.min(100_000, Number(process.env.TAH_CAPACITY_STORAGE_SCAN_FILES) || 25_000));
@@ -1250,6 +1312,7 @@ async function capacitySnapshot() {
   const memory = memoryCapacity();
   const disk = diskCapacity();
   const active = activeRuns();
+  const workerPool = orchestratorWorkers.snapshot();
   const storage = measureActiveRunStorage(active);
   const resourceAdmission = evaluateResourceAdmission({
     availableMemoryBytes: memory.availableBytes,
@@ -1265,14 +1328,16 @@ async function capacitySnapshot() {
   ]);
   const queued = [...campaigns.values()].filter(campaign => campaign.status === "queued");
   const errors = [...campaigns.values()].filter(campaign => campaign.status === "error");
-  const hardCeiling = Math.max(0, Math.min(activeLimit, MAX_LOCAL_WORKERS, MAX_BROWSER_CONCURRENCY, MAX_TOTAL_CONCURRENCY));
+  const hardCeiling = Math.max(0, Math.min(activeLimit, MAX_LOCAL_WORKERS, SHARED_ORCHESTRATOR_ENABLED ? workerPool.taskCapacity : MAX_BROWSER_CONCURRENCY));
   const limitHeadroom = Math.max(0, hardCeiling - active.length);
   const reservedMemory = memory.totalBytes * MIN_AVAILABLE_MEMORY_RATIO;
   const memoryHeadroom = Math.max(0, memory.availableBytes - reservedMemory);
-  const additionalByMemory = Math.max(0, Math.floor(memoryHeadroom / CAPACITY_ESTIMATED_CAMPAIGN_MEMORY_BYTES));
+  const plannedTaskMemory = SHARED_ORCHESTRATOR_ENABLED ? CAPACITY_ESTIMATED_SHARED_TASK_MEMORY_BYTES : CAPACITY_ESTIMATED_CAMPAIGN_MEMORY_BYTES;
+  const plannedTaskCpu = SHARED_ORCHESTRATOR_ENABLED ? CAPACITY_ESTIMATED_SHARED_TASK_CPU_PERCENT : CAPACITY_ESTIMATED_CAMPAIGN_CPU_PERCENT;
+  const additionalByMemory = Math.max(0, Math.floor(memoryHeadroom / plannedTaskMemory));
   const additionalByCpu = systemCpu === null
     ? limitHeadroom
-    : Math.max(0, Math.floor(Math.max(0, CAPACITY_TARGET_CPU_PERCENT - systemCpu) * effectiveCpus / CAPACITY_ESTIMATED_CAMPAIGN_CPU_PERCENT));
+    : Math.max(0, Math.floor(Math.max(0, CAPACITY_TARGET_CPU_PERCENT - systemCpu) * effectiveCpus / plannedTaskCpu));
   const diskBlocked = disk.totalBytes > 0 && disk.availableRatio < CAPACITY_MIN_FREE_DISK_RATIO;
   const safeAdditional = Math.max(0, Math.min(limitHeadroom, additionalByMemory, additionalByCpu, diskBlocked ? 0 : limitHeadroom));
   const memoryUsedRatio = memory.totalBytes > 0 ? 1 - memory.availableBytes / memory.totalBytes : 0;
@@ -1281,6 +1346,7 @@ async function capacitySnapshot() {
   if (memoryUsedRatio >= 0.85) recommendations.push("RAM pressure is critical; stop one or more active campaigns or increase memory.");
   else if (memoryUsedRatio >= 0.7) recommendations.push("RAM headroom is narrowing; add campaigns cautiously.");
   if (systemCpu !== null && systemCpu >= CAPACITY_TARGET_CPU_PERCENT) recommendations.push("CPU is at the planning ceiling; do not add campaigns until load falls.");
+  if (activeLimit >= 100 && effectiveCpus < RECOMMENDED_VCPU_FOR_100_BROWSER_CAMPAIGNS) recommendations.push(`The 100 browser-required campaign target needs at least ${RECOMMENDED_VCPU_FOR_100_BROWSER_CAMPAIGNS} effective vCPU; this server exposes ${effectiveCpus.toFixed(1)}.`);
   if (queued.length > 0) recommendations.push(`${queued.length} campaign${queued.length === 1 ? " is" : "s are"} queued; increase workers only when CPU and RAM headroom permit.`);
   if (!health.postgres || !health.redis) recommendations.push("A state service is unhealthy; restore PostgreSQL and Redis before increasing capacity.");
   if (recommendations.length === 0) recommendations.push(`Current headroom supports approximately ${safeAdditional} additional active campaign${safeAdditional === 1 ? "" : "s"} under the configured planning model.`);
@@ -1304,8 +1370,11 @@ async function capacitySnapshot() {
       runtimeMs: Math.max(0, generatedAt - Number(run.startedAt || generatedAt)),
       proxyPort: run.proxyPort || null,
       targetHost: targetHostname(campaign),
-      plannedCpuPercent: CAPACITY_ESTIMATED_CAMPAIGN_CPU_PERCENT,
-      plannedMemoryBytes: CAPACITY_ESTIMATED_CAMPAIGN_MEMORY_BYTES,
+      executionMode: run.executionMode || "dedicated",
+      workerId: run.workerId || null,
+      routeDecision: run.lastRouteDecision || null,
+      plannedCpuPercent: run.executionMode === "shared" ? CAPACITY_ESTIMATED_SHARED_TASK_CPU_PERCENT : CAPACITY_ESTIMATED_CAMPAIGN_CPU_PERCENT,
+      plannedMemoryBytes: run.executionMode === "shared" ? CAPACITY_ESTIMATED_SHARED_TASK_MEMORY_BYTES : CAPACITY_ESTIMATED_CAMPAIGN_MEMORY_BYTES,
       evidenceBytes: Number(storage.byRun[run.id] || 0),
     };
   });
@@ -1364,12 +1433,16 @@ async function capacitySnapshot() {
       maxTotalConcurrency: MAX_TOTAL_CONCURRENCY,
       maxTotalRps: MAX_TOTAL_RPS,
       launchGapMs: CAMPAIGN_START_GAP_MS,
+      launchSpreadMs: CAMPAIGN_START_SPREAD_MS,
+      sharedOrchestratorEnabled: SHARED_ORCHESTRATOR_ENABLED,
+      sharedWorkerProcesses: SHARED_WORKER_PROCESSES,
+      sharedWorkerSlots: SHARED_WORKER_SLOTS,
       minimumAvailableMemoryRatio: MIN_AVAILABLE_MEMORY_RATIO,
       maximumNormalizedLoad: MAX_NORMALIZED_SYSTEM_LOAD,
       targetCpuPercent: CAPACITY_TARGET_CPU_PERCENT,
       minimumFreeDiskRatio: CAPACITY_MIN_FREE_DISK_RATIO,
-      plannedCampaignMemoryBytes: CAPACITY_ESTIMATED_CAMPAIGN_MEMORY_BYTES,
-      plannedCampaignCpuPercent: CAPACITY_ESTIMATED_CAMPAIGN_CPU_PERCENT,
+      plannedCampaignMemoryBytes: plannedTaskMemory,
+      plannedCampaignCpuPercent: plannedTaskCpu,
     },
     workload: {
       savedCampaigns: campaigns.size,
@@ -1392,6 +1465,21 @@ async function capacitySnapshot() {
       additionalByCpu,
       limitHeadroom,
       recommendations,
+    },
+    workerPool,
+    routing: {
+      since: routeTelemetry.since,
+      preflightAttempts: routeTelemetry.preflightAttempts,
+      redirectFirstCaptures: routeTelemetry.redirectFirstCaptures,
+      browserFallbacks: routeTelemetry.browserFallbacks,
+      cachedFallbacks: routeTelemetry.cachedFallbacks,
+      fallbackReasons: [...routeTelemetry.fallbackReasons.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count).slice(0, 12),
+    },
+    planning: {
+      browserRequiredCampaignTarget: 100,
+      recommendedVcpu: RECOMMENDED_VCPU_FOR_100_BROWSER_CAMPAIGNS,
+      effectiveVcpu: effectiveCpus,
+      vcpuReady: effectiveCpus >= RECOMMENDED_VCPU_FOR_100_BROWSER_CAMPAIGNS,
     },
     campaigns: campaignRows,
   };
@@ -1516,7 +1604,7 @@ const shutdown = () => {
   shuttingDown = true;
   for (const run of activeRuns()) terminateRun(run);
   for (const ws of clients) try { ws.close(1001, "Server shutting down"); } catch { /* already closed */ }
-  server.close(() => { void distributedStore.close().finally(() => process.exit(0)); });
+  server.close(() => { void orchestratorWorkers.shutdown().then(() => distributedStore.close()).finally(() => process.exit(0)); });
   setTimeout(() => process.exit(1), 10_000).unref();
 };
 process.on("SIGINT", shutdown);

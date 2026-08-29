@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { burstOffsetMs, burstRequestCount } from './burst.js';
 import { continuousIntervalMs, remainingContinuousDelayMs } from './continuousCadence.js';
+import { redirectFallbackCache } from './redirectFallbackCache.js';
 
 const DEFAULT_PROFILE = 'desktop-windows-chrome';
 
@@ -34,6 +35,46 @@ type TierRunner = (
   third: any,
 ) => AsyncIterable<RequestEvent>;
 
+export interface RouteDecision {
+  outcome: 'redirect_capture' | 'browser_fallback';
+  hostname: string;
+  reason: string;
+  preflightSkipped: boolean;
+  periodicProbe?: boolean;
+  cacheUntil?: number;
+}
+
+interface RunRuntime {
+  runId: string;
+  telemetryDir?: string;
+  challengeDir?: string;
+  signal?: AbortSignal;
+  proxyGateway?: { hostname?: string; port?: number };
+  onCapture?: (capture: { final_landing_url: string; session_id?: string; repeat_index?: number }) => void;
+  onRouteDecision?: (decision: RouteDecision) => void;
+}
+
+function abortError(): Error {
+  const error = new Error('Campaign run aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw abortError();
+}
+
+async function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return;
+  throwIfAborted(signal);
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(done, ms);
+    function done() { signal?.removeEventListener('abort', aborted); resolve(); }
+    function aborted() { clearTimeout(timer); signal?.removeEventListener('abort', aborted); reject(abortError()); }
+    signal?.addEventListener('abort', aborted, { once: true });
+  });
+}
+
 export async function runScenario(opts: {
   scenarioFile: string;
   runDir: string;
@@ -41,6 +82,13 @@ export async function runScenario(opts: {
   creds: { user: string; pass: string };
   parallel?: boolean;
   mitmUrl?: string;   // when present, tiers route through mitm instead of upstream proxy
+  runId?: string;
+  telemetryDir?: string;
+  challengeDir?: string;
+  signal?: AbortSignal;
+  proxyGateway?: { hostname?: string; port?: number };
+  onCapture?: RunRuntime['onCapture'];
+  onRouteDecision?: RunRuntime['onRouteDecision'];
 }): Promise<void> {
   const scenario = await loadScenario(opts.scenarioFile);
   const sigNames = (scenario.verdict_detection?.challenge_signatures ?? [
@@ -79,17 +127,29 @@ export async function runScenario(opts: {
   const waitForSchedule = async (index: number): Promise<void> => {
     if (!burst) return;
     const delay = burstStartedAt + burstOffsetMs(index, burst) - Date.now();
-    if (delay > 0) await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    if (delay > 0) await abortableDelay(delay, opts.signal);
   };
 
+  const runtime: RunRuntime = {
+    runId: opts.runId ?? process.env.TAH_RUN_ID ?? 'continuous',
+    telemetryDir: opts.telemetryDir,
+    challengeDir: opts.challengeDir,
+    signal: opts.signal,
+    proxyGateway: opts.proxyGateway,
+    onCapture: opts.onCapture,
+    onRouteDecision: opts.onRouteDecision,
+  };
+
+  try {
   if (continuous) {
     let i = 0;
     const intervalMs = continuousIntervalMs(process.env.TAH_CONTINUOUS_INTERVAL_MS);
     while (true) {
       const journeyStartedAt = Date.now();
-      await runOneRepeat(i++, scenario, opts.creds, tierFn, profile, opts.bus, sink, unsureSink, skippedSink, opts.mitmUrl);
+      throwIfAborted(opts.signal);
+      await runOneRepeat(i++, scenario, opts.creds, tierFn, profile, opts.bus, sink, unsureSink, skippedSink, opts.mitmUrl, runtime);
       const remainingMs = remainingContinuousDelayMs(journeyStartedAt, Date.now(), intervalMs);
-      if (remainingMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, remainingMs));
+      if (remainingMs > 0) await abortableDelay(remainingMs, opts.signal);
     }
   } else if (opts.parallel && concurrency > 1) {
     // A bounded worker pool prevents a large run from opening every browser or
@@ -99,16 +159,16 @@ export async function runScenario(opts: {
       while (nextRun < totalRuns) {
         const i = nextRun++;
         await waitForSchedule(i);
-        await runOneRepeat(i, scenario, opts.creds, tierFn, profile, opts.bus, sink, unsureSink, skippedSink, opts.mitmUrl);
+        await runOneRepeat(i, scenario, opts.creds, tierFn, profile, opts.bus, sink, unsureSink, skippedSink, opts.mitmUrl, runtime);
       }
     }));
   } else {
     for (let i = 0; i < totalRuns; i++) {
       await waitForSchedule(i);
-      await runOneRepeat(i, scenario, opts.creds, tierFn, profile, opts.bus, sink, unsureSink, skippedSink, opts.mitmUrl);
+      await runOneRepeat(i, scenario, opts.creds, tierFn, profile, opts.bus, sink, unsureSink, skippedSink, opts.mitmUrl, runtime);
     }
   }
-  await sink.close();
+  } finally { await sink.close(); }
 }
 
 async function runOneRepeat(
@@ -122,12 +182,13 @@ async function runOneRepeat(
   unsureSink: AppendOnlyJsonl,
   skippedSink: AppendOnlyJsonl,
   mitmUrl: string | undefined,
+  runtime: RunRuntime,
 ): Promise<void> {
   // IPRoyal requires a sticky session identifier to be exactly eight
   // alphanumeric characters. Any other length silently behaves as rotating.
   const sessionId = createHash('sha256')
     .update(scenario.continuous
-      ? `${scenario.id}:${process.env.TAH_RUN_ID ?? 'continuous'}`
+      ? `${scenario.id}:${runtime.runId}`
       : `${scenario.id}:${i}:${Date.now()}:${Math.random()}`)
     .digest('hex')
     .slice(0, 8);
@@ -142,7 +203,7 @@ async function runOneRepeat(
       // is already running with `--upstream-auth` or as a transparent proxy.
       proxyUrl = new URL(mitmUrl);
     } else {
-      proxyUrl = buildProxyEndpoint(scenario.geo, scenario.proxy_mode, creds, sessionId).url;
+      proxyUrl = buildProxyEndpoint(scenario.geo, scenario.proxy_mode, creds, sessionId, runtime.proxyGateway).url;
     }
   } catch (e: any) {
     await skippedSink.write({ scenario_id: scenario.id, repeat: i, reason: e.message });
@@ -169,23 +230,38 @@ async function runOneRepeat(
   const attemptOnce = async (): Promise<void> => {
     // A continuous campaign keeps one coherent browser identity. This allows
     // unattended retries without using identity rotation to evade challenges.
-    const stableProfileIndex = parseInt(createHash('sha256').update(`${scenario.id}:${process.env.TAH_RUN_ID ?? 'continuous'}`).digest('hex').slice(0, 8), 16) % profile.length;
+    throwIfAborted(runtime.signal);
+    const stableProfileIndex = parseInt(createHash('sha256').update(`${scenario.id}:${runtime.runId}`).digest('hex').slice(0, 8), 16) % profile.length;
     const repeatProfile = scenario.tier === 'human' && scenario.continuous
       ? profile[stableProfileIndex]
       : profile[i % profile.length];
     // For trivial-http, each orchestrator repeat already represents one request.
     // Let the tier emit exactly one request per repeat and keep its own concurrency.
-    const tierScenario = scenario.tier === 'trivial-http'
+    const tierScenarioBase = scenario.tier === 'trivial-http'
       ? { ...scenario, repeats: 1, concurrent: 1 }
       : scenario;
+    const tierScenario = scenario.tier === 'human'
+      ? { ...tierScenarioBase, __tahRuntime: { signal: runtime.signal, telemetryDir: runtime.telemetryDir, challengeDir: runtime.challengeDir } }
+      : tierScenarioBase;
     let iter: AsyncIterable<RequestEvent>;
     if (
       scenario.tier === 'human'
       && scenario.continuous === true
       && enabled(process.env.TAH_REDIRECT_FIRST_ENABLED, true)
     ) {
+      const claim = redirectFallbackCache.claim(scenario.seed_url);
+      const publishDecision = (decision: RouteDecision) => {
+        if (runtime.onRouteDecision) runtime.onRouteDecision(decision);
+        else console.log(`TAH_ROUTE_DECISION ${JSON.stringify(decision)}`);
+      };
+      if (!claim.attemptPreflight) {
+        publishDecision({ outcome: 'browser_fallback', hostname: claim.hostname, reason: claim.reason ?? 'browser_required', preflightSkipped: true, cacheUntil: claim.cacheUntil });
+        iter = tierFn(tierScenario as Scenario, proxyUrl, repeatProfile) as AsyncIterable<RequestEvent>;
+      } else {
       const resolved = await resolveRedirectFirst(scenario, proxyUrl);
       if (resolved.outcome === 'captured' && resolved.finalUrl) {
+        redirectFallbackCache.recordCaptured(scenario.seed_url);
+        publishDecision({ outcome: 'redirect_capture', hostname: claim.hostname, reason: resolved.reason, preflightSkipped: false, periodicProbe: claim.periodicProbe });
         const lightweightEvent: RequestEvent = {
           scenario_id: scenario.id,
           repeat_index: i,
@@ -206,13 +282,16 @@ async function runOneRepeat(
           yield lightweightEvent;
         })();
       } else {
+        const cacheUntil = redirectFallbackCache.recordBrowserRequired(scenario.seed_url, resolved.reason);
+        publishDecision({ outcome: 'browser_fallback', hostname: claim.hostname, reason: resolved.reason, preflightSkipped: false, periodicProbe: claim.periodicProbe, cacheUntil });
         if (process.env.TAH_REDIRECT_FIRST_DEBUG === '1') {
           console.log(`TAH_REDIRECT_FALLBACK ${JSON.stringify({ reason: resolved.reason, scenario_id: scenario.id })}`);
         }
-        iter = tierFn(tierScenario, proxyUrl, repeatProfile) as AsyncIterable<RequestEvent>;
+        iter = tierFn(tierScenario as Scenario, proxyUrl, repeatProfile) as AsyncIterable<RequestEvent>;
+      }
       }
     } else {
-      iter = tierFn(tierScenario, proxyUrl, repeatProfile) as AsyncIterable<RequestEvent>;
+      iter = tierFn(tierScenario as Scenario, proxyUrl, repeatProfile) as AsyncIterable<RequestEvent>;
     }
     for await (const evt of iter) {
       evt.repeat_index = i;
@@ -259,11 +338,13 @@ async function runOneRepeat(
       bus.emit('request', evt);
       await sink.write(evt);
       if (evt.tier === 'human' && evt.final_landing_url) {
-        console.log(`TAH_L4_CAPTURE ${JSON.stringify({
+        const capture = {
           final_landing_url: evt.final_landing_url,
           session_id: evt.session_id,
           repeat_index: evt.repeat_index,
-        })}`);
+        };
+        if (runtime.onCapture) runtime.onCapture(capture);
+        else console.log(`TAH_L4_CAPTURE ${JSON.stringify(capture)}`);
       }
     }
   };
@@ -275,6 +356,7 @@ async function runOneRepeat(
       await attemptOnce();
       return;
     } catch (e) {
+      if (runtime.signal?.aborted) throw abortError();
       lastErr = e;
     }
   }

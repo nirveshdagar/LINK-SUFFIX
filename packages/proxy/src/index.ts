@@ -16,6 +16,11 @@ export interface ProxyEndpoint {
   sessionId?: string;
 }
 
+export interface ProxyGatewayOverride {
+  hostname?: string;
+  port?: number;
+}
+
 export class InvalidProxyGeoError extends Error {
   constructor(message: string) {
     super(message);
@@ -36,6 +41,7 @@ export function buildProxyEndpoint(
   mode: ProxyMode,
   creds: { user: string; pass: string },
   sessionId?: string,
+  gateway: ProxyGatewayOverride = {},
 ): ProxyEndpoint {
   // IP Royal residential proxy URL format:
   //   http://<accountUser>:<accountPass>@<host>:<port>
@@ -69,7 +75,11 @@ export function buildProxyEndpoint(
     password += `_session-${stickySession}_lifetime-1h`;
   }
 
-  const url = new URL(`http://${HOSTNAMES[mode]}:${PROXY_PORT}`);
+  const hostname = String(gateway.hostname ?? HOSTNAMES[mode]).trim().toLowerCase();
+  const port = Number(gateway.port ?? PROXY_PORT);
+  if (!/^[a-z0-9][a-z0-9.-]{0,252}$/.test(hostname)) throw new InvalidProxyGeoError("Invalid proxy gateway hostname");
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new InvalidProxyGeoError("Invalid proxy gateway port");
+  const url = new URL(`http://${hostname}:${port}`);
   url.username = creds.user;
   url.password = password;
   return { url, mode, sessionId };

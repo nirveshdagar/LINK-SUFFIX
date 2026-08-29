@@ -32,6 +32,17 @@
 .capacityBand[data-state="critical"] { background: #f5dcd3; }
 .recommendations span { display: block; margin-top: 8px; font-size: 13px; line-height: 1.35; }
 .twoColumn { display: grid; grid-template-columns: 1.2fr .8fr; gap: 12px; margin-bottom: 12px; }
+.routingGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.routingGrid > div { min-height: 116px; padding: 18px; border-right: 1px solid rgba(11, 42, 36, .14); border-bottom: 1px solid rgba(11, 42, 36, .14); }
+.routingGrid > div:last-child { border-right: 0; }
+.routingGrid span, .reasonRow > span { color: #61746d; font: 700 9px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; letter-spacing: .1em; }
+.routingGrid strong { display: block; margin: 8px 0 5px; font: 400 30px/1 Georgia, "Times New Roman", serif; }
+.routingGrid small { color: #61746d; line-height: 1.35; }
+.routingGrid [data-ready="false"] { background: #fff0c2; }
+.routingGrid [data-ready="true"] { background: #e2f2e5; }
+.reasonRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 13px 18px; }
+.reasonRow b { padding: 6px 8px; border: 1px solid rgba(11, 42, 36, .22); background: #f8f4e9; font: 600 10px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.reasonRow i { color: #e85434; font-style: normal; }
 .panel { border: 1px solid rgba(11, 42, 36, .25); background: rgba(255, 253, 247, .82); margin-bottom: 12px; }
 .panelHeader { min-height: 84px; display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 18px 20px; border-bottom: 1px solid rgba(11, 42, 36, .2); background: rgba(226, 235, 220, .65); }
 .panelHeader h2 { margin: 3px 0 0; font: 400 clamp(24px, 3vw, 34px)/1 Georgia, "Times New Roman", serif; }
@@ -60,5 +71,5 @@
 .methodNote { margin-top: 18px; padding: 16px 18px; border-left: 4px solid #e85434; background: #102a24; color: #dfe9df; font-size: 12px; line-height: 1.5; }
 .spinning { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width: 1100px) { .meterGrid { grid-template-columns: repeat(2, 1fr); } .capacityBand { grid-template-columns: repeat(2, 1fr); } .capacityBand > div:nth-child(2) { border-right: 0; } .twoColumn { grid-template-columns: 1fr; } }
-@media (max-width: 720px) { .workspace { padding: 22px 14px 40px; } .header { flex-direction: column; } .headerActions { width: 100%; grid-template-columns: 1fr auto; align-items: center; justify-items: start; } .headerActions small { grid-column: 1 / -1; } .meterGrid, .capacityBand, .specGrid, .limitList { grid-template-columns: 1fr; } .capacityBand > div { border-right: 0; } .meterCard { min-height: 104px; } }
+@media (max-width: 1100px) { .meterGrid, .routingGrid { grid-template-columns: repeat(2, 1fr); } .capacityBand { grid-template-columns: repeat(2, 1fr); } .capacityBand > div:nth-child(2), .routingGrid > div:nth-child(2) { border-right: 0; } .twoColumn { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .workspace { padding: 22px 14px 40px; } .header { flex-direction: column; } .headerActions { width: 100%; grid-template-columns: 1fr auto; align-items: center; justify-items: start; } .headerActions small { grid-column: 1 / -1; } .meterGrid, .capacityBand, .routingGrid, .specGrid, .limitList { grid-template-columns: 1fr; } .capacityBand > div, .routingGrid > div { border-right: 0; } .meterCard { min-height: 104px; } }

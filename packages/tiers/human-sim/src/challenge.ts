@@ -68,8 +68,9 @@ export async function pauseForIntervention(options: {
   timeoutSeconds: number;
   persistent?: boolean;
   onTimeout: 'skip' | 'stop';
+  directory?: string;
 }): Promise<{ id: string; action: ChallengeAction; resolvedAt: string }> {
-  const directory = process.env.TAH_CHALLENGE_DIR;
+  const directory = options.directory ?? process.env.TAH_CHALLENGE_DIR;
   const id = randomUUID();
   if (!directory) return { id, action: 'skip', resolvedAt: new Date().toISOString() };
   mkdirSync(directory, { recursive: true });
