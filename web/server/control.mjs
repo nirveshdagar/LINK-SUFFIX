@@ -477,7 +477,8 @@ const persistControlSettings = () => {
 try {
   for (const run of JSON.parse(readFileSync(registryPath, "utf8"))) {
     const alive = run.executionMode === "shared" ? false : pidAlive(run.pid);
-    runs.set(run.id, { ...run, child: null, exitCode: alive ? null : (run.exitCode ?? -1) });
+    if (!alive) continue;
+    runs.set(run.id, { ...run, child: null, exitCode: null });
     sequence = Math.max(sequence, Number(run.dashboardPort ?? 7499) - Number(process.env.TAH_RUN_DASHBOARD_PORT_START ?? 7500) + 1);
   }
 } catch { /* first start or invalid prior registry */ }
@@ -504,7 +505,10 @@ if (distributedStore.enabled) {
   ]);
   if (Array.isArray(dbRuns)) {
     runs.clear();
-    for (const run of dbRuns) runs.set(run.id, { ...run, child: null, exitCode: run.exitCode ?? -1 });
+    for (const run of dbRuns) {
+      const alive = run.executionMode !== "shared" && pidAlive(run.pid);
+      if (alive) runs.set(run.id, { ...run, child: null, exitCode: null });
+    }
   }
   if (Array.isArray(dbSchedules)) {
     schedules.clear();
@@ -704,7 +708,7 @@ function stagingTargetAllowed(rawUrl) {
 
 const activeRuns = () => [...runs.values()].filter(run => run.exitCode === null && (run.executionMode === "shared" ? orchestratorWorkers.has(run.id) : Boolean(run.child?.exitCode === null || pidAlive(run.pid))));
 
-const listRuns = () => [...runs.values()].map(publicRun).sort((a, b) => b.startedAt - a.startedAt);
+const listRuns = () => activeRuns().map(publicRun).sort((a, b) => b.startedAt - a.startedAt);
 const lockedPorts = () => new Set(activeRuns().map(run => Number(run.proxyPort)).filter(port => Number.isInteger(port) && port > 0));
 const publicCampaign = campaign => ({ ...campaign, config: { ...campaign.config, authorized: undefined } });
 const listCampaigns = () => [...campaigns.values()].map(publicCampaign).sort((a, b) => a.number - b.number);
@@ -929,6 +933,8 @@ async function finalizeRun(run, code, errorMessage) {
     campaign.updatedAt = new Date().toISOString();
     persistCampaigns();
   }
+  captureQueues.delete(run.id);
+  runs.delete(run.id);
   persistRuns();
   broadcast("run_ended", { id: run.id, code, capture, adsPush, meshDelivery, syncError, error: errorMessage });
   broadcast("runs", listRuns());
