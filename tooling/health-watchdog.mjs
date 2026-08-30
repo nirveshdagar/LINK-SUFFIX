@@ -1,7 +1,7 @@
 import http from "node:http";
 
 const endpoint = process.env.TAH_ALERTS_INTERNAL_URL?.trim() || "http://127.0.0.1:3100/api/alerts";
-const token = process.env.CONTROL_TOKEN?.trim() || process.env.TAH_API_BEARER_TOKEN?.trim() || "";
+const token = process.env.TAH_API_BEARER_TOKEN?.trim() || process.env.CONTROL_TOKEN?.trim() || "";
 const port = Math.max(1, Number(process.env.TAH_HEALTH_WATCHDOG_PORT) || 3197);
 const intervalMs = Math.max(5_000, Number(process.env.TAH_HEALTH_INTERVAL_MS) || 15_000);
 const endpointHost = new URL(endpoint).hostname.replace(/^\[|\]$/g, "").toLowerCase();
