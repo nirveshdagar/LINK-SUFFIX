@@ -95,6 +95,7 @@ type HealthState = {
 
 const SHARD_CAPACITY = 40;
 const SHARD_STALE_AFTER_MS = 75 * 60 * 1000;
+const VERIFIED_SUFFIX_VISIBLE_MS = 7_000;
 const SHARD_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/;
 const normalizedId = (value?: string) => String(value || "").replace(/\D/g, "");
 const hasCompleteTarget = (campaign: SavedFleetCampaign) =>
@@ -117,6 +118,57 @@ function formatDuration(value?: number | string | null) {
   if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
   const hours = Math.floor(minutes / 60);
   return `${hours}h ${minutes % 60}m`;
+}
+
+function TransientVerifiedSuffix({ campaign }: { campaign: BridgeCampaign }) {
+  const isCurrentExactMatch = campaign.exact_suffix != null
+    && campaign.last_applied_suffix != null
+    && campaign.exact_suffix === campaign.last_applied_suffix
+    && campaign.latest_job_state === "applied"
+    && Boolean(campaign.applied_at);
+  const matchKey = isCurrentExactMatch
+    ? `${campaign.applied_at}\u0000${campaign.last_applied_suffix}`
+    : "";
+  const [visibleMatchKey, setVisibleMatchKey] = useState("");
+
+  useEffect(() => {
+    if (!matchKey) {
+      setVisibleMatchKey("");
+      return;
+    }
+
+    setVisibleMatchKey(matchKey);
+    const timer = window.setTimeout(() => {
+      setVisibleMatchKey((current) => current === matchKey ? "" : current);
+    }, VERIFIED_SUFFIX_VISIBLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [matchKey]);
+
+  if (visibleMatchKey === matchKey && isCurrentExactMatch) {
+    return (
+      <>
+        <code>{campaign.last_applied_suffix || "(empty suffix)"}</code>
+        <small>Exact match verified {formatTimestamp(campaign.applied_at)}</small>
+      </>
+    );
+  }
+
+  const waitingMessage = campaign.exact_suffix == null
+    ? "Waiting for browser capture"
+    : campaign.latest_job_state === "pending"
+      ? "Waiting for this captured suffix"
+      : campaign.latest_job_state === "leased"
+        ? "Applying this captured suffix"
+        : isCurrentExactMatch
+          ? "Waiting for the next exact match"
+          : "Google Ads value does not match this capture yet";
+
+  return (
+    <>
+      <span className="fleet-cell-empty">{waitingMessage}</span>
+      <small>Only the exact current match appears here for 7 seconds</small>
+    </>
+  );
 }
 
 function shardHealth(shard?: BridgeShard): HealthState {
@@ -492,7 +544,6 @@ export function ScriptBridge({
                 const health = targetHealth(campaign, shard);
                 const savedCampaign = savedCampaigns.find((item) => item.id === campaign.campaign_record_id);
                 const busy = actionCampaignId === campaign.campaign_record_id;
-                const hasVerifiedDelivery = campaign.last_applied_suffix != null && Boolean(campaign.last_applied_at);
                 return (
                   <tr key={campaign.target_id}>
                     <td className="fleet-campaign-cell">
@@ -512,10 +563,7 @@ export function ScriptBridge({
                       <small>Version {campaign.latest_version || "-"}</small>
                     </td>
                     <td className="fleet-suffix-cell fleet-inserted-cell">
-                      {hasVerifiedDelivery
-                        ? <code>{campaign.last_applied_suffix || "(empty suffix)"}</code>
-                        : <span className="fleet-cell-empty">{!campaign.exact_suffix && !campaign.account_ready ? "Journey held until account worker is ready" : campaign.latest_job_state === "pending" ? "Awaiting worker" : campaign.latest_job_state === "leased" ? "Being applied" : "Not verified yet"}</span>}
-                      <small>{hasVerifiedDelivery ? "Verified " + formatTimestamp(campaign.last_applied_at) : "Exact value appears only after acknowledgement"}</small>
+                      <TransientVerifiedSuffix campaign={campaign} />
                     </td>
                     <td className="fleet-health-cell">
                       <span className={"health-chip is-" + health.tone}>{health.label}</span>
