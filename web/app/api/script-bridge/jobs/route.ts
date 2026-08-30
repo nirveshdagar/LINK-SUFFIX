@@ -13,8 +13,8 @@ import { checkRateLimit, withRateLimitHeaders } from "@/lib/rate-limit";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ACTIVE_PROTOCOL = "fleet-hot-add-relay-v6";
-const LEGACY_PROTOCOL = "fleet-hourly-relay-v5";
+const ACTIVE_PROTOCOL = "fleet-two-phase-hot-add-relay-v7";
+const LEGACY_PROTOCOLS = new Set(["fleet-hot-add-relay-v6", "fleet-hourly-relay-v5"]);
 const ACTIVE_CONTRACT = "relational-lease-v2";
 const SCRIPT_JOB_REQUESTS_PER_MINUTE = 6_000;
 
@@ -34,7 +34,7 @@ async function jsonBody(request: Request) {
 
 function protocolAllowed(value: unknown) {
   const protocol = String(value || "");
-  return protocol === ACTIVE_PROTOCOL || protocol === LEGACY_PROTOCOL;
+  return protocol === ACTIVE_PROTOCOL || LEGACY_PROTOCOLS.has(protocol);
 }
 
 function contractAllowed(value: unknown) {
@@ -60,7 +60,7 @@ async function lease(request: Request, input: Record<string, unknown>) {
   const workerId = String(input.workerId || input.worker || "google-ads-script").trim().slice(0, 200);
   const protocol = String(input.protocol || "");
   if (!protocolAllowed(input.protocol) || !contractAllowed(input.contract)) {
-    return NextResponse.json({ error: "Outdated Fleet worker. Regenerate and install the selected shard's v6 hot-add script." }, { status: 409 });
+    return NextResponse.json({ error: "Outdated Fleet worker. Regenerate and install the selected shard's v7 two-phase hot-add script." }, { status: 409 });
   }
   if (!await authenticate(request, shardId)) return NextResponse.json({ error: "Invalid shard credentials" }, { status: 401 });
   const wantsManifest = input.manifest === true || input.manifest === 1 || String(input.manifest || "") === "1";
@@ -77,7 +77,7 @@ async function lease(request: Request, input: Record<string, unknown>) {
     workerId,
     Number(input.maxJobs || input.limit || 25),
     customerId,
-    { protocol, hotAdd: protocol === ACTIVE_PROTOCOL && hotAddRequested },
+    { protocol, hotAdd: hotAddRequested },
   );
   return NextResponse.json({ ok: true, protocol, contract: ACTIVE_CONTRACT, jobs, leases: jobs, serverTime: new Date().toISOString() }, { headers: { "cache-control": "no-store" } });
 }
@@ -116,7 +116,7 @@ export async function POST(request: Request) {
       return withRateLimitHeaders(NextResponse.json({ error: "Unsupported action" }, { status: 400 }), limit);
     }
     if (!protocolAllowed(input.protocol) || !contractAllowed(input.contract)) {
-      return withRateLimitHeaders(NextResponse.json({ error: "Outdated Fleet worker. Regenerate and install the selected shard's v6 hot-add script." }, { status: 409 }), limit);
+      return withRateLimitHeaders(NextResponse.json({ error: "Outdated Fleet worker. Regenerate and install the selected shard's v7 two-phase hot-add script." }, { status: 409 }), limit);
     }
     const shardId = String(input.shardId || input.shard || "default").trim();
     const workerId = String(input.workerId || input.worker || "google-ads-script").trim().slice(0, 200);

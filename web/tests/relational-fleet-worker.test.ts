@@ -2,18 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  buildRelationalFleetV6Worker,
+  buildRelationalFleetV7Worker,
   RELATIONAL_FLEET_WORKER_VERSION,
 } from "../lib/relational-fleet-worker.ts";
 
-test("generates the relational v6 hot-add Fleet worker", () => {
-  const script = buildRelationalFleetV6Worker(
+test("generates the relational v7 two-phase hot-add Fleet worker", () => {
+  const script = buildRelationalFleetV7Worker(
     "https://bridge.example/api/script-bridge/jobs",
     "secret-token",
     "mcc-1000000000-001",
   );
 
-  assert.equal(RELATIONAL_FLEET_WORKER_VERSION, "fleet-hot-add-relay-v6");
+  assert.equal(RELATIONAL_FLEET_WORKER_VERSION, "fleet-two-phase-hot-add-relay-v7");
   assert.match(script, /executeInParallel\("bootstrapAccount_", "continueFleetRelay_"/);
   assert.match(script, /manifest/);
   assert.match(script, /relational-lease-v2/);
@@ -25,7 +25,10 @@ test("generates the relational v6 hot-add Fleet worker", () => {
   assert.match(script, /appliedSuffix/);
   assert.match(script, /MIN_REMAINING_SECONDS/);
   assert.match(script, /readSuffixes_/);
-  assert.match(script, /HOT_ADD_BOOTSTRAP_MS: 45000/);
+  assert.match(script, /ACCOUNT_POLL_MS: 50000/);
+  assert.doesNotMatch(script, /HOT_ADD_BOOTSTRAP_MS/);
+  assert.doesNotMatch(script, /bootstrapDeadline/);
+  assert.doesNotMatch(script, /verified \+= outcome\.verified;\s*break;/);
   assert.match(script, /POST_BATCH_SLEEP_MS: 10000/);
   assert.match(script, /query\.hotAdd = "1"/);
   assert.match(script, /AdsManagerApp\.select/);

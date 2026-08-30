@@ -1,18 +1,18 @@
-export const RELATIONAL_FLEET_WORKER_VERSION = "fleet-hot-add-relay-v6";
+export const RELATIONAL_FLEET_WORKER_VERSION = "fleet-two-phase-hot-add-relay-v7";
 
-export function buildRelationalFleetV6Worker(
+export function buildRelationalFleetV7Worker(
   endpoint: string,
   token: string,
   shardId: string,
 ) {
   return `/**
- * Traffic Armour Rolling Apps Script Fleet v6 hot-add relay.
+ * Traffic Armour Rolling Apps Script Fleet v7 two-phase hot-add relay.
  * Install this copy once for shard ${shardId} in its Google Ads MCC,
  * authorize it, and schedule it Hourly.
  *
- * It uses a short supported executeInParallel child-account bootstrap, then
+ * It keeps child accounts active through Google's first execution phase, then
  * the manager callback discovers newly enrolled campaigns every 10 seconds
- * until Google's 60-minute manager-script guard.
+ * through the second phase until Google's 60-minute manager-script guard.
  */
 const CONFIG = Object.freeze({
   BRIDGE_URL: ${JSON.stringify(endpoint)},
@@ -23,8 +23,7 @@ const CONFIG = Object.freeze({
   MAX_JOBS: 200,
   WORKER_VERSION: "${RELATIONAL_FLEET_WORKER_VERSION}",
   MIN_REMAINING_SECONDS: 90,
-  HOT_ADD_BOOTSTRAP_MS: 45000,
-  BOOTSTRAP_RETRY_MS: 5000,
+  ACCOUNT_POLL_MS: 50000,
   IDLE_POLL_MS: 10000,
   POST_BATCH_SLEEP_MS: 10000,
   ERROR_BACKOFF_MS: 10000
@@ -77,15 +76,11 @@ function bootstrapAccount_(invocationId) {
   const customerId = digits_(AdsApp.currentAccount().getCustomerId());
   const executionInfo = AdsApp.getExecutionInfo();
   const workerId = safeWorkerId_("child-" + customerId + "-" + invocationId);
-  const bootstrapDeadline = Date.now() + CONFIG.HOT_ADD_BOOTSTRAP_MS;
   let completedCycles = 0;
   let total = 0;
   let verified = 0;
 
-  while (
-    executionInfo.getRemainingTime() > CONFIG.MIN_REMAINING_SECONDS &&
-    Date.now() < bootstrapDeadline
-  ) {
+  while (executionInfo.getRemainingTime() > CONFIG.MIN_REMAINING_SECONDS) {
     try {
       const response = leaseJobs_(workerId, customerId, false);
       const jobs = Array.isArray(response.jobs) ? response.jobs : [];
@@ -93,13 +88,13 @@ function bootstrapAccount_(invocationId) {
       completedCycles += 1;
       total += outcome.total;
       verified += outcome.verified;
-      break;
+      sleepWithinDeadline_(CONFIG.ACCOUNT_POLL_MS, executionInfo);
     } catch (error) {
       Logger.log(
         "Traffic Armour Fleet account cycle failed for " + customerId +
         ": " + safeError_(error)
       );
-      sleepWithinDeadline_(CONFIG.BOOTSTRAP_RETRY_MS, executionInfo);
+      sleepWithinDeadline_(CONFIG.ERROR_BACKOFF_MS, executionInfo);
     }
   }
 
@@ -405,4 +400,5 @@ function safeError_(error) {
 }
 
 // Kept as a source-compatible alias for server code deployed before v6.
-export const buildRelationalFleetV5Worker = buildRelationalFleetV6Worker;
+export const buildRelationalFleetV6Worker = buildRelationalFleetV7Worker;
+export const buildRelationalFleetV5Worker = buildRelationalFleetV7Worker;

@@ -338,7 +338,10 @@ export async function leaseBridgeJobs(
 ): Promise<BridgeLease[]> {
   const limit = Math.max(1, Math.min(MAX_LEASE_JOBS, Math.floor(requestedLimit)));
   const customerId = normalizeId(requestedCustomerId);
-  const hotAdd = options.protocol === "fleet-hot-add-relay-v6" && options.hotAdd === true && !customerId;
+  const hotAdd = (
+    options.protocol === "fleet-two-phase-hot-add-relay-v7"
+    || options.protocol === "fleet-hot-add-relay-v6"
+  ) && options.hotAdd === true && !customerId;
   if (customerId && !/^\d{10}$/.test(customerId)) throw new Error("A valid 10-digit customer filter is required");
   return await transaction(async (client) => {
     const missingJobs = await client.query(
@@ -498,7 +501,7 @@ export async function bridgeShardManifest(shardId: string) {
       [normalizedShardId, accountIds],
     );
     return {
-      protocol: "fleet-hourly-relay-v5",
+      protocol: "fleet-two-phase-hot-add-relay-v7",
       shardId: normalizedShardId,
       managerCustomerId: String(managerIds[0] || ""),
       accountIds,

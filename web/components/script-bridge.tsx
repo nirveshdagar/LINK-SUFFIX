@@ -416,7 +416,7 @@ export function ScriptBridge({
         <div>
           <p className="eyebrow">Relational delivery channel</p>
           <h2 id="fleet-title">Rolling Apps Script Fleet</h2>
-          <p>One live console for captured suffixes, verified Google Ads delivery, campaign health, shard assignment, and the two-phase fleet-hourly-relay-v5 workers.</p>
+          <p>One live console for captured suffixes, verified Google Ads delivery, campaign health, shard assignment, and the two-phase v7 Fleet workers.</p>
         </div>
         <span className={"bridge-health " + overallTone}>{overallLabel}</span>
       </header>
@@ -629,7 +629,7 @@ export function ScriptBridge({
 
           {generatedScript && generatedForShard === selectedShardId ? (
             <div className="fleet-script-output">
-              <div><strong>{generatedForShard} · fleet-hot-add-relay-v6</strong><button type="button" onClick={copyWorker}>Copy script</button><button className="bridge-secondary-action" type="button" onClick={() => setGeneratedScript("")}>Hide</button></div>
+              <div><strong>{generatedForShard} · fleet-two-phase-hot-add-relay-v7</strong><button type="button" onClick={copyWorker}>Copy script</button><button className="bridge-secondary-action" type="button" onClick={() => setGeneratedScript("")}>Hide</button></div>
               <textarea readOnly value={generatedScript} aria-label={generatedForShard + " Google Ads worker script"} spellCheck={false} />
             </div>
           ) : (
