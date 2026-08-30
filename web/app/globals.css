@@ -745,7 +745,8 @@ button.scenario-item { width: 100%; color: inherit; font: inherit; text-align: l
 /* Keep large operational registries contained without moving their controls. */
 .fleet-campaign-picker > div,
 .saved-campaigns-deck > .run-list,
-.live-run-deck .run-grid > .run-list {
+.live-run-deck .run-grid > .run-list,
+.live-run-deck .challenge-list {
   max-height: min(56vh, var(--campaign-scroll-height, 520px));
   overflow-x: hidden;
   overflow-y: auto;
@@ -759,18 +760,22 @@ button.scenario-item { width: 100%; color: inherit; font: inherit; text-align: l
 .fleet-campaign-picker > div { --campaign-scroll-height: 430px; }
 .saved-campaigns-deck > .run-list { --campaign-scroll-height: 540px; }
 .live-run-deck .run-grid > .run-list { --campaign-scroll-height: 480px; }
+.live-run-deck .challenge-list { --campaign-scroll-height: 420px; }
 
 .fleet-campaign-picker > div::-webkit-scrollbar,
 .saved-campaigns-deck > .run-list::-webkit-scrollbar,
-.live-run-deck .run-grid > .run-list::-webkit-scrollbar { width: 10px; }
+.live-run-deck .run-grid > .run-list::-webkit-scrollbar,
+.live-run-deck .challenge-list::-webkit-scrollbar { width: 10px; }
 
 .fleet-campaign-picker > div::-webkit-scrollbar-track,
 .saved-campaigns-deck > .run-list::-webkit-scrollbar-track,
-.live-run-deck .run-grid > .run-list::-webkit-scrollbar-track { background: #e3e8df; }
+.live-run-deck .run-grid > .run-list::-webkit-scrollbar-track,
+.live-run-deck .challenge-list::-webkit-scrollbar-track { background: #e3e8df; }
 
 .fleet-campaign-picker > div::-webkit-scrollbar-thumb,
 .saved-campaigns-deck > .run-list::-webkit-scrollbar-thumb,
-.live-run-deck .run-grid > .run-list::-webkit-scrollbar-thumb {
+.live-run-deck .run-grid > .run-list::-webkit-scrollbar-thumb,
+.live-run-deck .challenge-list::-webkit-scrollbar-thumb {
   border: 2px solid #e3e8df;
   border-radius: 999px;
   background: #60736a;
@@ -779,7 +784,8 @@ button.scenario-item { width: 100%; color: inherit; font: inherit; text-align: l
 @media (max-width: 720px) {
   .fleet-campaign-picker > div,
   .saved-campaigns-deck > .run-list,
-  .live-run-deck .run-grid > .run-list {
+  .live-run-deck .run-grid > .run-list,
+  .live-run-deck .challenge-list {
     max-height: min(62vh, 420px);
   }
 }
