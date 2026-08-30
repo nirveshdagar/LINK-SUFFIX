@@ -334,9 +334,11 @@ export async function leaseBridgeJobs(
   workerId: string,
   requestedLimit = 25,
   requestedCustomerId = "",
+  options: { protocol?: string; hotAdd?: boolean } = {},
 ): Promise<BridgeLease[]> {
   const limit = Math.max(1, Math.min(MAX_LEASE_JOBS, Math.floor(requestedLimit)));
   const customerId = normalizeId(requestedCustomerId);
+  const hotAdd = options.protocol === "fleet-hot-add-relay-v6" && options.hotAdd === true && !customerId;
   if (customerId && !/^\d{10}$/.test(customerId)) throw new Error("A valid 10-digit customer filter is required");
   return await transaction(async (client) => {
     const missingJobs = await client.query(
@@ -443,6 +445,19 @@ export async function leaseBridgeJobs(
            worker_id=EXCLUDED.worker_id,
            updated_at=now()`,
         [shardId, customerId, workerId],
+      );
+    } else if (hotAdd) {
+      await client.query(
+        `INSERT INTO tah_script_account_activity(shard_id,customer_id,last_poll_at,worker_id)
+         SELECT $1,t.customer_id,now(),$2
+           FROM tah_campaign_targets t
+          WHERE t.enabled=true AND t.archived_at IS NULL AND t.shard_id=$1
+          GROUP BY t.customer_id
+         ON CONFLICT (shard_id,customer_id) DO UPDATE SET
+           last_poll_at=EXCLUDED.last_poll_at,
+           worker_id=EXCLUDED.worker_id,
+           updated_at=now()`,
+        [shardId, workerId],
       );
     }
     return leases;

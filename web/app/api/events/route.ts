@@ -7,7 +7,29 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const upstream = resolveRunBackend(req.nextUrl.searchParams.get('run'));
-  if (!upstream) return new Response('no active run', { status: 503 });
+  if (!upstream) {
+    return new Response(
+      `data: ${JSON.stringify({
+        kind: "state",
+        state: {
+          connected: false,
+          runId: null,
+          elapsed_ms: 0,
+          totalRequests: 0,
+          byTierVerdict: {},
+          byCity: {},
+          scenarios: {},
+        },
+      })}\n\n`,
+      {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+        },
+      },
+    );
+  }
   const upstreamRes = await fetch(`${upstream}/events`, {
     headers: { Accept: "text/event-stream" },
   }).catch((e) => new Response(`upstream error: ${(e as Error).message}`, { status: 502 }));

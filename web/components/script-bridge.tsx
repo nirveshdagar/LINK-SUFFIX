@@ -600,7 +600,7 @@ export function ScriptBridge({
         </section>
 
         <section className="fleet-script-card" aria-labelledby="fleet-script-title">
-          <header><p className="eyebrow">Selected shard worker</p><h3 id="fleet-script-title">Generate the two-phase v5 shard script</h3><p>Choose the exact shard below before generating. The script belongs only to that shard and MCC, runs child accounts in parallel, and can service at most 40 assigned campaigns.</p></header>
+          <header><p className="eyebrow">Selected shard worker</p><h3 id="fleet-script-title">Generate the v6 hot-add shard script</h3><p>Choose the exact shard below before generating. The script belongs only to that shard and MCC, bootstraps child accounts in parallel, then discovers newly added campaigns every 10 seconds. It can service at most 40 assigned campaigns.</p></header>
 
           <div className="fleet-worker-shard-picker">
             <label htmlFor="fleet-worker-shard">Shard to generate</label>
@@ -623,13 +623,13 @@ export function ScriptBridge({
           <label htmlFor="fleet-public-url">Public HTTPS base URL</label>
           <input id="fleet-public-url" value={publicBaseUrl} onChange={(event) => setPublicBaseUrl(event.target.value)} placeholder="https://traffic.example.com" inputMode="url" />
           <button className="bridge-primary-action" type="button" onClick={generateWorker} disabled={generating || !publicBaseUrl.trim() || !selectedShardId}>
-            {generating ? "Generating v5 worker..." : selectedShard?.registered ? "Rotate token and regenerate v5 worker" : "Generate v5 worker for selected shard"}
+            {generating ? "Generating v6 hot-add worker..." : selectedShard?.registered ? "Rotate token and regenerate v6 hot-add worker" : "Generate v6 hot-add worker for selected shard"}
           </button>
-          <p className="fleet-script-warning">Generating again rotates the secret and immediately invalidates the older installed copy for this shard.</p>
+          <p className="fleet-script-warning">Install this v6 copy once to let campaigns added during a running hour join the active relay. Generating again rotates the secret and immediately invalidates the older installed copy for this shard.</p>
 
           {generatedScript && generatedForShard === selectedShardId ? (
             <div className="fleet-script-output">
-              <div><strong>{generatedForShard} · fleet-hourly-relay-v5</strong><button type="button" onClick={copyWorker}>Copy script</button><button className="bridge-secondary-action" type="button" onClick={() => setGeneratedScript("")}>Hide</button></div>
+              <div><strong>{generatedForShard} · fleet-hot-add-relay-v6</strong><button type="button" onClick={copyWorker}>Copy script</button><button className="bridge-secondary-action" type="button" onClick={() => setGeneratedScript("")}>Hide</button></div>
               <textarea readOnly value={generatedScript} aria-label={generatedForShard + " Google Ads worker script"} spellCheck={false} />
             </div>
           ) : (

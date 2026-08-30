@@ -92,3 +92,40 @@ test("relational Fleet leases one unique target and verifies the exact suffix", 
     }
   }
 });
+
+test("v6 hot-add polling makes a newly enrolled shard account immediately serviceable", { skip: !enabled }, async () => {
+  const discriminator = String(Date.now()).slice(-8);
+  const campaignRecordId = `integration-hot-add-${randomUUID()}`;
+  const managerCustomerId = `2${discriminator}0`;
+  const shardId = `mcc-${managerCustomerId}-001`;
+  const customerId = `80${discriminator}`;
+  const token = `integration-hot-add-token-${randomUUID()}`;
+  const { Pool } = pg;
+  const cleanupPool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    await registerBridgeShard(shardId, token);
+    await upsertBridgeTarget({
+      campaignRecordId,
+      campaignName: "Hot-add integration campaign",
+      managerCustomerId,
+      customerId,
+      googleCampaignId: `6${discriminator}`,
+      shardId,
+    });
+    assert.equal((await bridgeTargetReadiness(campaignRecordId)).state, "waiting_for_manifest");
+    const jobs = await leaseBridgeJobs(shardId, "integration-hot-add-worker", 10, "", {
+      protocol: "fleet-hot-add-relay-v6",
+      hotAdd: true,
+    });
+    assert.equal(jobs.length, 0);
+    const readiness = await bridgeTargetReadiness(campaignRecordId);
+    assert.equal(readiness.ready, true);
+    assert.equal(readiness.accountReady, true);
+    assert.equal(readiness.state, "ready");
+  } finally {
+    await cleanupPool.query("DELETE FROM tah_campaign_targets WHERE campaign_record_id=$1", [campaignRecordId]);
+    await cleanupPool.query("DELETE FROM tah_script_shards WHERE shard_id=$1", [shardId]);
+    await cleanupPool.end();
+    await closeBridgeStoreForTests();
+  }
+});
