@@ -12,6 +12,7 @@ import {
   leaseBridgeJobs,
   queueLatestBridgeCapture,
   registerBridgeShard,
+  renewBridgeLeases,
   upsertBridgeTarget,
 } from "../lib/script-bridge-store.ts";
 
@@ -46,9 +47,17 @@ test("relational Fleet leases one unique target and verifies the exact suffix", 
     assert.equal(jobs.length, 1);
     assert.equal(jobs[0].exactSuffix, suffix);
     assert.equal((await bridgeTargetReadiness(campaignRecordId)).accountReady, true);
+    const renewal = await renewBridgeLeases({
+      shardId,
+      workerId: "integration-worker",
+      leases: [{ jobId: jobs[0].jobId, leaseToken: jobs[0].leaseToken }],
+    });
+    assert.deepEqual(renewal.staleJobIds, []);
+    await enqueueBridgeCapture({ ...input, exactSuffix: "new=value", version: Date.now() + 1 });
     const ack = await acknowledgeBridgeJob({ shardId, workerId: "integration-worker", jobId: jobs[0].jobId, leaseToken: jobs[0].leaseToken, ok: true, appliedSuffix: suffix });
     assert.deepEqual(ack, { ok: true, state: "applied" });
-    await enqueueBridgeCapture({ ...input, exactSuffix: "new=value", version: Date.now() + 1 });
+    const duplicateAck = await acknowledgeBridgeJob({ shardId, workerId: "integration-worker", jobId: jobs[0].jobId, leaseToken: jobs[0].leaseToken, ok: true, appliedSuffix: suffix });
+    assert.deepEqual(duplicateAck, { ok: true, state: "applied", idempotent: true });
     assert.equal((await leaseBridgeJobs(shardId, "integration-worker", 10)).length, 0, "58-second server gate must block an immediate second delivery");
     const priorityInput = {
       ...input,

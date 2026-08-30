@@ -1,18 +1,17 @@
-export const RELATIONAL_FLEET_WORKER_VERSION = "fleet-two-phase-hot-add-relay-v7";
+export const RELATIONAL_FLEET_WORKER_VERSION = "fleet-two-phase-durable-relay-v8";
 
-export function buildRelationalFleetV7Worker(
+export function buildRelationalFleetV8Worker(
   endpoint: string,
   token: string,
   shardId: string,
 ) {
   return `/**
- * Traffic Armour Rolling Apps Script Fleet v7 two-phase hot-add relay.
+ * Traffic Armour Rolling Apps Script Fleet v8 durable two-phase relay.
  * Install this copy once for shard ${shardId} in its Google Ads MCC,
  * authorize it, and schedule it Hourly.
  *
- * It keeps child accounts active through Google's first execution phase, then
- * the manager callback discovers newly enrolled campaigns every 10 seconds
- * through the second phase until Google's 60-minute manager-script guard.
+ * It keeps V5's proven 50-second delivery pacing, retains V7 hot-add discovery,
+ * and renews immutable server leases around Google-owned mutation calls.
  */
 const CONFIG = Object.freeze({
   BRIDGE_URL: ${JSON.stringify(endpoint)},
@@ -25,7 +24,7 @@ const CONFIG = Object.freeze({
   MIN_REMAINING_SECONDS: 90,
   ACCOUNT_POLL_MS: 50000,
   IDLE_POLL_MS: 10000,
-  POST_BATCH_SLEEP_MS: 10000,
+  POST_BATCH_SLEEP_MS: 50000,
   ERROR_BACKOFF_MS: 10000
 });
 
@@ -155,7 +154,7 @@ function executeCurrentAccountBatch_(jobs, customerId, workerId) {
   const accountJobs = jobs.filter(function(job) {
     return digits_(job.customerId) === customerId;
   });
-  const results = applyAndVerifyBatch_(accountJobs, customerId);
+  const results = applyAndVerifyBatch_(accountJobs, customerId, workerId);
   if (results.length) acknowledge_(workerId, results);
   const verified = results.filter(function(item) { return item.ok; }).length;
   if (results.length) {
@@ -195,7 +194,7 @@ function executeFleetBatch_(jobs, workerId) {
     if (!accountJobs.length) continue;
     processed[customerId] = true;
     AdsManagerApp.select(account);
-    Array.prototype.push.apply(results, applyAndVerifyBatch_(accountJobs, customerId));
+    Array.prototype.push.apply(results, applyAndVerifyBatch_(accountJobs, customerId, workerId));
   }
 
   accountIds.forEach(function(customerId) {
@@ -224,9 +223,10 @@ function sleepWithinDeadline_(milliseconds, executionInfo) {
   if (available > 0) Utilities.sleep(Math.min(milliseconds, available));
 }
 
-function applyAndVerifyBatch_(jobs, customerId) {
+function applyAndVerifyBatch_(jobs, customerId, workerId) {
   if (!jobs.length) return [];
 
+  renewLeases_(workerId, jobs);
   const before = readSuffixes_(jobs.map(function(job) { return job.campaignId; }));
   const changes = jobs.filter(function(job) {
     return before[job.campaignId] !== job.exactSuffix;
@@ -252,6 +252,7 @@ function applyAndVerifyBatch_(jobs, customerId) {
         mutationErrors[changes[index].jobId] = result.getErrorMessages().join("; ");
       }
     });
+    bestEffortRenewLeases_(workerId, jobs);
   }
 
   const after = readSuffixes_(jobs.map(function(job) { return job.campaignId; }));
@@ -308,7 +309,7 @@ function leaseJobs_(workerId, customerId, hotAdd) {
 
 function acknowledge_(workerId, results) {
   if (!results.length) return;
-  bridgeRequest_(CONFIG.BRIDGE_URL, {
+  const receipt = bridgeRequest_(CONFIG.BRIDGE_URL, {
     method: "post",
     contentType: "application/json",
     payload: JSON.stringify({
@@ -320,6 +321,38 @@ function acknowledge_(workerId, results) {
       results: results
     })
   });
+  if (receipt.allApplied === false) {
+    Logger.log("Traffic Armour Fleet acknowledgement contained a stale or failed campaign result; the relay will continue.");
+  }
+}
+
+function renewLeases_(workerId, jobs) {
+  if (!jobs.length) return;
+  const response = bridgeRequest_(CONFIG.BRIDGE_URL, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({
+      action: "renew",
+      protocol: CONFIG.WORKER_VERSION,
+      contract: CONFIG.CONTRACT,
+      shardId: CONFIG.SHARD_ID,
+      workerId: workerId,
+      leases: jobs.map(function(job) {
+        return { jobId: job.jobId, leaseToken: job.leaseToken };
+      })
+    })
+  });
+  if (response.allRenewed === false) {
+    throw new Error("One or more delivery leases became stale before Google Ads mutation");
+  }
+}
+
+function bestEffortRenewLeases_(workerId, jobs) {
+  try {
+    renewLeases_(workerId, jobs);
+  } catch (error) {
+    Logger.log("Traffic Armour Fleet post-mutation lease renewal warning: " + safeError_(error));
+  }
 }
 
 function bridgeGet_(query) {
@@ -399,6 +432,7 @@ function safeError_(error) {
 `;
 }
 
-// Kept as a source-compatible alias for server code deployed before v6.
-export const buildRelationalFleetV6Worker = buildRelationalFleetV7Worker;
-export const buildRelationalFleetV5Worker = buildRelationalFleetV7Worker;
+// Source-compatible aliases keep existing imports working during rolling deploys.
+export const buildRelationalFleetV7Worker = buildRelationalFleetV8Worker;
+export const buildRelationalFleetV6Worker = buildRelationalFleetV8Worker;
+export const buildRelationalFleetV5Worker = buildRelationalFleetV8Worker;

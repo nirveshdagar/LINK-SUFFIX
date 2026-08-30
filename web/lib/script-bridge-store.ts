@@ -3,7 +3,10 @@ import pg, { type Pool, type PoolClient } from "pg";
 
 const { Pool: PgPool } = pg;
 const MAX_ATTEMPTS = Math.max(1, Number(process.env.TAH_SCRIPT_MAX_ATTEMPTS) || 8);
-const LEASE_MS = Math.max(30_000, Number(process.env.TAH_SCRIPT_LEASE_MS) || 4 * 60_000);
+// A Google Ads manager execution can spend nearly 30 minutes inside one child
+// or callback phase. Keep the campaign fenced for longer than that phase so a
+// second worker cannot race a Google-owned call that has not returned yet.
+const LEASE_MS = Math.max(35 * 60_000, Number(process.env.TAH_SCRIPT_LEASE_MS) || 35 * 60_000);
 const MIN_INTERVAL_MS = Math.max(58_000, Number(process.env.TAH_SCRIPT_MIN_DELIVERY_INTERVAL_MS) || 58_000);
 const SHARD_CAPACITY = 40;
 const MAX_LEASE_JOBS = 200;
@@ -259,7 +262,7 @@ export async function enqueueBridgeCapture(input: BridgeTargetInput & { exactSuf
     await client.query(
       `UPDATE tah_delivery_jobs SET state='superseded',leased_at=NULL,leased_until=NULL,
          lease_token_hash=NULL,worker_id=NULL,updated_at=now()
-       WHERE target_id=$1 AND state IN ('pending','failed','leased') AND capture_id <> $2`,
+       WHERE target_id=$1 AND state IN ('pending','failed') AND capture_id <> $2`,
       [id, capture.rows[0].capture_id],
     );
     const jobId = randomUUID();
@@ -291,7 +294,7 @@ export async function queueLatestBridgeCapture(campaignRecordId: string) {
     await client.query(
       `UPDATE tah_delivery_jobs SET state='superseded',leased_at=NULL,leased_until=NULL,
          lease_token_hash=NULL,worker_id=NULL,updated_at=now()
-       WHERE target_id=$1 AND capture_id<>$2 AND state IN ('pending','failed','leased')`,
+       WHERE target_id=$1 AND capture_id<>$2 AND state IN ('pending','failed')`,
       [targetId, captureId],
     );
     const job = await client.query(
@@ -339,7 +342,8 @@ export async function leaseBridgeJobs(
   const limit = Math.max(1, Math.min(MAX_LEASE_JOBS, Math.floor(requestedLimit)));
   const customerId = normalizeId(requestedCustomerId);
   const hotAdd = (
-    options.protocol === "fleet-two-phase-hot-add-relay-v7"
+    options.protocol === "fleet-two-phase-durable-relay-v8"
+    || options.protocol === "fleet-two-phase-hot-add-relay-v7"
     || options.protocol === "fleet-hot-add-relay-v6"
   ) && options.hotAdd === true && !customerId;
   if (customerId && !/^\d{10}$/.test(customerId)) throw new Error("A valid 10-digit customer filter is required");
@@ -368,7 +372,7 @@ export async function leaseBridgeJobs(
     await client.query(
       `UPDATE tah_delivery_jobs j SET state='superseded',leased_at=NULL,leased_until=NULL,
          lease_token_hash=NULL,worker_id=NULL,updated_at=now()
-       WHERE j.state IN ('pending','failed','leased')
+       WHERE j.state IN ('pending','failed')
          AND j.capture_id <> (
            SELECT c.capture_id FROM tah_suffix_captures c
            WHERE c.target_id=j.target_id ORDER BY c.captured_at DESC,c.capture_id DESC LIMIT 1
@@ -399,6 +403,10 @@ export async function leaseBridgeJobs(
             AND j.capture_id=(
               SELECT newest.capture_id FROM tah_suffix_captures newest
               WHERE newest.target_id=j.target_id ORDER BY newest.captured_at DESC,newest.capture_id DESC LIMIT 1
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM tah_delivery_jobs active
+               WHERE active.target_id=j.target_id AND active.state='leased' AND active.job_id<>j.job_id
             )
             AND (t.last_applied_at IS NULL OR t.last_applied_at+(t.min_delivery_interval_ms||' milliseconds')::interval<=now())
        ), locked AS (
@@ -501,7 +509,7 @@ export async function bridgeShardManifest(shardId: string) {
       [normalizedShardId, accountIds],
     );
     return {
-      protocol: "fleet-two-phase-hot-add-relay-v7",
+      protocol: "fleet-two-phase-durable-relay-v8",
       shardId: normalizedShardId,
       managerCustomerId: String(managerIds[0] || ""),
       accountIds,
@@ -517,18 +525,32 @@ export async function acknowledgeBridgeJob(input: { shardId: string; workerId: s
       `SELECT j.*,c.exact_suffix,c.suffix_hash FROM tah_delivery_jobs j
        JOIN tah_suffix_captures c ON c.capture_id=j.capture_id
        JOIN tah_campaign_targets t ON t.target_id=j.target_id
-       WHERE j.job_id=$1 AND j.state='leased' AND j.worker_id=$2 AND t.shard_id=$3 FOR UPDATE`,
-      [input.jobId, input.workerId, input.shardId],
+       WHERE j.job_id=$1 AND t.shard_id=$2 FOR UPDATE`,
+      [input.jobId, input.shardId],
     );
-    if (result.rowCount !== 1 || result.rows[0].lease_token_hash !== digest(input.leaseToken) || new Date(result.rows[0].leased_until).getTime() < Date.now()) {
-      throw new Error("Lease is invalid or expired");
+    if (result.rowCount !== 1) {
+      return { ok: false, state: "stale" as const, reason: "Delivery job no longer exists" };
     }
     const row = result.rows[0];
+    if (row.worker_id !== input.workerId || row.lease_token_hash !== digest(input.leaseToken)) {
+      return { ok: false, state: "stale" as const, reason: "Delivery lease has been reassigned" };
+    }
+    if (row.state === "applied") {
+      const alreadyVerified = row.verified_suffix_hash === row.suffix_hash;
+      if (alreadyVerified) {
+        await client.query("UPDATE tah_script_shards SET last_ack_at=now(),last_error=NULL,updated_at=now() WHERE shard_id=$1", [input.shardId]);
+        return { ok: true, state: "applied" as const, idempotent: true };
+      }
+      return { ok: false, state: "conflict" as const, reason: "Applied job is missing exact verification evidence" };
+    }
+    if (row.state !== "leased") {
+      return { ok: false, state: "stale" as const, reason: `Delivery job is ${String(row.state)}` };
+    }
     const exactMatch = input.ok && typeof input.appliedSuffix === "string" && digest(input.appliedSuffix) === row.suffix_hash;
     if (exactMatch) {
       await client.query(
         `UPDATE tah_delivery_jobs SET state='applied',applied_at=now(),verified_suffix_hash=$2,last_error=NULL,
-         leased_at=NULL,leased_until=NULL,lease_token_hash=NULL,updated_at=now() WHERE job_id=$1`,
+         leased_at=NULL,leased_until=NULL,updated_at=now() WHERE job_id=$1`,
         [input.jobId, row.suffix_hash],
       );
       await client.query("UPDATE tah_campaign_targets SET last_applied_at=now(),last_applied_suffix_hash=$2,updated_at=now() WHERE target_id=$1", [row.target_id, row.suffix_hash]);
@@ -543,6 +565,33 @@ export async function acknowledgeBridgeJob(input: { shardId: string; workerId: s
     }
     await client.query("UPDATE tah_script_shards SET last_ack_at=now(),last_error=$2,updated_at=now() WHERE shard_id=$1", [input.shardId, exactMatch ? null : input.error || "Verification mismatch"]);
     return { ok: exactMatch, state: exactMatch ? "applied" : Number(row.attempt_count) >= MAX_ATTEMPTS ? "dead" : "failed" };
+  });
+}
+
+export async function renewBridgeLeases(input: {
+  shardId: string;
+  workerId: string;
+  leases: Array<{ jobId: string; leaseToken: string }>;
+}) {
+  const leases = input.leases.slice(0, MAX_LEASE_JOBS);
+  return await transaction(async (client) => {
+    const renewedJobIds: string[] = [];
+    const staleJobIds: string[] = [];
+    for (const lease of leases) {
+      const result = await client.query(
+        `UPDATE tah_delivery_jobs j
+            SET leased_until=now()+($5||' milliseconds')::interval,updated_at=now()
+           FROM tah_campaign_targets t
+          WHERE j.job_id=$1 AND j.target_id=t.target_id AND t.shard_id=$2
+            AND j.state='leased' AND j.worker_id=$3 AND j.lease_token_hash=$4
+          RETURNING j.job_id`,
+        [lease.jobId, input.shardId, input.workerId, digest(lease.leaseToken), LEASE_MS],
+      );
+      if (result.rowCount === 1) renewedJobIds.push(String(result.rows[0].job_id));
+      else staleJobIds.push(lease.jobId);
+    }
+    await client.query("UPDATE tah_script_shards SET last_poll_at=now(),updated_at=now() WHERE shard_id=$1", [input.shardId]);
+    return { renewedJobIds, staleJobIds, leaseDurationMs: LEASE_MS };
   });
 }
 

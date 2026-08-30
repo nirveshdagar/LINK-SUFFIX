@@ -13,7 +13,7 @@ import {
   setBridgeTargetEnabled,
   upsertBridgeTarget,
 } from "@/lib/script-bridge-store";
-import { buildRelationalFleetV7Worker } from "@/lib/relational-fleet-worker";
+import { buildRelationalFleetV8Worker } from "@/lib/relational-fleet-worker";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ function normalizePublicBaseUrl(value: string) {
 }
 
 function workerScript(baseUrl: string, shardId: string, token: string) {
-  return buildRelationalFleetV7Worker(
+  return buildRelationalFleetV8Worker(
     `${baseUrl}/api/script-bridge/jobs`,
     token,
     shardId,
