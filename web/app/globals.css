@@ -741,3 +741,45 @@ button.scenario-item { width: 100%; color: inherit; font: inherit; text-align: l
   .fleet-worker-telemetry div { grid-template-columns: minmax(0, 1fr); }
   .fleet-worker-telemetry dd { text-align: left; }
 }
+
+/* Keep large operational registries contained without moving their controls. */
+.fleet-campaign-picker > div,
+.saved-campaigns-deck > .run-list,
+.live-run-deck .run-grid > .run-list {
+  max-height: min(56vh, var(--campaign-scroll-height, 520px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: #60736a #e3e8df;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  touch-action: pan-y;
+}
+
+.fleet-campaign-picker > div { --campaign-scroll-height: 430px; }
+.saved-campaigns-deck > .run-list { --campaign-scroll-height: 540px; }
+.live-run-deck .run-grid > .run-list { --campaign-scroll-height: 480px; }
+
+.fleet-campaign-picker > div::-webkit-scrollbar,
+.saved-campaigns-deck > .run-list::-webkit-scrollbar,
+.live-run-deck .run-grid > .run-list::-webkit-scrollbar { width: 10px; }
+
+.fleet-campaign-picker > div::-webkit-scrollbar-track,
+.saved-campaigns-deck > .run-list::-webkit-scrollbar-track,
+.live-run-deck .run-grid > .run-list::-webkit-scrollbar-track { background: #e3e8df; }
+
+.fleet-campaign-picker > div::-webkit-scrollbar-thumb,
+.saved-campaigns-deck > .run-list::-webkit-scrollbar-thumb,
+.live-run-deck .run-grid > .run-list::-webkit-scrollbar-thumb {
+  border: 2px solid #e3e8df;
+  border-radius: 999px;
+  background: #60736a;
+}
+
+@media (max-width: 720px) {
+  .fleet-campaign-picker > div,
+  .saved-campaigns-deck > .run-list,
+  .live-run-deck .run-grid > .run-list {
+    max-height: min(62vh, 420px);
+  }
+}
