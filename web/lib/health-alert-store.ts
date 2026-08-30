@@ -213,6 +213,7 @@ function findBoolean(root: unknown, keys: string[]) {
 }
 
 function timestampMs(value: unknown) {
+  if (value instanceof Date) return value.getTime();
   if (typeof value === "number" && Number.isFinite(value)) {
     if (value > 1_000_000_000_000) return value;
     if (value > 1_000_000_000) return value * 1000;
