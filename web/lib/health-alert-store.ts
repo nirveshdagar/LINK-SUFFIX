@@ -127,6 +127,12 @@ CREATE TABLE IF NOT EXISTS tah_component_heartbeats (
 CREATE INDEX IF NOT EXISTS tah_component_heartbeats_state_idx ON tah_component_heartbeats (state, last_seen_at DESC);
 `;
 
+const SHARD_POLL_WARNING_MS = Math.max(60_000, Number(process.env.TAH_SHARD_POLL_WARNING_MS) || 5 * 60_000);
+const SHARD_POLL_CRITICAL_MS = Math.max(
+  SHARD_POLL_WARNING_MS + 60_000,
+  Number(process.env.TAH_SHARD_POLL_CRITICAL_MS) || 15 * 60_000,
+);
+
 function databasePool() {
   if (!globalHealth.__tahHealthPool) {
     const connectionString = process.env.TAH_DATABASE_URL?.trim() || process.env.DATABASE_URL?.trim();
@@ -586,13 +592,28 @@ async function evaluateHealth(source: string) {
     const createdAt = shard.createdAt ?? shard.updatedAt;
     const pollAge = lastPollAt ? ageMs(lastPollAt, now) : ageMs(createdAt, now);
     const shardCandidates: AlertCandidate[] = [];
-    if (pollAge > 300_000) {
+    if (pollAge > SHARD_POLL_WARNING_MS) {
+      const critical = pollAge > SHARD_POLL_CRITICAL_MS;
       const candidate: AlertCandidate = {
-        fingerprint: `shard:${shardId}:poll-stale`, severity: "critical", component: shardId, scope: "script-fleet",
-        code: "apps_script_stopped", title: `${shardId} Apps Script stopped polling`,
-        message: lastPollAt ? `No shard poll has arrived for ${Math.floor(pollAge / 60_000)} minutes.` : "This assigned shard has never polled the bridge.",
-        remediation: "Check Google Ads Scripts execution history, authorization, hourly schedule, and the generated shard worker version.",
-        shardId, activationAfterMs: 0, details: { campaignCount, lastPollAt: lastPollAt || null, lastAckAt: lastAckAt || null },
+        fingerprint: `shard:${shardId}:poll-stale`, severity: critical ? "critical" : "warning", component: shardId, scope: "script-fleet",
+        code: critical ? "apps_script_stopped" : "apps_script_poll_delayed",
+        title: critical ? `${shardId} Apps Script stopped polling` : `${shardId} Apps Script contact is delayed`,
+        message: lastPollAt
+          ? `No shard poll has arrived for ${Math.floor(pollAge / 60_000)} minutes.`
+          : "This assigned shard has never polled the bridge.",
+        remediation: critical
+          ? "Check Google Ads Scripts execution history, authorization, hourly schedule, and the generated shard worker version immediately."
+          : "Watch the next execution window; if contact does not resume, inspect the Google Ads script schedule and execution history.",
+        shardId,
+        activationAfterMs: 0,
+        details: {
+          campaignCount,
+          lastPollAt: lastPollAt || null,
+          lastAckAt: lastAckAt || null,
+          warningAfterMs: SHARD_POLL_WARNING_MS,
+          criticalAfterMs: SHARD_POLL_CRITICAL_MS,
+          nextEvaluationWithinMs: 15_000,
+        },
       };
       shardCandidates.push(candidate);
       addCandidate(candidateMap, candidate);
