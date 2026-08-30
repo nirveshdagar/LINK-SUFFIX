@@ -257,6 +257,33 @@ async function readControlCapacity() {
   return record(await response.json());
 }
 
+async function readRelationalShardHealth() {
+  try {
+    const result = await databasePool().query(`
+      SELECT
+        s.shard_id AS "shardId",
+        s.enabled,
+        GREATEST(s.last_poll_at, MAX(a.last_poll_at)) AS "lastPollAt",
+        s.last_ack_at AS "lastAcknowledgedAt",
+        s.last_error AS "lastError",
+        s.created_at AS "createdAt",
+        s.updated_at AS "updatedAt",
+        COUNT(a.customer_id)::int AS "accountCount",
+        MAX(a.manifest_seen_at) AS "lastManifestSeenAt",
+        'relational-v8'::text AS "heartbeatSource"
+      FROM tah_script_shards s
+      LEFT JOIN tah_script_account_activity a ON a.shard_id = s.shard_id
+      GROUP BY s.shard_id, s.enabled, s.last_poll_at, s.last_ack_at, s.last_error, s.created_at, s.updated_at
+      ORDER BY s.shard_id
+    `);
+    return result.rows.map((item) => record(item));
+  } catch (error) {
+    const code = record(error).code;
+    if (code === "42P01") return [];
+    throw error;
+  }
+}
+
 function addCandidate(target: Map<string, AlertCandidate>, candidate: AlertCandidate) {
   const previous = target.get(candidate.fingerprint);
   if (!previous || (previous.severity === "warning" && candidate.severity === "critical")) target.set(candidate.fingerprint, candidate);
@@ -361,10 +388,11 @@ async function evaluateHealth(source: string) {
   await ensureHealthSchema();
   const candidateMap = new Map<string, AlertCandidate>();
   const heartbeats: ComponentHeartbeat[] = [];
-  const [capacityResult, bridgeResult, registryResult] = await Promise.allSettled([
+  const [capacityResult, bridgeResult, registryResult, relationalShardsResult] = await Promise.allSettled([
     readControlCapacity(),
     readBridgeState(),
     readCampaignRegistry(),
+    readRelationalShardHealth(),
   ]);
 
   const now = Date.now();
@@ -505,7 +533,18 @@ async function evaluateHealth(source: string) {
 
   const deliveries = records(bridge.deliveries ?? bridge.deliveryByCampaign ?? bridge.campaignDeliveries);
   const jobs = records(bridge.jobs ?? bridge.deliveryJobs ?? bridge.queue);
-  const shards = records(bridge.shards ?? bridge.fleetShards ?? bridge.workers);
+  const legacyShards = records(bridge.shards ?? bridge.fleetShards ?? bridge.workers);
+  const relationalShards = relationalShardsResult.status === "fulfilled" ? relationalShardsResult.value : [];
+  const mergedShards = new Map<string, JsonRecord>();
+  for (const item of legacyShards) {
+    const shardId = textValue(item, "id", "shardId");
+    if (shardId) mergedShards.set(shardId, item);
+  }
+  for (const item of relationalShards) {
+    const shardId = textValue(item, "id", "shardId");
+    if (shardId) mergedShards.set(shardId, { ...mergedShards.get(shardId), ...item });
+  }
+  const shards = [...mergedShards.values()];
   const deliveriesByCampaign = new Map<string, JsonRecord[]>();
   for (const item of [...deliveries, ...jobs]) {
     const campaignId = textValue(item, "campaignRecordId", "campaignId", "recordId");
@@ -610,6 +649,7 @@ async function evaluateHealth(source: string) {
           campaignCount,
           lastPollAt: lastPollAt || null,
           lastAckAt: lastAckAt || null,
+          heartbeatSource: textValue(shard, "heartbeatSource") || "legacy-fallback",
           warningAfterMs: SHARD_POLL_WARNING_MS,
           criticalAfterMs: SHARD_POLL_CRITICAL_MS,
           nextEvaluationWithinMs: 15_000,
@@ -621,7 +661,14 @@ async function evaluateHealth(source: string) {
     heartbeats.push({
       componentId: `shard:${shardId}`, componentType: "apps-script-shard", state: severityState(shardCandidates),
       message: shardCandidates.length ? shardCandidates[0].message : `${shardId} is polling normally.`,
-      details: { shardId, campaignCount, lastPollAt: lastPollAt || null, lastAckAt: lastAckAt || null },
+      details: {
+        shardId,
+        campaignCount,
+        lastPollAt: lastPollAt || null,
+        lastAckAt: lastAckAt || null,
+        heartbeatSource: textValue(shard, "heartbeatSource") || "legacy-fallback",
+        accountCount: numberValue(shard, "accountCount"),
+      },
     });
   }
 
