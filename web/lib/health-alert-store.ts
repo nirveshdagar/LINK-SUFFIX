@@ -132,6 +132,8 @@ const SHARD_POLL_CRITICAL_MS = Math.max(
   SHARD_POLL_WARNING_MS + 60_000,
   Number(process.env.TAH_SHARD_POLL_CRITICAL_MS) || 15 * 60_000,
 );
+const V8_COMPLETED_RUN_MS = Math.max(30 * 60_000, Number(process.env.TAH_V8_COMPLETED_RUN_MS) || 50 * 60_000);
+const V8_HOURLY_HANDOFF_MS = Math.max(V8_COMPLETED_RUN_MS, Number(process.env.TAH_V8_HOURLY_HANDOFF_MS) || 75 * 60_000);
 
 function databasePool() {
   if (!globalHealth.__tahHealthPool) {
@@ -629,17 +631,29 @@ async function evaluateHealth(source: string) {
     const shard = shardById.get(shardId) || {};
     const lastPollAt = shard.lastPollAt ?? shard.last_poll_at ?? shard.lastHeartbeatAt;
     const lastAckAt = shard.lastAcknowledgementAt ?? shard.lastAcknowledgedAt ?? shard.lastAckAt;
+    const lastManifestSeenAt = shard.lastManifestSeenAt ?? shard.manifestSeenAt;
     const createdAt = shard.createdAt ?? shard.updatedAt;
     const pollAge = lastPollAt ? ageMs(lastPollAt, now) : ageMs(createdAt, now);
+    const manifestAge = lastManifestSeenAt ? ageMs(lastManifestSeenAt, now) : Number.POSITIVE_INFINITY;
+    const runSpan = lastPollAt && lastManifestSeenAt
+      ? Math.max(0, timestampMs(lastPollAt) - timestampMs(lastManifestSeenAt))
+      : 0;
+    const v8HourlyHandoff = textValue(shard, "heartbeatSource") === "relational-v8"
+      && runSpan >= V8_COMPLETED_RUN_MS;
+    const effectiveContactAge = v8HourlyHandoff
+      ? Math.max(0, manifestAge - V8_HOURLY_HANDOFF_MS)
+      : pollAge;
     const shardCandidates: AlertCandidate[] = [];
-    if (pollAge > SHARD_POLL_WARNING_MS) {
-      const critical = pollAge > SHARD_POLL_CRITICAL_MS;
+    if (effectiveContactAge > SHARD_POLL_WARNING_MS) {
+      const critical = effectiveContactAge > SHARD_POLL_CRITICAL_MS;
       const candidate: AlertCandidate = {
         fingerprint: `shard:${shardId}:poll-stale`, severity: critical ? "critical" : "warning", component: shardId, scope: "script-fleet",
         code: critical ? "apps_script_stopped" : "apps_script_poll_delayed",
         title: critical ? `${shardId} Apps Script stopped polling` : `${shardId} Apps Script contact is delayed`,
-        message: lastPollAt
-          ? `No shard poll has arrived for ${Math.floor(pollAge / 60_000)} minutes.`
+        message: v8HourlyHandoff
+          ? `The next V8 hourly execution is ${Math.floor(effectiveContactAge / 60_000)} minutes beyond its handoff allowance.`
+          : lastPollAt
+          ? `No shard poll has arrived for ${Math.floor(pollAge / 60_000)} minutes during an active execution.`
           : "This assigned shard has never polled the bridge.",
         remediation: critical
           ? "Check Google Ads Scripts execution history, authorization, hourly schedule, and the generated shard worker version immediately."
@@ -650,9 +664,15 @@ async function evaluateHealth(source: string) {
           campaignCount,
           lastPollAt: lastPollAt || null,
           lastAckAt: lastAckAt || null,
+          lastManifestSeenAt: lastManifestSeenAt || null,
           heartbeatSource: textValue(shard, "heartbeatSource") || "legacy-fallback",
+          heartbeatMode: v8HourlyHandoff ? "hourly-handoff" : "active-execution",
+          rawPollAgeMs: Number.isFinite(pollAge) ? pollAge : null,
+          effectiveContactAgeMs: Number.isFinite(effectiveContactAge) ? effectiveContactAge : null,
           warningAfterMs: SHARD_POLL_WARNING_MS,
           criticalAfterMs: SHARD_POLL_CRITICAL_MS,
+          v8CompletedRunMs: V8_COMPLETED_RUN_MS,
+          v8HourlyHandoffMs: V8_HOURLY_HANDOFF_MS,
           nextEvaluationWithinMs: 15_000,
         },
       };
@@ -667,7 +687,9 @@ async function evaluateHealth(source: string) {
         campaignCount,
         lastPollAt: lastPollAt || null,
         lastAckAt: lastAckAt || null,
+        lastManifestSeenAt: lastManifestSeenAt || null,
         heartbeatSource: textValue(shard, "heartbeatSource") || "legacy-fallback",
+        heartbeatMode: v8HourlyHandoff ? "hourly-handoff" : "active-execution",
         accountCount: numberValue(shard, "accountCount"),
       },
     });
