@@ -16,6 +16,8 @@ type BridgeSummary = {
   throughput_last_15m?: number;
   active_shards?: number;
   offline_shards?: number;
+  ready_accounts?: number;
+  waiting_accounts?: number;
   largest_account_batch?: number;
 };
 
@@ -47,6 +49,11 @@ type BridgeCampaign = {
   attempt_count?: number | null;
   last_error?: string | null;
   applied_at?: string | null;
+  last_applied_at?: string | null;
+  account_manifest_seen_at?: string | null;
+  account_last_poll_at?: string | null;
+  account_ready?: boolean;
+  account_readiness?: "established" | "ready" | "waiting_for_account_poll" | "waiting_for_manifest";
   delivery_health?: "healthy" | "attention" | "awaiting";
   newest_update_state?: "queued" | "processing" | "current" | "retrying" | "delayed" | "waiting";
   queue_age_ms?: number | string | null;
@@ -126,6 +133,12 @@ function targetHealth(campaign: BridgeCampaign, shard?: BridgeShard): HealthStat
   if (!campaign.enabled) return { label: "Paused", tone: "paused" };
   if (!shard || shard.registered === false) return { label: "No shard worker", tone: "attention" };
   if (campaign.delivery_health === "healthy") return { label: "Healthy", tone: "healthy" };
+  if (!campaign.last_applied_at && campaign.account_readiness === "waiting_for_manifest") {
+    return { label: "Waiting for worker manifest", tone: "waiting" };
+  }
+  if (!campaign.last_applied_at && campaign.account_readiness === "waiting_for_account_poll") {
+    return { label: "Waiting for account worker", tone: "waiting" };
+  }
   if (campaign.last_error || campaign.latest_job_state === "dead" || campaign.latest_job_state === "failed") {
     return { label: "Attention", tone: "attention" };
   }
@@ -418,6 +431,8 @@ export function ScriptBridge({
           ["Applied · last 15m", Number(summary?.throughput_last_15m || 0).toLocaleString()],
           ["Active shards", Number(summary?.active_shards || 0).toLocaleString()],
           ["Offline shards", Number(summary?.offline_shards || 0).toLocaleString()],
+          ["Ready account workers", Number(summary?.ready_accounts || 0).toLocaleString()],
+          ["Accounts awaiting worker", Number(summary?.waiting_accounts || 0).toLocaleString()],
           ["Largest account batch", Number(summary?.largest_account_batch || 0).toLocaleString()],
           ["Pending", Number(summary?.pending || 0).toLocaleString()],
           ["Processing", Number(summary?.leased || 0).toLocaleString()],
@@ -498,13 +513,15 @@ export function ScriptBridge({
                     <td className="fleet-suffix-cell fleet-inserted-cell">
                       {wasApplied
                         ? <code>{campaign.exact_suffix || "(empty suffix)"}</code>
-                        : <span className="fleet-cell-empty">{campaign.latest_job_state === "pending" ? "Awaiting worker" : campaign.latest_job_state === "leased" ? "Being applied" : "Not verified yet"}</span>}
+                        : <span className="fleet-cell-empty">{!campaign.exact_suffix && !campaign.account_ready ? "Journey held until account worker is ready" : campaign.latest_job_state === "pending" ? "Awaiting worker" : campaign.latest_job_state === "leased" ? "Being applied" : "Not verified yet"}</span>}
                       <small>{wasApplied ? "Verified " + formatTimestamp(campaign.applied_at) : "Exact value appears only after acknowledgement"}</small>
                     </td>
                     <td className="fleet-health-cell">
                       <span className={"health-chip is-" + health.tone}>{health.label}</span>
-                        <small>Newest update · {String(campaign.newest_update_state || "waiting").replace(/^./, (value) => value.toUpperCase())}</small>
-                        {Number(campaign.queue_age_ms || 0) > 0 && <small>Queue age · {formatDuration(campaign.queue_age_ms)}</small>}
+                      <small>Account worker · {campaign.account_readiness === "established" ? "Delivery established" : campaign.account_ready ? "Ready" : campaign.account_readiness === "waiting_for_account_poll" ? "Waiting for customer poll" : "Waiting for next manifest"}</small>
+                      <small>Account poll · {formatTimestamp(campaign.account_last_poll_at)}</small>
+                      <small>Newest update · {String(campaign.newest_update_state || "waiting").replace(/^./, (value) => value.toUpperCase())}</small>
+                      {Number(campaign.queue_age_ms || 0) > 0 && <small>Queue age · {formatDuration(campaign.queue_age_ms)}</small>}
                       <small>Attempts {campaign.attempt_count || 0}</small>
                       {campaign.last_error && <p>{campaign.last_error}</p>}
                     </td>

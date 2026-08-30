@@ -15,6 +15,7 @@ export const dynamic = "force-dynamic";
 
 const ACTIVE_PROTOCOL = "fleet-hourly-relay-v5";
 const ACTIVE_CONTRACT = "relational-lease-v2";
+const SCRIPT_JOB_REQUESTS_PER_MINUTE = 6_000;
 
 function bearer(request: Request) {
   return request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim()
@@ -78,7 +79,12 @@ async function lease(request: Request, input: Record<string, unknown>) {
 
 export async function GET(request: Request) {
   if (!bridgeDatabaseConfigured()) return NextResponse.json({ error: "Fleet database is not configured" }, { status: 503 });
-  const limit = await checkRateLimit(request, { namespace: "script-jobs", limit: 120, windowMs: 60_000 });
+  const limit = await checkRateLimit(request, {
+    namespace: "script-jobs",
+    limit: SCRIPT_JOB_REQUESTS_PER_MINUTE,
+    windowMs: 60_000,
+    envVarLimitName: "TAH_SCRIPT_JOBS_RATE_LIMIT_PER_MINUTE",
+  });
   if (!limit.ok) return withRateLimitHeaders(NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 }), limit);
   const url = new URL(request.url);
   try {
@@ -90,7 +96,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   if (!bridgeDatabaseConfigured()) return NextResponse.json({ error: "Fleet database is not configured" }, { status: 503 });
-  const limit = await checkRateLimit(request, { namespace: "script-jobs", limit: 240, windowMs: 60_000 });
+  const limit = await checkRateLimit(request, {
+    namespace: "script-jobs",
+    limit: SCRIPT_JOB_REQUESTS_PER_MINUTE,
+    windowMs: 60_000,
+    envVarLimitName: "TAH_SCRIPT_JOBS_RATE_LIMIT_PER_MINUTE",
+  });
   if (!limit.ok) return withRateLimitHeaders(NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 }), limit);
   try {
     const input = await jsonBody(request);

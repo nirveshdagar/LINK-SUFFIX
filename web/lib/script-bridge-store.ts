@@ -9,6 +9,7 @@ const SHARD_CAPACITY = 40;
 const MAX_LEASE_JOBS = 200;
 const HANDOFF_ALLOWANCE_MS = Math.max(60_000, Number(process.env.TAH_SCRIPT_HANDOFF_ALLOWANCE_MS) || 15 * 60_000);
 const SHARD_STALE_MS = Math.max(60_000, Number(process.env.TAH_SCRIPT_SHARD_STALE_MS) || 75 * 60_000);
+const ACCOUNT_READY_MS = Math.max(60_000, Number(process.env.TAH_SCRIPT_ACCOUNT_READY_MS) || 75_000);
 let pool: Pool | null = null;
 
 export interface BridgeTargetInput {
@@ -193,6 +194,56 @@ export async function upsertBridgeTarget(input: BridgeTargetInput) {
   return assignment;
 }
 
+export async function bridgeTargetReadiness(campaignRecordId: string) {
+  const normalizedRecordId = campaignRecordId.trim();
+  if (!normalizedRecordId || normalizedRecordId.length > 120) throw new Error("A valid saved campaign record ID is required");
+  const result = await getPool().query(
+    `SELECT t.target_id,t.shard_id,t.customer_id,t.last_applied_at,
+            activity.manifest_seen_at,activity.last_poll_at,
+            (activity.last_poll_at IS NOT NULL
+              AND activity.last_poll_at>=now()-($2||' milliseconds')::interval) AS account_ready
+       FROM tah_campaign_targets t
+       LEFT JOIN tah_script_account_activity activity
+         ON activity.shard_id=t.shard_id AND activity.customer_id=t.customer_id
+      WHERE t.campaign_record_id=$1 AND t.enabled=true AND t.archived_at IS NULL`,
+    [normalizedRecordId, ACCOUNT_READY_MS],
+  );
+  if (result.rowCount !== 1) {
+    return {
+      found: false,
+      ready: false,
+      accountReady: false,
+      hasDelivered: false,
+      state: "not_enrolled",
+      freshnessMs: ACCOUNT_READY_MS,
+    };
+  }
+  const row = result.rows[0];
+  const accountReady = row.account_ready === true;
+  const hasDelivered = Boolean(row.last_applied_at);
+  const state = hasDelivered
+    ? "established"
+    : accountReady
+      ? "ready"
+      : row.manifest_seen_at
+        ? "waiting_for_account_poll"
+        : "waiting_for_manifest";
+  return {
+    found: true,
+    targetId: String(row.target_id),
+    shardId: String(row.shard_id),
+    customerId: String(row.customer_id),
+    ready: hasDelivered || accountReady,
+    accountReady,
+    hasDelivered,
+    state,
+    manifestSeenAt: row.manifest_seen_at ? new Date(row.manifest_seen_at).toISOString() : null,
+    accountLastPollAt: row.last_poll_at ? new Date(row.last_poll_at).toISOString() : null,
+    lastDeliveredAt: row.last_applied_at ? new Date(row.last_applied_at).toISOString() : null,
+    freshnessMs: ACCOUNT_READY_MS,
+  };
+}
+
 export async function enqueueBridgeCapture(input: BridgeTargetInput & { exactSuffix: string; version?: number; sourceRunId?: string }) {
   const { targetId: id, shardId } = await upsertBridgeTarget(input);
   const suffixHash = digest(input.exactSuffix);
@@ -330,7 +381,10 @@ export async function leaseBridgeJobs(
     const candidates = await client.query(
       `WITH ranked AS MATERIALIZED (
          SELECT j.job_id,j.created_at,
-                row_number() OVER (PARTITION BY t.customer_id ORDER BY j.created_at,j.job_id) AS account_position
+                row_number() OVER (
+                  PARTITION BY t.customer_id
+                  ORDER BY CASE WHEN t.last_applied_at IS NULL THEN 0 ELSE 1 END,j.created_at,j.job_id
+                ) AS account_position
            FROM tah_delivery_jobs j
            JOIN tah_suffix_captures c ON c.capture_id=j.capture_id
            JOIN tah_campaign_targets t ON t.target_id=j.target_id
@@ -376,6 +430,21 @@ export async function leaseBridgeJobs(
       });
     }
     await client.query("UPDATE tah_script_shards SET last_poll_at=now(),updated_at=now() WHERE shard_id=$1", [shardId]);
+    if (customerId) {
+      await client.query(
+        `INSERT INTO tah_script_account_activity(shard_id,customer_id,last_poll_at,worker_id)
+         SELECT $1,$2,now(),$3
+          WHERE EXISTS (
+            SELECT 1 FROM tah_campaign_targets
+             WHERE enabled=true AND archived_at IS NULL AND shard_id=$1 AND customer_id=$2
+          )
+         ON CONFLICT (shard_id,customer_id) DO UPDATE SET
+           last_poll_at=EXCLUDED.last_poll_at,
+           worker_id=EXCLUDED.worker_id,
+           updated_at=now()`,
+        [shardId, customerId, workerId],
+      );
+    }
     return leases;
   });
 }
@@ -383,30 +452,45 @@ export async function leaseBridgeJobs(
 export async function bridgeShardManifest(shardId: string) {
   const normalizedShardId = shardId.trim();
   if (!normalizedShardId) throw new Error("shardId is required");
-  const result = await getPool().query(
-    `SELECT s.shard_id,s.enabled,
-            count(t.target_id) FILTER (WHERE t.enabled)::int AS campaign_count,
-            COALESCE(array_agg(DISTINCT t.customer_id ORDER BY t.customer_id) FILTER (WHERE t.enabled),'{}'::text[]) AS account_ids,
-            COALESCE(array_agg(DISTINCT t.manager_customer_id ORDER BY t.manager_customer_id)
-              FILTER (WHERE t.enabled AND t.manager_customer_id<>''),'{}'::text[]) AS manager_ids
-       FROM tah_script_shards s
-       LEFT JOIN tah_campaign_targets t ON t.shard_id=s.shard_id
-      WHERE s.shard_id=$1
-      GROUP BY s.shard_id,s.enabled`,
-    [normalizedShardId],
-  );
-  const row = result.rows[0];
-  if (!row || !row.enabled) throw new Error("Fleet shard was not found or is disabled");
-  const managerIds = Array.isArray(row.manager_ids) ? row.manager_ids : [];
-  if (managerIds.length > 1) throw new Error(`Fleet shard ${normalizedShardId} contains campaigns from multiple MCC accounts`);
-  return {
-    protocol: "fleet-hourly-relay-v5",
-    shardId: normalizedShardId,
-    managerCustomerId: String(managerIds[0] || ""),
-    accountIds: Array.isArray(row.account_ids) ? row.account_ids : [],
-    campaignCount: Number(row.campaign_count || 0),
-    capacity: SHARD_CAPACITY,
-  };
+  return transaction(async (client) => {
+    const result = await client.query(
+      `SELECT s.shard_id,s.enabled,
+              count(t.target_id) FILTER (WHERE t.enabled AND t.archived_at IS NULL)::int AS campaign_count,
+              COALESCE(array_agg(DISTINCT t.customer_id ORDER BY t.customer_id)
+                FILTER (WHERE t.enabled AND t.archived_at IS NULL),'{}'::text[]) AS account_ids,
+              COALESCE(array_agg(DISTINCT t.manager_customer_id ORDER BY t.manager_customer_id)
+                FILTER (WHERE t.enabled AND t.archived_at IS NULL AND t.manager_customer_id<>''),'{}'::text[]) AS manager_ids
+         FROM tah_script_shards s
+         LEFT JOIN tah_campaign_targets t ON t.shard_id=s.shard_id
+        WHERE s.shard_id=$1
+        GROUP BY s.shard_id,s.enabled`,
+      [normalizedShardId],
+    );
+    const row = result.rows[0];
+    if (!row || !row.enabled) throw new Error("Fleet shard was not found or is disabled");
+    const managerIds = Array.isArray(row.manager_ids) ? row.manager_ids.map(String) : [];
+    const accountIds = Array.isArray(row.account_ids) ? row.account_ids.map(String) : [];
+    if (managerIds.length > 1) throw new Error(`Fleet shard ${normalizedShardId} contains campaigns from multiple MCC accounts`);
+    await client.query(
+      `INSERT INTO tah_script_account_activity(shard_id,customer_id,manifest_seen_at)
+       SELECT $1,account_id,now() FROM unnest($2::text[]) AS account_id
+       ON CONFLICT (shard_id,customer_id) DO UPDATE SET manifest_seen_at=EXCLUDED.manifest_seen_at,updated_at=now()`,
+      [normalizedShardId, accountIds],
+    );
+    await client.query(
+      `DELETE FROM tah_script_account_activity
+        WHERE shard_id=$1 AND NOT (customer_id=ANY($2::text[]))`,
+      [normalizedShardId, accountIds],
+    );
+    return {
+      protocol: "fleet-hourly-relay-v5",
+      shardId: normalizedShardId,
+      managerCustomerId: String(managerIds[0] || ""),
+      accountIds,
+      campaignCount: Number(row.campaign_count || 0),
+      capacity: SHARD_CAPACITY,
+    };
+  });
 }
 
 export async function acknowledgeBridgeJob(input: { shardId: string; workerId: string; jobId: string; leaseToken: string; ok: boolean; appliedSuffix?: string; error?: string }) {
@@ -455,9 +539,11 @@ export async function bridgeStoreSummary() {
        JOIN tah_campaign_targets t USING (target_id)
        JOIN latest_capture l ON l.target_id=j.target_id AND l.capture_id=j.capture_id
        WHERE t.enabled
-     ), assigned_shards AS (
-       SELECT DISTINCT shard_id FROM tah_campaign_targets WHERE enabled
-     )
+      ), assigned_shards AS (
+        SELECT DISTINCT shard_id FROM tah_campaign_targets WHERE enabled
+      ), assigned_accounts AS (
+        SELECT DISTINCT shard_id,customer_id FROM tah_campaign_targets WHERE enabled AND archived_at IS NULL
+      )
      SELECT
       (SELECT count(*)::int FROM tah_campaign_targets WHERE enabled) AS campaigns,
       (SELECT count(*)::int FROM current_jobs WHERE state IN ('pending','failed')) AS pending,
@@ -474,8 +560,14 @@ export async function bridgeStoreSummary() {
         WHERE t.enabled AND j.state='applied' AND j.applied_at>=now()-interval '15 minutes') AS throughput_last_15m,
       (SELECT count(*)::int FROM assigned_shards a JOIN tah_script_shards s USING (shard_id)
         WHERE s.enabled AND s.last_poll_at>=now()-(${SHARD_STALE_MS}||' milliseconds')::interval) AS active_shards,
-      (SELECT count(*)::int FROM assigned_shards a LEFT JOIN tah_script_shards s USING (shard_id)
-        WHERE s.shard_id IS NULL OR NOT s.enabled OR s.last_poll_at IS NULL OR s.last_poll_at<now()-(${SHARD_STALE_MS}||' milliseconds')::interval) AS offline_shards,
+       (SELECT count(*)::int FROM assigned_shards a LEFT JOIN tah_script_shards s USING (shard_id)
+         WHERE s.shard_id IS NULL OR NOT s.enabled OR s.last_poll_at IS NULL OR s.last_poll_at<now()-(${SHARD_STALE_MS}||' milliseconds')::interval) AS offline_shards,
+       (SELECT count(*)::int FROM assigned_accounts account
+         JOIN tah_script_account_activity activity USING (shard_id,customer_id)
+         WHERE activity.last_poll_at>=now()-(${ACCOUNT_READY_MS}||' milliseconds')::interval) AS ready_accounts,
+       (SELECT count(*)::int FROM assigned_accounts account
+         LEFT JOIN tah_script_account_activity activity USING (shard_id,customer_id)
+         WHERE activity.last_poll_at IS NULL OR activity.last_poll_at<now()-(${ACCOUNT_READY_MS}||' milliseconds')::interval) AS waiting_accounts,
       COALESCE((SELECT max(batch_size)::int FROM (
         SELECT customer_id,count(*)::int AS batch_size FROM current_jobs
         WHERE state IN ('pending','failed','leased') GROUP BY customer_id
@@ -503,6 +595,17 @@ export async function listBridgeTargets(options: { query?: string; page?: number
   const result = await getPool().query(
     `SELECT t.target_id,t.campaign_record_id,t.campaign_name,t.manager_customer_id,t.customer_id,t.google_campaign_id,
             t.shard_id,t.enabled,t.last_applied_at,t.updated_at,
+            activity.manifest_seen_at AS account_manifest_seen_at,
+            activity.last_poll_at AS account_last_poll_at,
+            (activity.last_poll_at IS NOT NULL
+              AND activity.last_poll_at>=now()-(${ACCOUNT_READY_MS}||' milliseconds')::interval) AS account_ready,
+            CASE
+              WHEN t.last_applied_at IS NOT NULL THEN 'established'
+              WHEN activity.last_poll_at IS NOT NULL
+                AND activity.last_poll_at>=now()-(${ACCOUNT_READY_MS}||' milliseconds')::interval THEN 'ready'
+              WHEN activity.manifest_seen_at IS NOT NULL THEN 'waiting_for_account_poll'
+              ELSE 'waiting_for_manifest'
+            END AS account_readiness,
             latest.version AS latest_version,latest.exact_suffix,latest.captured_at,
             job.state AS latest_job_state,job.attempt_count,job.last_error,job.applied_at,job.created_at AS latest_job_created_at,
             CASE WHEN t.last_applied_at IS NOT NULL THEN 'healthy' WHEN job.state='dead' THEN 'attention' ELSE 'awaiting' END AS delivery_health,
@@ -521,10 +624,12 @@ export async function listBridgeTargets(options: { query?: string; page?: number
        SELECT capture_id,version,exact_suffix,captured_at FROM tah_suffix_captures
        WHERE target_id=t.target_id ORDER BY captured_at DESC LIMIT 1
      ) latest ON true
-     LEFT JOIN LATERAL (
-       SELECT state,attempt_count,last_error,applied_at,created_at FROM tah_delivery_jobs
-       WHERE target_id=t.target_id AND capture_id=latest.capture_id ORDER BY created_at DESC LIMIT 1
-     ) job ON true
+      LEFT JOIN LATERAL (
+        SELECT state,attempt_count,last_error,applied_at,created_at FROM tah_delivery_jobs
+        WHERE target_id=t.target_id AND capture_id=latest.capture_id ORDER BY created_at DESC LIMIT 1
+      ) job ON true
+      LEFT JOIN tah_script_account_activity activity
+        ON activity.shard_id=t.shard_id AND activity.customer_id=t.customer_id
      WHERE t.enabled AND t.archived_at IS NULL AND ($1='' OR t.campaign_name ILIKE $2 ESCAPE '\\' OR t.campaign_record_id ILIKE $2 ESCAPE '\\'
             OR t.customer_id ILIKE $2 ESCAPE '\\' OR t.google_campaign_id ILIKE $2 ESCAPE '\\')
      ORDER BY t.updated_at DESC

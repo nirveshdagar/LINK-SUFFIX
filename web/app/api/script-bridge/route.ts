@@ -4,6 +4,7 @@ import {
   bridgeDatabaseConfigured,
   bridgeShardStatus,
   bridgeStoreSummary,
+  bridgeTargetReadiness,
   createBridgeShard,
   deleteBridgeTarget,
   enqueueBridgeCapture,
@@ -91,7 +92,15 @@ export async function POST(request: Request) {
         shardId: String(body.shardId || "default"),
       });
       const delivery = await queueLatestBridgeCapture(String(body.campaignRecordId || ""));
-      return NextResponse.json({ ok: true, ...assignment, state: "enrolled", delivery }, { status: 201 });
+      const readiness = await bridgeTargetReadiness(String(body.campaignRecordId || ""));
+      return NextResponse.json({ ok: true, ...assignment, state: "enrolled", delivery, readiness }, { status: 201 });
+    }
+    if (action === "target-readiness") {
+      if (!hasValidApiAuth(request, { envVarName: "TAH_API_BEARER_TOKEN", scope: "control" })) {
+        return NextResponse.json({ error: "Control authentication required" }, { status: 401 });
+      }
+      const readiness = await bridgeTargetReadiness(String(body.campaignRecordId || ""));
+      return NextResponse.json({ ok: true, ...readiness }, { headers: { "cache-control": "no-store" } });
     }
     if (action === "set-enabled") {
       if (!hasValidApiAuth(request, { envVarName: "TAH_API_BEARER_TOKEN", scope: "control" })) {

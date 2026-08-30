@@ -70,6 +70,8 @@ const RECOMMENDED_VCPU_FOR_100_BROWSER_CAMPAIGNS = Math.max(8, Number(process.en
 const MIN_AVAILABLE_MEMORY_RATIO = Math.min(0.5, Math.max(0.05, Number(process.env.TAH_MIN_AVAILABLE_MEMORY_RATIO ?? 0.15)));
 const MAX_NORMALIZED_SYSTEM_LOAD = Math.min(4, Math.max(0.5, Number(process.env.TAH_MAX_NORMALIZED_SYSTEM_LOAD ?? 0.85)));
 const RESOURCE_ADMISSION_RETRY_MS = Math.max(1_000, Number(process.env.TAH_RESOURCE_ADMISSION_RETRY_MS ?? 5_000));
+const FLEET_ACTIVATION_RETRY_MS = Math.max(5_000, Number(process.env.TAH_FLEET_ACTIVATION_RETRY_MS ?? 10_000));
+const FLEET_ACTIVATION_CHECKS_PER_PUMP = Math.max(1, Math.min(100, Number(process.env.TAH_FLEET_ACTIVATION_CHECKS_PER_PUMP ?? 25)));
 const MAX_TOTAL_RPS = Number(process.env.TAH_MAX_TOTAL_RPS ?? 500);
 const ALLOWED_TARGETS = (process.env.TAH_ALLOWED_TARGETS ?? "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean);
 const STAGING_TARGETS = (process.env.TAH_STAGING_TARGETS ?? "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean);
@@ -404,6 +406,54 @@ async function publishL4CaptureToMesh(run, capture) {
   return { accepted: true, fleet: true, version, ...result };
 }
 
+function applyCampaignFleetReadiness(campaign, readiness) {
+  campaign.fleetActivationState = clean(readiness?.state || "unknown", 80) || "unknown";
+  campaign.fleetAccountLastPollAt = readiness?.accountLastPollAt || undefined;
+  campaign.fleetManifestSeenAt = readiness?.manifestSeenAt || undefined;
+  campaign.fleetActivationWaiting = readiness?.ready !== true;
+  campaign.updatedAt = new Date().toISOString();
+}
+
+async function registerCampaignFleetTarget(campaign, requestedShardId) {
+  const target = assertScriptFleetTarget({
+    customerId: campaign.config.customerId,
+    campaignId: campaign.config.googleCampaignId,
+  });
+  const enrollment = await scriptBridgeRequest({
+    action: "register-target",
+    campaignRecordId: campaign.id,
+    campaignName: campaign.name,
+    managerCustomerId: campaign.config.loginCustomerId,
+    customerId: target.customerId,
+    googleCampaignId: target.campaignId,
+    shardId: clean(requestedShardId || campaign.config.scriptFleetShardId || "default", 80) || "default",
+  });
+  campaign.config.useScriptMesh = true;
+  campaign.config.syncGoogleAds = false;
+  campaign.config.scriptFleetShardId = clean(enrollment?.shardId || requestedShardId || "default", 80) || "default";
+  applyCampaignFleetReadiness(campaign, enrollment?.readiness);
+  persistCampaigns();
+  return enrollment;
+}
+
+async function ensureCampaignFleetReadyForFirstJourney(campaign) {
+  let readiness = await scriptBridgeRequest({ action: "target-readiness", campaignRecordId: campaign.id });
+  if (readiness?.found !== true) {
+    const enrollment = await registerCampaignFleetTarget(campaign, campaign.config.scriptFleetShardId);
+    readiness = enrollment?.readiness;
+  } else if (readiness.shardId && readiness.shardId !== campaign.config.scriptFleetShardId) {
+    campaign.config.scriptFleetShardId = clean(readiness.shardId, 80);
+  }
+  applyCampaignFleetReadiness(campaign, readiness);
+  if (readiness?.ready === true) {
+    campaign.nextRetryAt = undefined;
+    return true;
+  }
+  campaign.nextRetryAt = Date.now() + FLEET_ACTIVATION_RETRY_MS;
+  campaign.lastError = undefined;
+  return false;
+}
+
 async function setCampaignFleetEnrollment(payload) {
   const campaign = campaigns.get(clean(payload?.id, 120));
   if (!campaign) throw new Error("Campaign was not found");
@@ -411,26 +461,20 @@ async function setCampaignFleetEnrollment(payload) {
   const shardId = clean(payload?.shardId || campaign.config.scriptFleetShardId || "default", 80) || "default";
   let assignedShardId = shardId;
   if (enabled) {
-    const target = assertScriptFleetTarget({
-      customerId: campaign.config.customerId,
-      campaignId: campaign.config.googleCampaignId,
-    });
-    const enrollment = await scriptBridgeRequest({
-      action: "register-target",
-      campaignRecordId: campaign.id,
-      campaignName: campaign.name,
-      managerCustomerId: campaign.config.loginCustomerId,
-      customerId: target.customerId,
-      googleCampaignId: target.campaignId,
-      shardId,
-    });
+    const enrollment = await registerCampaignFleetTarget(campaign, shardId);
     assignedShardId = clean(enrollment?.shardId || shardId, 80) || shardId;
   } else {
     await scriptBridgeRequest({ action: "delete-target", campaignRecordId: campaign.id });
   }
   campaign.config.useScriptMesh = enabled;
   if (enabled) campaign.config.scriptFleetShardId = assignedShardId;
-  else delete campaign.config.scriptFleetShardId;
+  else {
+    delete campaign.config.scriptFleetShardId;
+    delete campaign.fleetActivationState;
+    delete campaign.fleetAccountLastPollAt;
+    delete campaign.fleetManifestSeenAt;
+    delete campaign.fleetActivationWaiting;
+  }
   if (enabled) campaign.config.syncGoogleAds = false;
   campaign.updatedAt = new Date().toISOString();
   const active = activeRuns().find((run) => run.campaignRecordId === campaign.id);
@@ -808,6 +852,7 @@ function saveCampaign(payload, id) {
   if (payload.syncGoogleAds === true && payload.useScriptMesh === true) throw new Error("Choose either direct Google Ads API sync or Rolling Apps Script Mesh delivery");
   if (payload.useScriptMesh === true) {
     if (!payload.customerId || !payload.googleCampaignId) throw new Error("Apps Script delivery requires one Google Ads customer ID and campaign ID");
+    if (!/^\d{10}$/.test(normalizedGoogleAdsId(payload.loginCustomerId))) throw new Error("Rolling Apps Script Fleet requires a 10-digit Google Ads MCC ID");
     assertScriptFleetTarget({
       customerId: payload.customerId,
       campaignId: payload.googleCampaignId,
@@ -919,12 +964,41 @@ async function pumpCampaignQueue() {
     campaignPumpDueAt = 0;
   }
   campaignPumpRunning = true;
+  let fleetReadinessChecks = 0;
   try {
     while (activeRuns().length < Math.min(activeLimit, MAX_LOCAL_WORKERS)) {
       const leased = lockedPorts();
       const now = Date.now();
       const campaign = [...campaigns.values()].sort((a, b) => a.number - b.number).find(item => item.status === "queued" && item.desiredRunning && Number(item.nextRetryAt ?? 0) <= now && !leased.has(Number(item.config.proxyPort)));
       if (!campaign) break;
+      if (campaign.config.useScriptMesh === true) {
+        if (fleetReadinessChecks >= FLEET_ACTIVATION_CHECKS_PER_PUMP) {
+          scheduleCampaignPump(1_000);
+          break;
+        }
+        fleetReadinessChecks++;
+        try {
+          const ready = await ensureCampaignFleetReadyForFirstJourney(campaign);
+          if (!ready) {
+            campaign.status = "queued";
+            persistCampaigns();
+            broadcastCampaigns();
+            scheduleCampaignPump(FLEET_ACTIVATION_RETRY_MS);
+            continue;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          campaign.retryCount = Math.min(10, Number(campaign.retryCount ?? 0) + 1);
+          campaign.nextRetryAt = Date.now() + Math.min(300_000, 5_000 * (2 ** (campaign.retryCount - 1)));
+          campaign.status = "queued";
+          campaign.lastError = message;
+          process.stderr.write(`${JSON.stringify({ level: "error", event: "campaign.fleet_activation_failed", campaignId: campaign.id, retryCount: campaign.retryCount, nextRetryAt: campaign.nextRetryAt, message, ts: new Date().toISOString() })}\n`);
+          persistCampaigns();
+          broadcastCampaigns();
+          scheduleCampaignPump(Math.max(1_000, campaign.nextRetryAt - Date.now()));
+          continue;
+        }
+      }
       if (nextCampaignStartAt > now) {
         scheduleCampaignPump(nextCampaignStartAt - now);
         break;
@@ -1140,6 +1214,7 @@ async function handle(ws, msg) {
     else if (msg.type === "create_run") { const run = await startRun(msg.payload ?? {}); send(ws, "run_started", { id: run.id, scenarioId: run.scenarioId }); }
     else if (msg.type === "create_campaign") {
       const campaign = saveCampaign(msg.payload ?? {});
+      if (campaign.config.useScriptMesh) await registerCampaignFleetTarget(campaign, campaign.config.scriptFleetShardId);
       if (!campaign.config.schedule) { campaign.desiredRunning = true; campaign.status = "queued"; persistCampaigns(); }
       send(ws, "campaign_saved", publicCampaign(campaign));
       broadcastCampaigns();
@@ -1153,6 +1228,7 @@ async function handle(ws, msg) {
     }
     else if (msg.type === "update_campaign") {
       const campaign = saveCampaign(msg.payload ?? {}, clean(msg.payload?.id, 120));
+      if (campaign.config.useScriptMesh) await registerCampaignFleetTarget(campaign, campaign.config.scriptFleetShardId);
       send(ws, "campaign_saved", publicCampaign(campaign));
       broadcastCampaigns();
       void pumpCampaignQueue();

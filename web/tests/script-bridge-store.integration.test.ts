@@ -6,6 +6,7 @@ import {
   acknowledgeBridgeJob,
   bridgeShardManifest,
   bridgeShardStatus,
+  bridgeTargetReadiness,
   closeBridgeStoreForTests,
   enqueueBridgeCapture,
   leaseBridgeJobs,
@@ -30,22 +31,38 @@ test("relational Fleet leases one unique target and verifies the exact suffix", 
   try {
     await registerBridgeShard(shardId, token);
     await enqueueBridgeCapture({ ...input, exactSuffix: suffix, version: Date.now() });
+    assert.equal((await bridgeTargetReadiness(campaignRecordId)).state, "waiting_for_manifest");
     await assert.rejects(() => upsertBridgeTarget({ ...input, campaignRecordId: `${campaignRecordId}-duplicate` }), /already owns/i);
     const manifest = await bridgeShardManifest(shardId);
     assert.equal(manifest.managerCustomerId, managerCustomerId);
     assert.deepEqual(manifest.accountIds, [customerId]);
     assert.equal(manifest.campaignCount, 1);
     assert.equal(manifest.capacity, 40);
+    assert.equal((await bridgeTargetReadiness(campaignRecordId)).state, "waiting_for_account_poll");
     assert.equal((await leaseBridgeJobs(shardId, "integration-worker-wrong-account", 10, "9999999999")).length, 0);
+    assert.equal((await bridgeTargetReadiness(campaignRecordId)).accountReady, false);
     assert.equal((await queueLatestBridgeCapture(campaignRecordId)).state, "pending");
     const jobs = await leaseBridgeJobs(shardId, "integration-worker", 10, customerId);
     assert.equal(jobs.length, 1);
     assert.equal(jobs[0].exactSuffix, suffix);
+    assert.equal((await bridgeTargetReadiness(campaignRecordId)).accountReady, true);
     const ack = await acknowledgeBridgeJob({ shardId, workerId: "integration-worker", jobId: jobs[0].jobId, leaseToken: jobs[0].leaseToken, ok: true, appliedSuffix: suffix });
     assert.deepEqual(ack, { ok: true, state: "applied" });
     await enqueueBridgeCapture({ ...input, exactSuffix: "new=value", version: Date.now() + 1 });
     assert.equal((await leaseBridgeJobs(shardId, "integration-worker", 10)).length, 0, "58-second server gate must block an immediate second delivery");
-    for (let index = 1; index < 40; index++) {
+    const priorityInput = {
+      ...input,
+      campaignRecordId: `${campaignRecordId}-priority`,
+      campaignName: "First delivery priority",
+      googleCampaignId: `7${discriminator}`,
+    };
+    await enqueueBridgeCapture({ ...priorityInput, exactSuffix: "first=delivery", version: Date.now() + 2 });
+    const priorityPool = new Pool({ connectionString: process.env.DATABASE_URL });
+    await priorityPool.query("UPDATE tah_campaign_targets SET last_applied_at=now()-interval '2 minutes' WHERE campaign_record_id=$1", [campaignRecordId]);
+    await priorityPool.end();
+    const priorityJobs = await leaseBridgeJobs(shardId, "integration-priority-worker", 1, customerId);
+    assert.equal(priorityJobs[0]?.campaignRecordId, priorityInput.campaignRecordId, "a customer's first delivery must precede routine refreshes");
+    for (let index = 1; index < 39; index++) {
       const assignment = await upsertBridgeTarget({
         ...input,
         campaignRecordId: `${campaignRecordId}-fill-${index}`,
