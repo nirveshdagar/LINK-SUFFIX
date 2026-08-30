@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Activity, AlertTriangle, CheckCircle2, Gauge, Megaphone, Play, Radio, RefreshCw, Server } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Megaphone, Play, Radio, RefreshCw, Server } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AlertRailLink from "./alert-rail-link";
+import CapacityRailLink from "./capacity-rail-link";
 import styles from "./alerts-dashboard.module.css";
 
 type AlertStatus = "observing" | "active" | "acknowledged" | "resolved";
@@ -90,7 +91,7 @@ export default function AlertsDashboard() {
           <Link className="rail-link" href="/#ads"><Megaphone size={18} /><span>Ads</span></Link>
           <Link className="rail-link" href="/#runs"><Radio size={18} /><span>Runs</span></Link>
           <Link className="rail-link" href="/dashboard"><Activity size={18} /><span>Telemetry</span></Link>
-          <Link className="rail-link" href="/capacity"><Gauge size={18} /><span>Capacity</span></Link>
+          <CapacityRailLink />
           <AlertRailLink active />
         </nav>
       </aside>
