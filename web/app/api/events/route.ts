@@ -5,36 +5,40 @@ import { resolveRunBackend } from '@/lib/run-registry';
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
-  const upstream = resolveRunBackend(req.nextUrl.searchParams.get('run'));
-  if (!upstream) {
-    return new Response(
-      `data: ${JSON.stringify({
-        kind: "state",
-        state: {
-          connected: false,
-          runId: null,
-          elapsed_ms: 0,
-          totalRequests: 0,
-          byTierVerdict: {},
-          byCity: {},
-          scenarios: {},
-        },
-      })}\n\n`,
-      {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache, no-transform",
-          Connection: "keep-alive",
-        },
+function disconnectedEventStream() {
+  return new Response(
+    `data: ${JSON.stringify({
+      kind: "state",
+      state: {
+        connected: false,
+        runId: null,
+        elapsed_ms: 0,
+        totalRequests: 0,
+        byTierVerdict: {},
+        byCity: {},
+        scenarios: {},
       },
-    );
-  }
+    })}\n\n`,
+    {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
+    },
+  );
+}
+
+export async function GET(req: NextRequest) {
+  const requestedRun = req.nextUrl.searchParams.get('run');
+  const upstream = resolveRunBackend(requestedRun);
+  if (!upstream) return disconnectedEventStream();
   const upstreamRes = await fetch(`${upstream}/events`, {
     headers: { Accept: "text/event-stream" },
   }).catch((e) => new Response(`upstream error: ${(e as Error).message}`, { status: 502 }));
 
   if (!(upstreamRes instanceof Response) || !upstreamRes.ok || !upstreamRes.body) {
+    if (!requestedRun) return disconnectedEventStream();
     return new Response("upstream unavailable", { status: 502 });
   }
 
