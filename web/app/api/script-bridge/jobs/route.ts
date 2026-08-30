@@ -4,6 +4,7 @@ import {
   authenticateBridgeShard,
   bridgeDatabaseConfigured,
   bridgeShardManifest,
+  completeBridgeInvocation,
   leaseBridgeJobs,
   renewBridgeLeases,
   registerBridgeShard,
@@ -14,8 +15,8 @@ import { checkRateLimit, withRateLimitHeaders } from "@/lib/rate-limit";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ACTIVE_PROTOCOL = "fleet-two-phase-durable-relay-v8";
-const LEGACY_PROTOCOLS = new Set(["fleet-two-phase-hot-add-relay-v7", "fleet-hot-add-relay-v6", "fleet-hourly-relay-v5"]);
+const ACTIVE_PROTOCOL = "fleet-two-phase-adaptive-relay-v9";
+const LEGACY_PROTOCOLS = new Set(["fleet-two-phase-durable-relay-v8", "fleet-two-phase-hot-add-relay-v7", "fleet-hot-add-relay-v6", "fleet-hourly-relay-v5"]);
 const ACTIVE_CONTRACT = "relational-lease-v2";
 const SCRIPT_JOB_REQUESTS_PER_MINUTE = 6_000;
 
@@ -61,13 +62,25 @@ async function lease(request: Request, input: Record<string, unknown>) {
   const workerId = String(input.workerId || input.worker || "google-ads-script").trim().slice(0, 200);
   const protocol = String(input.protocol || "");
   if (!protocolAllowed(input.protocol) || !contractAllowed(input.contract)) {
-    return NextResponse.json({ error: "Outdated Fleet worker. Regenerate and install the selected shard's v8 durable two-phase script." }, { status: 409 });
+    return NextResponse.json({ error: "Outdated Fleet worker. Regenerate and install the selected shard's v9 adaptive two-phase script." }, { status: 409 });
   }
   if (!await authenticate(request, shardId)) return NextResponse.json({ error: "Invalid shard credentials" }, { status: 401 });
   const wantsManifest = input.manifest === true || input.manifest === 1 || String(input.manifest || "") === "1";
   if (wantsManifest) {
+    const preview = input.preview === true || input.preview === 1 || String(input.preview || "") === "1";
+    const invocationId = String(input.invocationId || workerId.replace(/^manifest-/, "")).trim().slice(0, 200);
     return NextResponse.json(
-      { ok: true, ...(await bridgeShardManifest(shardId)), protocol, serverTime: new Date().toISOString() },
+      {
+        ok: true,
+        ...(await bridgeShardManifest(shardId, {
+          invocationId,
+          protocol,
+          preview,
+          adaptive: protocol === ACTIVE_PROTOCOL,
+        })),
+        protocol,
+        serverTime: new Date().toISOString(),
+      },
       { headers: { "cache-control": "no-store" } },
     );
   }
@@ -113,9 +126,22 @@ export async function POST(request: Request) {
     const input = await jsonBody(request);
     const action = String(input.action || "lease").toLowerCase();
     if (action === "lease" || action === "poll") return withRateLimitHeaders(await lease(request, input), limit);
+    if (action === "complete") {
+      if (!protocolAllowed(input.protocol) || !contractAllowed(input.contract)) {
+        return withRateLimitHeaders(NextResponse.json({ error: "Outdated Fleet worker. Regenerate and install the selected shard's v9 adaptive two-phase script." }, { status: 409 }), limit);
+      }
+      const shardId = String(input.shardId || input.shard || "default").trim();
+      if (!await authenticate(request, shardId)) return withRateLimitHeaders(NextResponse.json({ error: "Invalid shard credentials" }, { status: 401 }), limit);
+      const completion = await completeBridgeInvocation({
+        shardId,
+        invocationId: String(input.invocationId || "").trim().slice(0, 200),
+        status: String(input.status || "completed").toLowerCase(),
+      });
+      return withRateLimitHeaders(NextResponse.json({ ok: true, ...completion, serverTime: new Date().toISOString() }, { headers: { "cache-control": "no-store" } }), limit);
+    }
     if (action === "renew") {
       if (!protocolAllowed(input.protocol) || !contractAllowed(input.contract)) {
-        return withRateLimitHeaders(NextResponse.json({ error: "Outdated Fleet worker. Regenerate and install the selected shard's v8 durable two-phase script." }, { status: 409 }), limit);
+        return withRateLimitHeaders(NextResponse.json({ error: "Outdated Fleet worker. Regenerate and install the selected shard's v9 adaptive two-phase script." }, { status: 409 }), limit);
       }
       const shardId = String(input.shardId || input.shard || "default").trim();
       const workerId = String(input.workerId || input.worker || "google-ads-script").trim().slice(0, 200);
@@ -143,7 +169,7 @@ export async function POST(request: Request) {
       return withRateLimitHeaders(NextResponse.json({ error: "Unsupported action" }, { status: 400 }), limit);
     }
     if (!protocolAllowed(input.protocol) || !contractAllowed(input.contract)) {
-      return withRateLimitHeaders(NextResponse.json({ error: "Outdated Fleet worker. Regenerate and install the selected shard's v8 durable two-phase script." }, { status: 409 }), limit);
+      return withRateLimitHeaders(NextResponse.json({ error: "Outdated Fleet worker. Regenerate and install the selected shard's v9 adaptive two-phase script." }, { status: 409 }), limit);
     }
     const shardId = String(input.shardId || input.shard || "default").trim();
     const workerId = String(input.workerId || input.worker || "google-ads-script").trim().slice(0, 200);

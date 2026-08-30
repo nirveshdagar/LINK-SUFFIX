@@ -134,6 +134,9 @@ const SHARD_POLL_CRITICAL_MS = Math.max(
 );
 const V8_COMPLETED_RUN_MS = Math.max(30 * 60_000, Number(process.env.TAH_V8_COMPLETED_RUN_MS) || 50 * 60_000);
 const V8_HOURLY_HANDOFF_MS = Math.max(V8_COMPLETED_RUN_MS, Number(process.env.TAH_V8_HOURLY_HANDOFF_MS) || 75 * 60_000);
+const ADAPTIVE_START_WARNING_MS = Math.max(60_000, Number(process.env.TAH_ADAPTIVE_START_WARNING_MS) || 5 * 60_000);
+const ADAPTIVE_START_CRITICAL_MS = Math.max(ADAPTIVE_START_WARNING_MS + 60_000, Number(process.env.TAH_ADAPTIVE_START_CRITICAL_MS) || 15 * 60_000);
+const ADAPTIVE_DEADLINE_OVERRUN_MS = Math.max(30_000, Number(process.env.TAH_ADAPTIVE_DEADLINE_OVERRUN_MS) || 60_000);
 
 function databasePool() {
   if (!globalHealth.__tahHealthPool) {
@@ -271,12 +274,25 @@ async function readRelationalShardHealth() {
         s.last_error AS "lastError",
         s.created_at AS "createdAt",
         s.updated_at AS "updatedAt",
+        s.last_execution_started_at AS "lastExecutionStartedAt",
+        s.last_execution_completed_at AS "lastExecutionCompletedAt",
+        s.last_execution_status AS "lastExecutionStatus",
+        s.expected_next_start_at AS "expectedNextStartAt",
+        s.phase_one_stop_at AS "phaseOneStopAt",
+        s.hard_stop_at AS "hardStopAt",
+        s.handoff_margin_ms AS "handoffMarginMs",
+        s.schedule_anchor_at AS "scheduleAnchorAt",
+        s.schedule_sample_count AS "scheduleSampleCount",
+        s.last_invocation_id AS "lastInvocationId",
         COUNT(a.customer_id)::int AS "accountCount",
         MAX(a.manifest_seen_at) AS "lastManifestSeenAt",
-        'relational-v8'::text AS "heartbeatSource"
+        CASE WHEN s.last_execution_started_at IS NULL THEN 'relational-v8' ELSE 'relational-v9' END AS "heartbeatSource"
       FROM tah_script_shards s
       LEFT JOIN tah_script_account_activity a ON a.shard_id = s.shard_id
-      GROUP BY s.shard_id, s.enabled, s.last_poll_at, s.last_ack_at, s.last_error, s.created_at, s.updated_at
+      GROUP BY s.shard_id, s.enabled, s.last_poll_at, s.last_ack_at, s.last_error, s.created_at, s.updated_at,
+               s.last_execution_started_at,s.last_execution_completed_at,s.last_execution_status,
+               s.expected_next_start_at,s.phase_one_stop_at,s.hard_stop_at,s.handoff_margin_ms,
+               s.schedule_anchor_at,s.schedule_sample_count,s.last_invocation_id
       ORDER BY s.shard_id
     `);
     return result.rows.map((item) => record(item));
@@ -632,6 +648,9 @@ async function evaluateHealth(source: string) {
     const lastPollAt = shard.lastPollAt ?? shard.last_poll_at ?? shard.lastHeartbeatAt;
     const lastAckAt = shard.lastAcknowledgementAt ?? shard.lastAcknowledgedAt ?? shard.lastAckAt;
     const lastManifestSeenAt = shard.lastManifestSeenAt ?? shard.manifestSeenAt;
+    const executionStartedAt = shard.lastExecutionStartedAt;
+    const expectedNextStartAt = shard.expectedNextStartAt;
+    const hardStopAt = shard.hardStopAt;
     const createdAt = shard.createdAt ?? shard.updatedAt;
     const pollAge = lastPollAt ? ageMs(lastPollAt, now) : ageMs(createdAt, now);
     const manifestAge = lastManifestSeenAt ? ageMs(lastManifestSeenAt, now) : Number.POSITIVE_INFINITY;
@@ -640,18 +659,82 @@ async function evaluateHealth(source: string) {
       : 0;
     const v8HourlyHandoff = textValue(shard, "heartbeatSource") === "relational-v8"
       && runSpan >= V8_COMPLETED_RUN_MS;
+    const adaptive = textValue(shard, "heartbeatSource") === "relational-v9"
+      && Boolean(expectedNextStartAt);
     const effectiveContactAge = v8HourlyHandoff
       ? Math.max(0, manifestAge - V8_HOURLY_HANDOFF_MS)
       : pollAge;
     const shardCandidates: AlertCandidate[] = [];
-    if (effectiveContactAge > SHARD_POLL_WARNING_MS) {
+    const executionHasPolled = Boolean(lastPollAt && executionStartedAt)
+      && timestampMs(lastPollAt) >= timestampMs(executionStartedAt);
+    const executionAge = executionStartedAt
+      ? Math.max(0, now - timestampMs(executionStartedAt))
+      : Number.POSITIVE_INFINITY;
+    const beforeHardStop = Boolean(hardStopAt) && now < timestampMs(hardStopAt);
+    const expectedStartDelay = expectedNextStartAt ? now - timestampMs(expectedNextStartAt) : Number.NEGATIVE_INFINITY;
+    const pollAfterHardStop = Boolean(lastPollAt && hardStopAt)
+      && timestampMs(lastPollAt) > timestampMs(hardStopAt);
+    const deadlineOverrun = hardStopAt && pollAfterHardStop && pollAge <= SHARD_POLL_WARNING_MS
+      ? now - timestampMs(hardStopAt)
+      : Number.NEGATIVE_INFINITY;
+    const plannedAdaptiveHandoff = adaptive
+      && Boolean(hardStopAt && expectedNextStartAt)
+      && now >= timestampMs(hardStopAt)
+      && now <= timestampMs(expectedNextStartAt) + ADAPTIVE_START_WARNING_MS
+      && !pollAfterHardStop;
+
+    if (adaptive && deadlineOverrun > ADAPTIVE_DEADLINE_OVERRUN_MS) {
+      const candidate: AlertCandidate = {
+        fingerprint: `shard:${shardId}:deadline-overrun`, severity: "warning", component: shardId, scope: "script-fleet",
+        code: "apps_script_deadline_overrun", title: `${shardId} exceeded its adaptive deadline`,
+        message: `The shard is still polling ${Math.floor(deadlineOverrun / 60_000)} minutes after its protected handoff deadline.`,
+        remediation: "Inspect the generated V9 worker version and its execution log; do not start another manual copy while this invocation remains active.",
+        shardId, activationAfterMs: 0,
+        details: { campaignCount, lastPollAt, executionStartedAt, hardStopAt, expectedNextStartAt },
+      };
+      shardCandidates.push(candidate);
+      addCandidate(candidateMap, candidate);
+    } else if (
+      adaptive
+      && beforeHardStop
+      && executionAge > SHARD_POLL_WARNING_MS
+      && (!executionHasPolled || pollAge > SHARD_POLL_WARNING_MS)
+    ) {
+      const critical = pollAge > SHARD_POLL_CRITICAL_MS;
+      const candidate: AlertCandidate = {
+        fingerprint: `shard:${shardId}:active-poll-stale`, severity: critical ? "critical" : "warning", component: shardId, scope: "script-fleet",
+        code: critical ? "apps_script_active_stopped" : "apps_script_active_delayed",
+        title: critical ? `${shardId} lost contact during execution` : `${shardId} active poll is delayed`,
+        message: executionHasPolled
+          ? `No shard poll has arrived for ${Math.floor(pollAge / 60_000)} minutes before the adaptive deadline.`
+          : "The V9 invocation started but no account or callback poll has reached the bridge.",
+        remediation: "Inspect the current Google Ads Scripts execution log and child-account authorization.",
+        shardId, activationAfterMs: 0,
+        details: { campaignCount, lastPollAt, executionStartedAt, hardStopAt, expectedNextStartAt },
+      };
+      shardCandidates.push(candidate);
+      addCandidate(candidateMap, candidate);
+    } else if (adaptive && expectedStartDelay > ADAPTIVE_START_WARNING_MS) {
+      const critical = expectedStartDelay > ADAPTIVE_START_CRITICAL_MS;
+      const candidate: AlertCandidate = {
+        fingerprint: `shard:${shardId}:expected-start-missed`, severity: critical ? "critical" : "warning", component: shardId, scope: "script-fleet",
+        code: critical ? "apps_script_stopped" : "apps_script_start_delayed",
+        title: critical ? `${shardId} missed its expected hourly start` : `${shardId} hourly start is delayed`,
+        message: `No new V9 start heartbeat has arrived ${Math.floor(expectedStartDelay / 60_000)} minutes after the learned Google trigger.`,
+        remediation: "Check Google Ads Scripts execution history, authorization, Hourly frequency, and the installed V9 shard worker.",
+        shardId, activationAfterMs: 0,
+        details: { campaignCount, lastPollAt, executionStartedAt, hardStopAt, expectedNextStartAt },
+      };
+      shardCandidates.push(candidate);
+      addCandidate(candidateMap, candidate);
+    } else if (!adaptive && effectiveContactAge > SHARD_POLL_WARNING_MS) {
       const critical = effectiveContactAge > SHARD_POLL_CRITICAL_MS;
       const candidate: AlertCandidate = {
         fingerprint: `shard:${shardId}:poll-stale`, severity: critical ? "critical" : "warning", component: shardId, scope: "script-fleet",
         code: critical ? "apps_script_stopped" : "apps_script_poll_delayed",
         title: critical ? `${shardId} Apps Script stopped polling` : `${shardId} Apps Script contact is delayed`,
         message: v8HourlyHandoff
-          ? `The next V8 hourly execution is ${Math.floor(effectiveContactAge / 60_000)} minutes beyond its handoff allowance.`
+          ? `The next legacy V8 hourly execution is ${Math.floor(effectiveContactAge / 60_000)} minutes beyond its handoff allowance.`
           : lastPollAt
           ? `No shard poll has arrived for ${Math.floor(pollAge / 60_000)} minutes during an active execution.`
           : "This assigned shard has never polled the bridge.",
@@ -681,7 +764,11 @@ async function evaluateHealth(source: string) {
     }
     heartbeats.push({
       componentId: `shard:${shardId}`, componentType: "apps-script-shard", state: severityState(shardCandidates),
-      message: shardCandidates.length ? shardCandidates[0].message : `${shardId} is polling normally.`,
+      message: shardCandidates.length
+        ? shardCandidates[0].message
+        : plannedAdaptiveHandoff
+        ? `${shardId} is in its planned two-minute handoff window.`
+        : `${shardId} is polling normally.`,
       details: {
         shardId,
         campaignCount,
@@ -689,7 +776,16 @@ async function evaluateHealth(source: string) {
         lastAckAt: lastAckAt || null,
         lastManifestSeenAt: lastManifestSeenAt || null,
         heartbeatSource: textValue(shard, "heartbeatSource") || "legacy-fallback",
-        heartbeatMode: v8HourlyHandoff ? "hourly-handoff" : "active-execution",
+        heartbeatMode: plannedAdaptiveHandoff
+          ? "adaptive-handoff"
+          : v8HourlyHandoff
+          ? "hourly-handoff"
+          : "active-execution",
+        executionStartedAt: executionStartedAt || null,
+        expectedNextStartAt: expectedNextStartAt || null,
+        hardStopAt: hardStopAt || null,
+        handoffMarginMs: numberValue(shard, "handoffMarginMs"),
+        scheduleSampleCount: numberValue(shard, "scheduleSampleCount"),
         accountCount: numberValue(shard, "accountCount"),
       },
     });

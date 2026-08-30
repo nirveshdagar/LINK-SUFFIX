@@ -13,6 +13,12 @@ const MAX_LEASE_JOBS = 200;
 const HANDOFF_ALLOWANCE_MS = Math.max(60_000, Number(process.env.TAH_SCRIPT_HANDOFF_ALLOWANCE_MS) || 15 * 60_000);
 const SHARD_STALE_MS = Math.max(60_000, Number(process.env.TAH_SCRIPT_SHARD_STALE_MS) || 75 * 60_000);
 const ACCOUNT_READY_MS = Math.max(60_000, Number(process.env.TAH_SCRIPT_ACCOUNT_READY_MS) || 75_000);
+const SCHEDULE_INTERVAL_MS = Math.max(45 * 60_000, Number(process.env.TAH_SCRIPT_SCHEDULE_INTERVAL_MS) || 60 * 60_000);
+const SCHEDULE_TOLERANCE_MS = Math.max(60_000, Number(process.env.TAH_SCRIPT_SCHEDULE_TOLERANCE_MS) || 8 * 60_000);
+const HANDOFF_MARGIN_MS = Math.max(60_000, Number(process.env.TAH_SCRIPT_ADAPTIVE_HANDOFF_MARGIN_MS) || 2 * 60_000);
+const PHASE_ONE_MAX_MS = Math.min(28 * 60_000, Math.max(60_000, Number(process.env.TAH_SCRIPT_PHASE_ONE_MAX_MS) || 28 * 60_000));
+const PHASE_TWO_RESERVE_MAX_MS = Math.max(2 * 60_000, Number(process.env.TAH_SCRIPT_PHASE_TWO_RESERVE_MS) || 10 * 60_000);
+const MIN_USEFUL_WINDOW_MS = Math.max(60_000, Number(process.env.TAH_SCRIPT_MIN_USEFUL_WINDOW_MS) || 3 * 60_000);
 let pool: Pool | null = null;
 
 export interface BridgeTargetInput {
@@ -40,6 +46,83 @@ export interface BridgeLease {
 function digest(value: string) { return createHash("sha256").update(value).digest("hex"); }
 function normalizeId(value: string) { return value.replace(/\D/g, ""); }
 function targetId(input: BridgeTargetInput) { return digest(`${normalizeId(input.managerCustomerId || "")}:${normalizeId(input.customerId)}:${normalizeId(input.googleCampaignId)}`).slice(0, 40); }
+
+function dateMs(value: unknown) {
+  const parsed = value instanceof Date ? value.getTime() : Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function schedulePhaseDistance(left: number, right: number) {
+  const distance = Math.abs(left - right) % SCHEDULE_INTERVAL_MS;
+  return Math.min(distance, SCHEDULE_INTERVAL_MS - distance);
+}
+
+function nextScheduleSlot(anchorMs: number, nowMs: number) {
+  if (anchorMs <= 0) return nowMs + SCHEDULE_INTERVAL_MS;
+  const periods = Math.floor((nowMs - anchorMs) / SCHEDULE_INTERVAL_MS) + 1;
+  return anchorMs + Math.max(1, periods) * SCHEDULE_INTERVAL_MS;
+}
+
+function adaptiveExecutionWindow(row: Record<string, unknown>, startedAt: Date, invocationId: string) {
+  const startedMs = startedAt.getTime();
+  const previousStartMs = dateMs(row.last_execution_started_at);
+  let anchorMs = dateMs(row.schedule_anchor_at);
+  let samples = Math.max(0, Number(row.schedule_sample_count || 0));
+  let mode = "learning";
+
+  if (!anchorMs) {
+    anchorMs = startedMs;
+    samples = 1;
+  } else if (schedulePhaseDistance(startedMs, anchorMs) <= SCHEDULE_TOLERANCE_MS) {
+    anchorMs = startedMs;
+    samples = Math.min(100, samples + 1);
+    mode = samples >= 2 ? "scheduled" : "learning";
+  } else if (
+    previousStartMs > 0
+    && startedMs - previousStartMs >= 45 * 60_000
+    && schedulePhaseDistance(startedMs, previousStartMs) <= SCHEDULE_TOLERANCE_MS
+  ) {
+    anchorMs = startedMs;
+    samples = 2;
+    mode = "schedule-shift";
+  } else if (samples < 2) {
+    anchorMs = startedMs;
+    samples = 1;
+  } else {
+    mode = "off-cycle";
+  }
+
+  const nextExpectedMs = mode === "off-cycle"
+    ? nextScheduleSlot(anchorMs, startedMs)
+    : startedMs + SCHEDULE_INTERVAL_MS;
+  const hardStopMs = Math.max(startedMs, nextExpectedMs - HANDOFF_MARGIN_MS);
+  const availableMs = Math.max(0, hardStopMs - startedMs);
+  const phaseTwoReserveMs = Math.min(
+    PHASE_TWO_RESERVE_MAX_MS,
+    Math.max(2 * 60_000, Math.floor(availableMs * 0.35)),
+  );
+  const shouldYield = availableMs < MIN_USEFUL_WINDOW_MS;
+  const phaseOneBudgetMs = shouldYield
+    ? 0
+    : Math.min(PHASE_ONE_MAX_MS, Math.max(0, availableMs - phaseTwoReserveMs));
+  const phaseOneStopMs = startedMs + phaseOneBudgetMs;
+
+  return {
+    invocationId,
+    startedAt: startedAt.toISOString(),
+    phaseOneStopAt: new Date(phaseOneStopMs).toISOString(),
+    hardStopAt: new Date(hardStopMs).toISOString(),
+    nextExpectedStartAt: new Date(nextExpectedMs).toISOString(),
+    handoffMarginMs: HANDOFF_MARGIN_MS,
+    phaseOneBudgetMs,
+    phaseTwoReserveMs,
+    scheduleMode: mode,
+    scheduleConfidence: samples >= 2 ? "learned" : "learning",
+    scheduleSampleCount: samples,
+    scheduleAnchorAt: new Date(anchorMs).toISOString(),
+    shouldYield,
+  };
+}
 
 export function bridgeDatabaseConfigured() { return Boolean(process.env.DATABASE_URL); }
 
@@ -342,7 +425,8 @@ export async function leaseBridgeJobs(
   const limit = Math.max(1, Math.min(MAX_LEASE_JOBS, Math.floor(requestedLimit)));
   const customerId = normalizeId(requestedCustomerId);
   const hotAdd = (
-    options.protocol === "fleet-two-phase-durable-relay-v8"
+    options.protocol === "fleet-two-phase-adaptive-relay-v9"
+    || options.protocol === "fleet-two-phase-durable-relay-v8"
     || options.protocol === "fleet-two-phase-hot-add-relay-v7"
     || options.protocol === "fleet-hot-add-relay-v6"
   ) && options.hotAdd === true && !customerId;
@@ -475,12 +559,17 @@ export async function leaseBridgeJobs(
   });
 }
 
-export async function bridgeShardManifest(shardId: string) {
+export async function bridgeShardManifest(
+  shardId: string,
+  options: { invocationId?: string; protocol?: string; preview?: boolean; adaptive?: boolean } = {},
+) {
   const normalizedShardId = shardId.trim();
   if (!normalizedShardId) throw new Error("shardId is required");
   return transaction(async (client) => {
+    await client.query("SELECT shard_id FROM tah_script_shards WHERE shard_id=$1 FOR UPDATE", [normalizedShardId]);
     const result = await client.query(
       `SELECT s.shard_id,s.enabled,
+              s.last_execution_started_at,s.schedule_anchor_at,s.schedule_sample_count,
               count(t.target_id) FILTER (WHERE t.enabled AND t.archived_at IS NULL)::int AS campaign_count,
               COALESCE(array_agg(DISTINCT t.customer_id ORDER BY t.customer_id)
                 FILTER (WHERE t.enabled AND t.archived_at IS NULL),'{}'::text[]) AS account_ids,
@@ -489,7 +578,7 @@ export async function bridgeShardManifest(shardId: string) {
          FROM tah_script_shards s
          LEFT JOIN tah_campaign_targets t ON t.shard_id=s.shard_id
         WHERE s.shard_id=$1
-        GROUP BY s.shard_id,s.enabled`,
+        GROUP BY s.shard_id,s.enabled,s.last_execution_started_at,s.schedule_anchor_at,s.schedule_sample_count`,
       [normalizedShardId],
     );
     const row = result.rows[0];
@@ -497,26 +586,80 @@ export async function bridgeShardManifest(shardId: string) {
     const managerIds = Array.isArray(row.manager_ids) ? row.manager_ids.map(String) : [];
     const accountIds = Array.isArray(row.account_ids) ? row.account_ids.map(String) : [];
     if (managerIds.length > 1) throw new Error(`Fleet shard ${normalizedShardId} contains campaigns from multiple MCC accounts`);
-    await client.query(
-      `INSERT INTO tah_script_account_activity(shard_id,customer_id,manifest_seen_at)
-       SELECT $1,account_id,now() FROM unnest($2::text[]) AS account_id
-       ON CONFLICT (shard_id,customer_id) DO UPDATE SET manifest_seen_at=EXCLUDED.manifest_seen_at,updated_at=now()`,
-      [normalizedShardId, accountIds],
-    );
-    await client.query(
-      `DELETE FROM tah_script_account_activity
-        WHERE shard_id=$1 AND NOT (customer_id=ANY($2::text[]))`,
-      [normalizedShardId, accountIds],
-    );
+    let executionWindow: ReturnType<typeof adaptiveExecutionWindow> | null = null;
+    if (!options.preview) {
+      await client.query(
+        `INSERT INTO tah_script_account_activity(shard_id,customer_id,manifest_seen_at)
+         SELECT $1,account_id,now() FROM unnest($2::text[]) AS account_id
+         ON CONFLICT (shard_id,customer_id) DO UPDATE SET manifest_seen_at=EXCLUDED.manifest_seen_at,updated_at=now()`,
+        [normalizedShardId, accountIds],
+      );
+      await client.query(
+        `DELETE FROM tah_script_account_activity
+          WHERE shard_id=$1 AND NOT (customer_id=ANY($2::text[]))`,
+        [normalizedShardId, accountIds],
+      );
+    }
+    if (!options.preview && options.adaptive) {
+      const startedAt = new Date();
+      const invocationId = String(options.invocationId || randomUUID()).slice(0, 200);
+      executionWindow = adaptiveExecutionWindow(row, startedAt, invocationId);
+      await client.query(
+        `UPDATE tah_script_shards SET
+           previous_execution_started_at=last_execution_started_at,
+           last_execution_started_at=$2,
+           last_execution_completed_at=NULL,
+           last_invocation_id=$3,
+           last_execution_status='running',
+           schedule_anchor_at=$4,
+           schedule_sample_count=$5,
+           expected_next_start_at=$6,
+           phase_one_stop_at=$7,
+           hard_stop_at=$8,
+           handoff_margin_ms=$9,
+           updated_at=now()
+         WHERE shard_id=$1`,
+        [
+          normalizedShardId,
+          executionWindow.startedAt,
+          invocationId,
+          executionWindow.scheduleAnchorAt,
+          executionWindow.scheduleSampleCount,
+          executionWindow.nextExpectedStartAt,
+          executionWindow.phaseOneStopAt,
+          executionWindow.hardStopAt,
+          executionWindow.handoffMarginMs,
+        ],
+      );
+    }
     return {
-      protocol: "fleet-two-phase-durable-relay-v8",
+      protocol: "fleet-two-phase-adaptive-relay-v9",
       shardId: normalizedShardId,
       managerCustomerId: String(managerIds[0] || ""),
       accountIds,
       campaignCount: Number(row.campaign_count || 0),
       capacity: SHARD_CAPACITY,
+      executionWindow,
     };
   });
+}
+
+export async function completeBridgeInvocation(input: {
+  shardId: string;
+  invocationId: string;
+  status: string;
+}) {
+  const status = ["completed", "yielded", "empty", "failed"].includes(input.status)
+    ? input.status
+    : "completed";
+  const result = await getPool().query(
+    `UPDATE tah_script_shards SET
+       last_execution_completed_at=now(),last_execution_status=$3,updated_at=now()
+     WHERE shard_id=$1 AND last_invocation_id=$2
+     RETURNING shard_id`,
+    [input.shardId, input.invocationId, status],
+  );
+  return { recorded: result.rowCount === 1 };
 }
 
 export async function acknowledgeBridgeJob(input: { shardId: string; workerId: string; jobId: string; leaseToken: string; ok: boolean; appliedSuffix?: string; error?: string }) {
@@ -769,13 +912,19 @@ export async function bridgeShardStatus() {
             COALESCE(s.enabled,false) AS enabled,
             (s.shard_id IS NOT NULL) AS registered,
             s.last_poll_at,s.last_ack_at,s.last_error,s.updated_at,
+            s.last_execution_started_at,s.last_execution_completed_at,s.last_execution_status,
+            s.expected_next_start_at,s.phase_one_stop_at,s.hard_stop_at,s.handoff_margin_ms,
+            s.schedule_anchor_at,s.schedule_sample_count,s.last_invocation_id,
             (count(t.target_id) FILTER (WHERE t.enabled AND t.archived_at IS NULL))::int AS campaign_count,
             min(NULLIF(t.manager_customer_id,'')) FILTER (WHERE t.enabled AND t.archived_at IS NULL) AS manager_customer_id,
             ${SHARD_CAPACITY}::int AS capacity
        FROM shard_ids ids
        LEFT JOIN tah_script_shards s ON s.shard_id=ids.shard_id
        LEFT JOIN tah_campaign_targets t ON t.shard_id=ids.shard_id
-      GROUP BY ids.shard_id,s.shard_id,s.enabled,s.last_poll_at,s.last_ack_at,s.last_error,s.updated_at
+      GROUP BY ids.shard_id,s.shard_id,s.enabled,s.last_poll_at,s.last_ack_at,s.last_error,s.updated_at,
+               s.last_execution_started_at,s.last_execution_completed_at,s.last_execution_status,
+               s.expected_next_start_at,s.phase_one_stop_at,s.hard_stop_at,s.handoff_margin_ms,
+               s.schedule_anchor_at,s.schedule_sample_count,s.last_invocation_id
       ORDER BY ids.shard_id`,
   );
   return result.rows;

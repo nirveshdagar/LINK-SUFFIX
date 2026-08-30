@@ -1,17 +1,18 @@
-export const RELATIONAL_FLEET_WORKER_VERSION = "fleet-two-phase-durable-relay-v8";
+export const RELATIONAL_FLEET_WORKER_VERSION = "fleet-two-phase-adaptive-relay-v9";
 
-export function buildRelationalFleetV8Worker(
+export function buildRelationalFleetV9Worker(
   endpoint: string,
   token: string,
   shardId: string,
 ) {
   return `/**
- * Traffic Armour Rolling Apps Script Fleet v8 durable two-phase relay.
+ * Traffic Armour Rolling Apps Script Fleet v9 adaptive two-phase relay.
  * Install this copy once for shard ${shardId} in its Google Ads MCC,
  * authorize it, and schedule it Hourly.
  *
  * It keeps V5's proven 50-second delivery pacing, retains V7 hot-add discovery,
- * and renews immutable server leases around Google-owned mutation calls.
+ * renews immutable server leases, and yields two minutes before the server's
+ * learned next Google hourly trigger.
  */
 const CONFIG = Object.freeze({
   BRIDGE_URL: ${JSON.stringify(endpoint)},
@@ -22,6 +23,7 @@ const CONFIG = Object.freeze({
   MAX_JOBS: 200,
   WORKER_VERSION: "${RELATIONAL_FLEET_WORKER_VERSION}",
   MIN_REMAINING_SECONDS: 90,
+  DEADLINE_GUARD_MS: 10000,
   ACCOUNT_POLL_MS: 50000,
   IDLE_POLL_MS: 10000,
   POST_BATCH_SLEEP_MS: 50000,
@@ -32,7 +34,7 @@ function main() {
   const executionInfo = AdsApp.getExecutionInfo();
   const preview = executionInfo.isPreview();
   const invocationId = Utilities.getUuid();
-  const manifest = fetchManifest_("manifest-" + invocationId, preview);
+  const manifest = fetchManifest_(invocationId, preview);
 
   if (preview) {
     Logger.log(
@@ -53,8 +55,18 @@ function main() {
   }
 
   const accountIds = manifest.accountIds;
+  const executionWindow = normalizeExecutionWindow_(manifest.executionWindow, invocationId);
+  if (!executionWindow || executionWindow.shouldYield) {
+    Logger.log(
+      "Traffic Armour Fleet " + CONFIG.SHARD_ID +
+      " yielded because the next Google hourly trigger is inside the protected handoff window."
+    );
+    completeInvocation_(invocationId, "yielded");
+    return;
+  }
   if (!accountIds.length) {
     Logger.log("Traffic Armour Fleet " + CONFIG.SHARD_ID + " has no assigned child accounts.");
+    completeInvocation_(invocationId, "empty");
     return;
   }
   if (accountIds.length > CONFIG.MAX_ACCOUNTS) {
@@ -68,18 +80,20 @@ function main() {
   AdsManagerApp.accounts()
     .withIds(accountIds)
     .withLimit(CONFIG.MAX_ACCOUNTS)
-    .executeInParallel("bootstrapAccount_", "continueFleetRelay_", invocationId);
+    .executeInParallel("bootstrapAccount_", "continueFleetRelay_", JSON.stringify(executionWindow));
 }
 
-function bootstrapAccount_(invocationId) {
+function bootstrapAccount_(executionWindowJson) {
+  const executionWindow = parseExecutionWindow_(executionWindowJson);
+  if (!executionWindow) throw new Error("Adaptive execution window is missing");
   const customerId = digits_(AdsApp.currentAccount().getCustomerId());
   const executionInfo = AdsApp.getExecutionInfo();
-  const workerId = safeWorkerId_("child-" + customerId + "-" + invocationId);
+  const workerId = safeWorkerId_("child-" + customerId + "-" + executionWindow.invocationId);
   let completedCycles = 0;
   let total = 0;
   let verified = 0;
 
-  while (executionInfo.getRemainingTime() > CONFIG.MIN_REMAINING_SECONDS) {
+  while (hasExecutionTime_(executionInfo, executionWindow.phaseOneStopAtMs)) {
     try {
       const response = leaseJobs_(workerId, customerId, false);
       const jobs = Array.isArray(response.jobs) ? response.jobs : [];
@@ -87,13 +101,13 @@ function bootstrapAccount_(invocationId) {
       completedCycles += 1;
       total += outcome.total;
       verified += outcome.verified;
-      sleepWithinDeadline_(CONFIG.ACCOUNT_POLL_MS, executionInfo);
+      sleepWithinDeadline_(CONFIG.ACCOUNT_POLL_MS, executionInfo, executionWindow.phaseOneStopAtMs);
     } catch (error) {
       Logger.log(
         "Traffic Armour Fleet account cycle failed for " + customerId +
         ": " + safeError_(error)
       );
-      sleepWithinDeadline_(CONFIG.ERROR_BACKOFF_MS, executionInfo);
+      sleepWithinDeadline_(CONFIG.ERROR_BACKOFF_MS, executionInfo, executionWindow.phaseOneStopAtMs);
     }
   }
 
@@ -101,30 +115,43 @@ function bootstrapAccount_(invocationId) {
     customerId: customerId,
     cycles: completedCycles,
     total: total,
-    verified: verified
+    verified: verified,
+    executionWindow: executionWindow
   });
 }
 
 function continueFleetRelay_(executionResults) {
   let bootstrapOk = 0;
   let bootstrapFailed = 0;
+  let executionWindow = null;
   (executionResults || []).forEach(function(result) {
-    if (String(result.getStatus()) === "OK") bootstrapOk += 1;
-    else bootstrapFailed += 1;
+    if (String(result.getStatus()) === "OK") {
+      bootstrapOk += 1;
+      if (!executionWindow) {
+        try {
+          const returned = JSON.parse(String(result.getReturnValue() || "{}"));
+          executionWindow = returned.executionWindow || null;
+        } catch (error) { /* another successful child can supply the window */ }
+      }
+    } else bootstrapFailed += 1;
   });
   Logger.log(
     "Traffic Armour Fleet " + CONFIG.SHARD_ID + " bootstrap complete: " +
     bootstrapOk + " account(s) ready, " + bootstrapFailed + " failed."
   );
-  runContinuousRelay_();
+  if (!executionWindow) {
+    Logger.log("Traffic Armour Fleet callback stopped safely because no adaptive execution window was returned.");
+    return;
+  }
+  runContinuousRelay_(executionWindow);
 }
 
-function runContinuousRelay_() {
+function runContinuousRelay_(executionWindow) {
   const executionInfo = AdsApp.getExecutionInfo();
-  const workerId = safeWorkerId_("manager-" + Utilities.getUuid());
+  const workerId = safeWorkerId_("manager-" + executionWindow.invocationId);
   let completedBatches = 0;
 
-  while (executionInfo.getRemainingTime() > CONFIG.MIN_REMAINING_SECONDS) {
+  while (hasExecutionTime_(executionInfo, executionWindow.hardStopAtMs)) {
     try {
       const response = leaseJobs_(workerId, "", true);
       const jobs = Array.isArray(response.jobs) ? response.jobs : [];
@@ -134,11 +161,12 @@ function runContinuousRelay_() {
       }
       sleepWithinDeadline_(
         jobs.length ? CONFIG.POST_BATCH_SLEEP_MS : CONFIG.IDLE_POLL_MS,
-        executionInfo
+        executionInfo,
+        executionWindow.hardStopAtMs
       );
     } catch (error) {
       Logger.log("Traffic Armour Fleet cycle failed: " + safeError_(error));
-      sleepWithinDeadline_(CONFIG.ERROR_BACKOFF_MS, executionInfo);
+      sleepWithinDeadline_(CONFIG.ERROR_BACKOFF_MS, executionInfo, executionWindow.hardStopAtMs);
     }
   }
 
@@ -146,8 +174,9 @@ function runContinuousRelay_() {
     "Traffic Armour Fleet " + CONFIG.SHARD_ID +
     " completed its hourly relay before Google's 60-minute deadline after " +
     completedBatches +
-    " callback batch(es). The Hourly schedule starts the next relay."
+    " callback batch(es). The worker yielded for the two-minute hourly handoff."
   );
+  completeInvocation_(executionWindow.invocationId, "completed");
 }
 
 function executeCurrentAccountBatch_(jobs, customerId, workerId) {
@@ -215,11 +244,18 @@ function executeFleetBatch_(jobs, workerId) {
   );
 }
 
-function sleepWithinDeadline_(milliseconds, executionInfo) {
-  const available = Math.max(
+function hasExecutionTime_(executionInfo, stopAtMs) {
+  return executionInfo.getRemainingTime() > CONFIG.MIN_REMAINING_SECONDS &&
+    Date.now() + CONFIG.DEADLINE_GUARD_MS < Number(stopAtMs || 0);
+}
+
+function sleepWithinDeadline_(milliseconds, executionInfo, stopAtMs) {
+  const googleAvailable = Math.max(
     0,
     (executionInfo.getRemainingTime() - CONFIG.MIN_REMAINING_SECONDS) * 1000
   );
+  const adaptiveAvailable = Math.max(0, Number(stopAtMs || 0) - Date.now() - CONFIG.DEADLINE_GUARD_MS);
+  const available = Math.min(googleAvailable, adaptiveAvailable);
   if (available > 0) Utilities.sleep(Math.min(milliseconds, available));
 }
 
@@ -288,9 +324,10 @@ function readSuffixes_(campaignIds) {
   return suffixes;
 }
 
-function fetchManifest_(workerId, preview) {
+function fetchManifest_(invocationId, preview) {
   const payload = bridgeGet_({
-    workerId: workerId,
+    workerId: "manifest-" + invocationId,
+    invocationId: invocationId,
     manifest: "1",
     preview: preview ? "1" : "0"
   });
@@ -323,6 +360,51 @@ function acknowledge_(workerId, results) {
   });
   if (receipt.allApplied === false) {
     Logger.log("Traffic Armour Fleet acknowledgement contained a stale or failed campaign result; the relay will continue.");
+  }
+}
+
+function normalizeExecutionWindow_(raw, invocationId) {
+  raw = raw || {};
+  const phaseOneStopAtMs = Date.parse(String(raw.phaseOneStopAt || ""));
+  const hardStopAtMs = Date.parse(String(raw.hardStopAt || ""));
+  if (!Number.isFinite(phaseOneStopAtMs) || !Number.isFinite(hardStopAtMs)) return null;
+  return {
+    invocationId: safeWorkerId_(raw.invocationId || invocationId),
+    phaseOneStopAtMs: phaseOneStopAtMs,
+    hardStopAtMs: hardStopAtMs,
+    nextExpectedStartAt: String(raw.nextExpectedStartAt || ""),
+    handoffMarginMs: Number(raw.handoffMarginMs || 0),
+    scheduleMode: String(raw.scheduleMode || "learning"),
+    shouldYield: raw.shouldYield === true
+  };
+}
+
+function parseExecutionWindow_(value) {
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    if (!parsed || !Number.isFinite(Number(parsed.phaseOneStopAtMs)) || !Number.isFinite(Number(parsed.hardStopAtMs))) return null;
+    return parsed;
+  } catch (error) {
+    return null;
+  }
+}
+
+function completeInvocation_(invocationId, status) {
+  try {
+    bridgeRequest_(CONFIG.BRIDGE_URL, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        action: "complete",
+        protocol: CONFIG.WORKER_VERSION,
+        contract: CONFIG.CONTRACT,
+        shardId: CONFIG.SHARD_ID,
+        invocationId: invocationId,
+        status: status
+      })
+    });
+  } catch (error) {
+    Logger.log("Traffic Armour Fleet completion heartbeat warning: " + safeError_(error));
   }
 }
 
@@ -433,6 +515,7 @@ function safeError_(error) {
 }
 
 // Source-compatible aliases keep existing imports working during rolling deploys.
-export const buildRelationalFleetV7Worker = buildRelationalFleetV8Worker;
-export const buildRelationalFleetV6Worker = buildRelationalFleetV8Worker;
-export const buildRelationalFleetV5Worker = buildRelationalFleetV8Worker;
+export const buildRelationalFleetV8Worker = buildRelationalFleetV9Worker;
+export const buildRelationalFleetV7Worker = buildRelationalFleetV9Worker;
+export const buildRelationalFleetV6Worker = buildRelationalFleetV9Worker;
+export const buildRelationalFleetV5Worker = buildRelationalFleetV9Worker;
