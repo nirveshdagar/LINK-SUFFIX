@@ -50,6 +50,7 @@ type BridgeCampaign = {
   last_error?: string | null;
   applied_at?: string | null;
   last_applied_at?: string | null;
+  last_applied_suffix?: string | null;
   account_manifest_seen_at?: string | null;
   account_last_poll_at?: string | null;
   account_ready?: boolean;
@@ -491,7 +492,7 @@ export function ScriptBridge({
                 const health = targetHealth(campaign, shard);
                 const savedCampaign = savedCampaigns.find((item) => item.id === campaign.campaign_record_id);
                 const busy = actionCampaignId === campaign.campaign_record_id;
-                const wasApplied = campaign.latest_job_state === "applied" && Boolean(campaign.applied_at);
+                const hasVerifiedDelivery = campaign.last_applied_suffix != null && Boolean(campaign.last_applied_at);
                 return (
                   <tr key={campaign.target_id}>
                     <td className="fleet-campaign-cell">
@@ -511,10 +512,10 @@ export function ScriptBridge({
                       <small>Version {campaign.latest_version || "-"}</small>
                     </td>
                     <td className="fleet-suffix-cell fleet-inserted-cell">
-                      {wasApplied
-                        ? <code>{campaign.exact_suffix || "(empty suffix)"}</code>
+                      {hasVerifiedDelivery
+                        ? <code>{campaign.last_applied_suffix || "(empty suffix)"}</code>
                         : <span className="fleet-cell-empty">{!campaign.exact_suffix && !campaign.account_ready ? "Journey held until account worker is ready" : campaign.latest_job_state === "pending" ? "Awaiting worker" : campaign.latest_job_state === "leased" ? "Being applied" : "Not verified yet"}</span>}
-                      <small>{wasApplied ? "Verified " + formatTimestamp(campaign.applied_at) : "Exact value appears only after acknowledgement"}</small>
+                      <small>{hasVerifiedDelivery ? "Verified " + formatTimestamp(campaign.last_applied_at) : "Exact value appears only after acknowledgement"}</small>
                     </td>
                     <td className="fleet-health-cell">
                       <span className={"health-chip is-" + health.tone}>{health.label}</span>

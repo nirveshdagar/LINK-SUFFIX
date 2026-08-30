@@ -625,6 +625,12 @@ export async function listBridgeTargets(options: { query?: string; page?: number
               ELSE 'waiting_for_manifest'
             END AS account_readiness,
             latest.version AS latest_version,latest.exact_suffix,latest.captured_at,
+            (SELECT applied_capture.exact_suffix
+               FROM tah_suffix_captures applied_capture
+              WHERE applied_capture.target_id=t.target_id
+                AND applied_capture.suffix_hash=t.last_applied_suffix_hash
+              ORDER BY applied_capture.captured_at DESC,applied_capture.capture_id DESC LIMIT 1
+            ) AS last_applied_suffix,
             job.state AS latest_job_state,job.attempt_count,job.last_error,job.applied_at,job.created_at AS latest_job_created_at,
             CASE WHEN t.last_applied_at IS NOT NULL THEN 'healthy' WHEN job.state='dead' THEN 'attention' ELSE 'awaiting' END AS delivery_health,
             CASE
