@@ -696,11 +696,25 @@ async function evaluateHealth(source: string) {
   }
 
   const candidates = [...candidateMap.values()];
+  const fleetCandidates = candidates.filter(
+    (item) => item.scope === "delivery" || item.scope === "script-fleet",
+  );
+  const fleetState = severityState(fleetCandidates);
+
   heartbeats.push({
-    componentId: "script-fleet", componentType: "delivery",
-    state: severityState(candidates.filter((item) => item.scope === "delivery" || item.scope === "script-fleet")),
-    message: `${enrolled.length} enrolled campaign(s) and ${shardCampaigns.size} shard(s) evaluated.`,
-    details: { enrolledCampaigns: enrolled.length, shards: shardCampaigns.size },
+    componentId: "script-fleet",
+    componentType: "delivery",
+    state: fleetState,
+    message:
+      fleetState === "healthy"
+        ? `Fleet healthy. ${enrolled.length} campaign(s) are enrolled across ${shardCampaigns.size} active shard(s); no delivery fault was detected.`
+        : `Fleet needs attention. ${enrolled.length} campaign(s) and ${shardCampaigns.size} shard(s) were evaluated; open delivery alerts identify the affected campaigns.`,
+    details: {
+      enrolledCampaigns: enrolled.length,
+      shards: shardCampaigns.size,
+      openFleetAlerts: fleetCandidates.length,
+      summary: true,
+    },
   });
   heartbeats.push({
     componentId: "alert-evaluator", componentType: "watchdog", state: "healthy",
