@@ -82,6 +82,19 @@ type BridgeResponse = {
   shards?: BridgeShard[];
 };
 
+type FleetAlert = {
+  status: "observing" | "active" | "acknowledged" | "resolved";
+  campaignRecordId?: string;
+  shardId?: string;
+};
+
+type FleetAlertReport = {
+  alerts?: FleetAlert[];
+  error?: string;
+};
+
+type FleetIndicatorState = "checking" | "healthy" | "issue";
+
 type ScriptBridgeProps = {
   campaigns?: SavedFleetCampaign[];
   controlConnected?: boolean;
@@ -102,6 +115,52 @@ const hasCompleteTarget = (campaign: SavedFleetCampaign) =>
   /^\d{10}$/.test(normalizedId(campaign.config.loginCustomerId))
   && /^\d{10}$/.test(normalizedId(campaign.config.customerId))
   && /^\d{8,20}$/.test(normalizedId(campaign.config.googleCampaignId));
+
+function campaignCreationOrdinal(campaign: BridgeCampaign) {
+  const match = campaign.campaign_record_id.match(/(\d+)$/);
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+}
+
+function compareCampaignCreationOrder(left: BridgeCampaign, right: BridgeCampaign) {
+  const ordinalDifference = campaignCreationOrdinal(left) - campaignCreationOrdinal(right);
+  if (ordinalDifference !== 0) return ordinalDifference;
+  if (left.campaign_record_id !== right.campaign_record_id) {
+    return left.campaign_record_id < right.campaign_record_id ? -1 : 1;
+  }
+  if (left.target_id === right.target_id) return 0;
+  return left.target_id < right.target_id ? -1 : 1;
+}
+
+function FleetAlertIndicator({ state, title }: { state: FleetIndicatorState; title: string }) {
+  const isIssue = state === "issue";
+  const isHealthy = state === "healthy";
+  const color = isIssue ? "#ff321f" : isHealthy ? "#20c878" : "#a7a195";
+  const label = isIssue ? "ISSUE" : isHealthy ? "CLEAR" : "CHECK";
+  return (
+    <span
+      role="status"
+      aria-label={title}
+      title={title}
+      style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", flex: "0 0 auto" }}
+    >
+      <i
+        aria-hidden="true"
+        style={{
+          width: "0.62rem",
+          height: "0.62rem",
+          borderRadius: "999px",
+          background: color,
+          boxShadow: isIssue
+            ? "0 0 0 3px rgba(255,50,31,.2), 0 0 14px rgba(255,50,31,.95)"
+            : isHealthy
+              ? "0 0 0 3px rgba(32,200,120,.14), 0 0 9px rgba(32,200,120,.55)"
+              : "none",
+        }}
+      />
+      <small style={{ color, fontSize: "0.6rem", fontWeight: 800, letterSpacing: "0.08em" }}>{label}</small>
+    </span>
+  );
+}
 
 function formatTimestamp(value?: string | null) {
   if (!value) return "Never";
@@ -224,6 +283,8 @@ export function ScriptBridge({
   const [generatedForShard, setGeneratedForShard] = useState("");
   const [generating, setGenerating] = useState(false);
   const [actionCampaignId, setActionCampaignId] = useState("");
+  const [fleetAlerts, setFleetAlerts] = useState<FleetAlert[] | null>(null);
+  const [fleetAlertsUnavailable, setFleetAlertsUnavailable] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -236,6 +297,44 @@ export function ScriptBridge({
   useEffect(() => {
     if (window.location.protocol === "https:" && !publicBaseUrl) setPublicBaseUrl(window.location.origin);
   }, [publicBaseUrl]);
+
+  useEffect(() => {
+    let active = true;
+    let inFlight = false;
+    const loadFleetAlerts = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch("/api/alerts", { cache: "no-store", credentials: "same-origin" });
+        const body = await response.json() as FleetAlertReport;
+        if (!response.ok) throw new Error(body.error || `Alert status failed (${response.status})`);
+        if (active) {
+          setFleetAlerts((body.alerts || []).filter((alert) => alert.status !== "resolved"));
+          setFleetAlertsUnavailable(false);
+        }
+      } catch {
+        if (active) setFleetAlertsUnavailable(true);
+      } finally {
+        inFlight = false;
+      }
+    };
+    void loadFleetAlerts();
+    const timer = window.setInterval(loadFleetAlerts, 5_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const fleetAlertIndex = useMemo(() => {
+    const campaignIds = new Set<string>();
+    const shardIds = new Set<string>();
+    for (const alert of fleetAlerts || []) {
+      if (alert.campaignRecordId) campaignIds.add(alert.campaignRecordId);
+      if (alert.shardId) shardIds.add(alert.shardId);
+    }
+    return { campaignIds, shardIds };
+  }, [fleetAlerts]);
 
   const refresh = useCallback(async (signal?: AbortSignal, silent = false) => {
     if (!silent) setLoading(true);
@@ -539,15 +638,39 @@ export function ScriptBridge({
               {!loading && !targetItems.length && (
                 <tr><td colSpan={5}><p className="bridge-empty">No Fleet campaign matches this view.</p></td></tr>
               )}
-              {targetItems.map((campaign) => {
+              {[...targetItems].sort(compareCampaignCreationOrder).map((campaign) => {
                 const shard = shardOptions.find((item) => item.shard_id === campaign.shard_id);
                 const health = targetHealth(campaign, shard);
                 const savedCampaign = savedCampaigns.find((item) => item.id === campaign.campaign_record_id);
                 const busy = actionCampaignId === campaign.campaign_record_id;
+                const hasCampaignAlert = fleetAlertIndex.campaignIds.has(campaign.campaign_record_id);
+                const hasShardAlert = fleetAlertIndex.shardIds.has(campaign.shard_id);
+                const hasFleetAlert = hasCampaignAlert || hasShardAlert;
+                const indicatorState: FleetIndicatorState = fleetAlertsUnavailable
+                  ? "issue"
+                  : fleetAlerts === null
+                    ? "checking"
+                    : hasFleetAlert
+                      ? "issue"
+                      : "healthy";
+                const indicatorTitle = fleetAlertsUnavailable
+                  ? "Alert status is unavailable; campaign health cannot be confirmed."
+                  : hasCampaignAlert && hasShardAlert
+                    ? "This campaign and its Apps Script shard have active alerts."
+                    : hasCampaignAlert
+                      ? "This campaign has an active alert."
+                      : hasShardAlert
+                        ? `Shard ${campaign.shard_id} has an active alert affecting this campaign.`
+                        : fleetAlerts === null
+                          ? "Checking campaign and shard alerts."
+                          : "No active campaign or shard alert.";
                 return (
                   <tr key={campaign.target_id}>
                     <td className="fleet-campaign-cell">
-                      <strong>{campaign.campaign_name}</strong>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", flexWrap: "wrap" }}>
+                        <FleetAlertIndicator state={indicatorState} title={indicatorTitle} />
+                        <strong>{campaign.campaign_name}</strong>
+                      </div>
                       <small>{campaign.campaign_record_id}</small>
                       <dl>
                         <div><dt>Campaign</dt><dd>{campaign.google_campaign_id}</dd></div>
