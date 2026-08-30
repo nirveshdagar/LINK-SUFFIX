@@ -175,8 +175,6 @@ services:
     environment:
       TAH_DOMAIN: ${TAH_DOMAIN:?set TAH_DOMAIN}
       TAH_TLS_EMAIL: ${TAH_TLS_EMAIL:?set TAH_TLS_EMAIL}
-      TAH_ADMIN_USER: ${TAH_ADMIN_USER:?set TAH_ADMIN_USER}
-      TAH_ADMIN_PASSWORD_HASH: ${TAH_ADMIN_PASSWORD_HASH:?set TAH_ADMIN_PASSWORD_HASH}
     volumes:
       - ./Caddyfile.production:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
