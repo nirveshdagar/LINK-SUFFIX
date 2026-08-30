@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Check, CircleStop, Globe2, KeyRound, Laptop, MapPin, Megaphone, Play, Radio, RefreshCw, Router, ShieldCheck, Smartphone, TerminalSquare, Users } from "lucide-react";
 import AdsIntegration from "@/components/ads-integration";
+import AlertRailLink from "@/components/alert-rail-link";
 
 type Tier = "trivial-http" | "headless" | "stealth" | "human";
 import { MAJOR_CITIES, WORLD_COUNTRIES } from "@/lib/world-locations";
@@ -333,7 +334,8 @@ export default function ControlPanel() {
           <a className="rail-link" href="#runs" aria-label="Run operations" title="Runs"><Activity size={18} /><span>Runs</span></a>
           <Link className="rail-link" href="/dashboard" aria-label="Telemetry dashboard" title="Telemetry"><TerminalSquare size={18} /><span>Telemetry</span></Link>
           <Link className="rail-link" href="/capacity" aria-label="Server capacity" title="Capacity"><Activity size={18} /><span>Capacity</span></Link>
-        </nav>
+        <AlertRailLink />
+      </nav>
         <div className="rail-foot">v0.1</div>
       </aside>
 

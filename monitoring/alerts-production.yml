@@ -84,3 +84,24 @@ groups:
         labels: { severity: warning }
         annotations:
           summary: More than 15 percent of recent proxy events are failures
+
+      - alert: HealthWatchdogStopped
+        expr: up{job="traffic-armour-health-watchdog"} == 0 or tah_health_watchdog_up == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: The Traffic Armour micro-heartbeat evaluator stopped advancing
+
+      - alert: ApplicationCriticalIncident
+        expr: tah_health_alerts_critical > 0
+        for: 15s
+        labels: { severity: critical }
+        annotations:
+          summary: Traffic Armour detected a critical campaign, Fleet, or infrastructure incident
+
+      - alert: ApplicationWarningIncident
+        expr: tah_health_alerts_warning > 0
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: Traffic Armour detected a sustained operational warning

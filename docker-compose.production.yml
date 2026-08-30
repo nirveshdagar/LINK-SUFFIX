@@ -211,6 +211,43 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+  health-watchdog:
+    restart: unless-stopped
+    command:
+      - node
+      - tooling/health-watchdog.mjs
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      NODE_ENV: production
+      TAH_ALERTS_INTERNAL_URL: http://web:3100/api/alerts
+      TAH_HEALTH_INTERVAL_MS: "15000"
+    expose:
+      - "3197"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3197/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - private
+    image: traffic-armour-app:${TAH_IMAGE_TAG:-latest}
+    depends_on:
+      web:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
   prometheus:
     image: prom/prometheus:v3.5.0
     restart: unless-stopped

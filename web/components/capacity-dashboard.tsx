@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Activity, AlertTriangle, CheckCircle2, Cpu, Database, Gauge, HardDrive, MemoryStick, Megaphone, Network, RefreshCw, Router, Server, TerminalSquare } from "lucide-react";
 import styles from "./capacity-dashboard.module.css";
+import AlertRailLink from "./alert-rail-link";
 
 type HealthState = "healthy" | "warning" | "critical";
 
@@ -106,7 +107,8 @@ export default function CapacityDashboard() {
           <Link className="rail-link" href="/#runs" title="Runs"><Activity size={18} /><span>Runs</span></Link>
           <Link className="rail-link" href="/dashboard" title="Telemetry"><TerminalSquare size={18} /><span>Telemetry</span></Link>
           <Link className="rail-link active" href="/capacity" aria-current="page" title="Capacity"><Gauge size={18} /><span>Capacity</span></Link>
-        </nav>
+        <AlertRailLink />
+      </nav>
         <div className="rail-foot">v0.1</div>
       </aside>
 
