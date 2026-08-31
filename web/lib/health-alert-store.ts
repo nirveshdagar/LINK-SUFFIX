@@ -393,6 +393,12 @@ async function persistEvaluation(candidates: AlertCandidate[], heartbeats: Compo
         })))],
       );
     }
+    await client.query(
+      `DELETE FROM tah_component_heartbeats
+       WHERE component_type IN ('campaign', 'campaign-delivery', 'apps-script-shard')
+         AND NOT (component_id = ANY($1::text[]))`,
+      [heartbeats.map((item) => item.componentId)],
+    );
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
