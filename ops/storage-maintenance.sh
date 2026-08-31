@@ -108,7 +108,7 @@ read_disk_metrics() {
 read_load_metrics() {
   local load_one="${TAH_MAINTENANCE_TEST_LOAD_ONE:-}"
   local cpu_count="${TAH_MAINTENANCE_TEST_CPU_COUNT:-}"
-  if [[ -z "$load_one" ]]; then read -r load_one _ < /proc/loadavg; fi
+  if [[ -z "$load_one" ]]; then IFS=' ' read -r load_one _ < /proc/loadavg; fi
   if [[ -z "$cpu_count" ]]; then cpu_count="$(getconf _NPROCESSORS_ONLN)"; fi
   require_decimal load_one "$load_one"
   require_uint cpu_count "$cpu_count"

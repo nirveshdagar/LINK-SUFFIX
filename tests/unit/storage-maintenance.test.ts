@@ -114,6 +114,21 @@ describe("guarded storage maintenance", () => {
     expect(() => readFileSync(test.dockerLog, "utf8")).toThrow();
   });
 
+  it("parses native host load metrics without test overrides", () => {
+    const test = fixture();
+    const env = {
+      ...test.baseEnv,
+      TAH_MAINTENANCE_TEST_INITIAL_USED_PERCENT: "60",
+      TAH_MAINTENANCE_TEST_INITIAL_AVAILABLE_GB: "80",
+    };
+    delete env.TAH_MAINTENANCE_TEST_LOAD_ONE;
+    delete env.TAH_MAINTENANCE_TEST_CPU_COUNT;
+    const result = runMaintenance(env);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/event=audit .*load_one=[0-9.]+ cpu_count=[1-9][0-9]*/);
+    expect(() => readFileSync(test.dockerLog, "utf8")).toThrow();
+  });
+
   it("skips cleanup under sustained host load", () => {
     const test = fixture();
     const result = runMaintenance({ ...test.baseEnv, TAH_MAINTENANCE_TEST_LOAD_ONE: "4" });
