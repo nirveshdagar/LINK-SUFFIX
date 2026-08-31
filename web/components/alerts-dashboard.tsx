@@ -5,6 +5,7 @@ import { Activity, AlertTriangle, CheckCircle2, Megaphone, Play, Radio, RefreshC
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AlertRailLink from "./alert-rail-link";
 import CapacityRailLink from "./capacity-rail-link";
+import ProxyRailLink from "./proxy-rail-link";
 import styles from "./alerts-dashboard.module.css";
 
 type AlertStatus = "observing" | "active" | "acknowledged" | "resolved";
@@ -91,6 +92,7 @@ export default function AlertsDashboard() {
           <Link className="rail-link" href="/#ads"><Megaphone size={18} /><span>Ads</span></Link>
           <Link className="rail-link" href="/#runs"><Radio size={18} /><span>Runs</span></Link>
           <Link className="rail-link" href="/dashboard"><Activity size={18} /><span>Telemetry</span></Link>
+          <ProxyRailLink />
           <CapacityRailLink />
           <AlertRailLink active />
         </nav>

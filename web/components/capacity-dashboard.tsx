@@ -6,6 +6,7 @@ import { Activity, AlertTriangle, CheckCircle2, Cpu, Database, Gauge, HardDrive,
 import styles from "./capacity-dashboard.module.css";
 import AlertRailLink from "./alert-rail-link";
 import CapacityRailLink from "./capacity-rail-link";
+import ProxyRailLink from "./proxy-rail-link";
 
 type HealthState = "healthy" | "warning" | "critical";
 
@@ -107,6 +108,7 @@ export default function CapacityDashboard() {
           <Link className="rail-link" href="/#ads" title="Ads"><Megaphone size={18} /><span>Ads</span></Link>
           <Link className="rail-link" href="/#runs" title="Runs"><Activity size={18} /><span>Runs</span></Link>
           <Link className="rail-link" href="/dashboard" title="Telemetry"><TerminalSquare size={18} /><span>Telemetry</span></Link>
+          <ProxyRailLink />
           <CapacityRailLink active />
         <AlertRailLink />
       </nav>

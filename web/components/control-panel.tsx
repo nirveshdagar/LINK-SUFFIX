@@ -7,6 +7,7 @@ import { Activity, Check, CircleStop, Globe2, KeyRound, Laptop, MapPin, Megaphon
 import AdsIntegration from "@/components/ads-integration";
 import AlertRailLink from "@/components/alert-rail-link";
 import CapacityRailLink from "@/components/capacity-rail-link";
+import ProxyRailLink from "@/components/proxy-rail-link";
 
 type Tier = "trivial-http" | "headless" | "stealth" | "human";
 import { MAJOR_CITIES, WORLD_COUNTRIES } from "@/lib/world-locations";
@@ -334,6 +335,7 @@ export default function ControlPanel() {
           <a className="rail-link" href="#ads" aria-label="Google Ads operations" title="Ads"><Megaphone size={18} /><span>Ads</span></a>
           <a className="rail-link" href="#runs" aria-label="Run operations" title="Runs"><Activity size={18} /><span>Runs</span></a>
           <Link className="rail-link" href="/dashboard" aria-label="Telemetry dashboard" title="Telemetry"><TerminalSquare size={18} /><span>Telemetry</span></Link>
+          <ProxyRailLink />
           <CapacityRailLink />
         <AlertRailLink />
       </nav>

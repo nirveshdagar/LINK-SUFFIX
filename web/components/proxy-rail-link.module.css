@@ -1,0 +1,7 @@
+.link { position: relative; }
+.icon { position: relative; display: inline-flex; }
+.icon i { position: absolute; right: -4px; top: -4px; width: 7px; height: 7px; border-radius: 50%; border: 1px solid #10261f; }
+.healthy i { background: #53d89a; box-shadow: 0 0 8px rgba(83, 216, 154, .75); }
+.alert i { background: #ff5438; box-shadow: 0 0 8px rgba(255, 84, 56, .82); }
+.loading i { background: #d2bd78; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
