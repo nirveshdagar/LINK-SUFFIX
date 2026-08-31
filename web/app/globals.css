@@ -578,6 +578,16 @@ button.scenario-item { width: 100%; color: inherit; font: inherit; text-align: l
   color: #10241d !important;
   text-align: left;
 }
+.fleet-shard-tab.has-shard-tone {
+  border-color: var(--fleet-shard-border) !important;
+  background: var(--fleet-shard-surface) !important;
+  box-shadow: inset 5px 0 0 var(--fleet-shard-accent);
+}
+.fleet-shard-tab.has-shard-tone.is-selected {
+  border-color: var(--fleet-shard-accent) !important;
+  background: var(--fleet-shard-surface-strong) !important;
+  box-shadow: inset 5px 0 0 var(--fleet-shard-accent), inset 0 0 0 1px var(--fleet-shard-accent);
+}
 .fleet-shard-tab.is-selected { border-color: #0b6b57 !important; box-shadow: inset 0 0 0 1px #0b6b57; background: #e5ede2 !important; }
 .fleet-shard-tab > span:first-child { min-width: 0; }
 .fleet-shard-tab strong,
@@ -592,6 +602,7 @@ button.scenario-item { width: 100%; color: inherit; font: inherit; text-align: l
 }
 .fleet-shard-tab > i b,
 .fleet-capacity-card > i b { display: block; height: 100%; background: #0b6b57; }
+.fleet-shard-tab.has-shard-tone > i b { background: var(--fleet-shard-accent); }
 .fleet-matrix { margin-top: 28px; padding-top: 28px; border-top: 1px solid var(--line); }
 .fleet-table-toolbar {
   display: grid;
@@ -632,6 +643,12 @@ button.scenario-item { width: 100%; color: inherit; font: inherit; text-align: l
 .fleet-table th:last-child { border-right: 0; }
 .fleet-table td { vertical-align: top; padding: 14px; border-right: 1px solid #ccd1c8; border-bottom: 1px solid #bbc3b8; background: #fffaf0; }
 .fleet-table tr:nth-child(even) td { background: #f2f3e9; }
+.fleet-table tr.fleet-shard-row td {
+  border-color: var(--fleet-shard-border);
+  background: var(--fleet-shard-surface);
+}
+.fleet-table tr.fleet-shard-row:nth-child(even) td { background: var(--fleet-shard-surface-strong); }
+.fleet-table tr.fleet-shard-row td:first-child { box-shadow: inset 6px 0 0 var(--fleet-shard-accent); }
 .fleet-table td:last-child { border-right: 0; }
 .fleet-campaign-cell > strong,
 .fleet-campaign-cell > small { display: block; }
@@ -663,6 +680,16 @@ button.scenario-item { width: 100%; color: inherit; font: inherit; text-align: l
 .fleet-shard-cell { min-width: 0; }
 .fleet-health-cell > p { margin: 10px 0 0; padding: 8px; background: #fee8df; color: #8f291c; font-size: 10px; overflow-wrap: anywhere; }
 .fleet-shard-cell > strong { display: block; font: 700 11px monospace; overflow-wrap: anywhere; }
+.fleet-shard-identity { display: grid; grid-template-columns: 11px minmax(0, 1fr); gap: 8px; align-items: center; }
+.fleet-shard-identity > i {
+  width: 11px;
+  height: 11px;
+  border: 1px solid color-mix(in srgb, var(--fleet-shard-accent) 72%, #10241d);
+  border-radius: 50%;
+  background: var(--fleet-shard-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fleet-shard-accent) 18%, transparent);
+}
+.fleet-shard-identity > strong { display: block; font: 700 11px monospace; overflow-wrap: anywhere; }
 .fleet-shard-cell > .health-chip { margin-top: 10px; }
 .fleet-shard-cell > button { width: 100%; margin: 12px 0 0 !important; }
 .fleet-bottom-grid {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 type BridgeSummary = {
   campaigns?: number;
@@ -115,6 +115,33 @@ const hasCompleteTarget = (campaign: SavedFleetCampaign) =>
   /^\d{10}$/.test(normalizedId(campaign.config.loginCustomerId))
   && /^\d{10}$/.test(normalizedId(campaign.config.customerId))
   && /^\d{8,20}$/.test(normalizedId(campaign.config.googleCampaignId));
+
+function shardColorOrdinal(shardId: string) {
+  const sequence = shardId.match(/(?:^|[-_.:])(\d+)$/);
+  if (sequence) {
+    const ordinal = Number(sequence[1]);
+    if (Number.isSafeInteger(ordinal) && ordinal > 0) return ordinal;
+  }
+
+  let hash = 2166136261;
+  for (const character of shardId) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) + 1;
+}
+
+function shardVisualStyle(shardId: string): CSSProperties {
+  const ordinal = shardColorOrdinal(shardId);
+  const hue = Math.round(((ordinal - 1) * 137.508 + 142) % 360);
+  const saturation = 36 + ((ordinal * 5) % 11);
+  return {
+    "--fleet-shard-surface": `hsl(${hue} ${saturation}% 95%)`,
+    "--fleet-shard-surface-strong": `hsl(${hue} ${saturation}% 90%)`,
+    "--fleet-shard-border": `hsl(${hue} 30% 68%)`,
+    "--fleet-shard-accent": `hsl(${hue} 62% 32%)`,
+  } as CSSProperties;
+}
 
 function campaignCreationOrdinal(campaign: BridgeCampaign) {
   const match = campaign.campaign_record_id.match(/(\d+)$/);
@@ -602,9 +629,10 @@ export function ScriptBridge({
           const capacity = Number(shard.capacity || SHARD_CAPACITY);
           return (
             <button
-              className={"fleet-shard-tab " + (selectedShardId === shard.shard_id ? "is-selected" : "")}
+              className={"fleet-shard-tab has-shard-tone " + (selectedShardId === shard.shard_id ? "is-selected" : "")}
               type="button"
               key={shard.shard_id}
+              style={shardVisualStyle(shard.shard_id)}
               onClick={() => setSelectedShardId(shard.shard_id)}
             >
               <span><strong>{shard.shard_id}</strong><small>{count} / {capacity} campaigns</small></span>
@@ -665,7 +693,12 @@ export function ScriptBridge({
                           ? "Checking campaign and shard alerts."
                           : "No active campaign or shard alert.";
                 return (
-                  <tr key={campaign.target_id}>
+                  <tr
+                    className="fleet-shard-row"
+                    data-shard-id={campaign.shard_id}
+                    key={campaign.target_id}
+                    style={shardVisualStyle(campaign.shard_id)}
+                  >
                     <td className="fleet-campaign-cell">
                       <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", flexWrap: "wrap" }}>
                         <FleetAlertIndicator state={indicatorState} title={indicatorTitle} />
@@ -698,7 +731,10 @@ export function ScriptBridge({
                       {campaign.last_error && <p>{campaign.last_error}</p>}
                     </td>
                     <td className="fleet-shard-cell">
-                      <strong>{campaign.shard_id}</strong>
+                      <div className="fleet-shard-identity">
+                        <i aria-hidden="true" />
+                        <strong>{campaign.shard_id}</strong>
+                      </div>
                       <small>{Number(shard?.campaign_count || 0)} / {Number(shard?.capacity || SHARD_CAPACITY)} campaigns</small>
                       <span className={"health-chip is-" + shardHealth(shard).tone}>{shardHealth(shard).label}</span>
                       <button className="bridge-inline-action" type="button" disabled={busy || Boolean(savedCampaign && !controlConnected)} onClick={() => savedCampaign ? requestFleetUpdate(savedCampaign, false) : void deleteFleetTarget(campaign)}>
