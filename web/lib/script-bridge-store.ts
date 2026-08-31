@@ -425,7 +425,8 @@ export async function leaseBridgeJobs(
   const limit = Math.max(1, Math.min(MAX_LEASE_JOBS, Math.floor(requestedLimit)));
   const customerId = normalizeId(requestedCustomerId);
   const hotAdd = (
-    options.protocol === "fleet-two-phase-adaptive-relay-v9"
+    options.protocol === "fleet-callback-resilient-relay-v10"
+    || options.protocol === "fleet-two-phase-adaptive-relay-v9"
     || options.protocol === "fleet-two-phase-durable-relay-v8"
     || options.protocol === "fleet-two-phase-hot-add-relay-v7"
     || options.protocol === "fleet-hot-add-relay-v6"
@@ -633,7 +634,7 @@ export async function bridgeShardManifest(
       );
     }
     return {
-      protocol: "fleet-two-phase-adaptive-relay-v9",
+      protocol: options.protocol || "fleet-callback-resilient-relay-v10",
       shardId: normalizedShardId,
       managerCustomerId: String(managerIds[0] || ""),
       accountIds,
@@ -642,6 +643,40 @@ export async function bridgeShardManifest(
       executionWindow,
     };
   });
+}
+
+export async function bridgeActiveExecutionWindow(shardId: string) {
+  const normalizedShardId = shardId.trim();
+  if (!normalizedShardId) throw new Error("shardId is required");
+  const result = await getPool().query(
+    `SELECT shard_id,enabled,last_invocation_id,last_execution_started_at,
+            phase_one_stop_at,hard_stop_at,expected_next_start_at,handoff_margin_ms,
+            schedule_anchor_at,schedule_sample_count,last_execution_status
+       FROM tah_script_shards WHERE shard_id=$1`,
+    [normalizedShardId],
+  );
+  const row = result.rows[0];
+  if (!row || !row.enabled) throw new Error("Fleet shard was not found or is disabled");
+  if (!row.last_invocation_id || !row.phase_one_stop_at || !row.hard_stop_at) {
+    throw new Error("Fleet shard has no recoverable execution window");
+  }
+  const hardStopMs = new Date(row.hard_stop_at).getTime();
+  return {
+    invocationId: String(row.last_invocation_id),
+    executionWindow: {
+      invocationId: String(row.last_invocation_id),
+      startedAt: row.last_execution_started_at ? new Date(row.last_execution_started_at).toISOString() : null,
+      phaseOneStopAt: new Date(row.phase_one_stop_at).toISOString(),
+      hardStopAt: new Date(row.hard_stop_at).toISOString(),
+      nextExpectedStartAt: row.expected_next_start_at ? new Date(row.expected_next_start_at).toISOString() : null,
+      handoffMarginMs: Number(row.handoff_margin_ms || HANDOFF_MARGIN_MS),
+      scheduleMode: "recovered",
+      scheduleConfidence: Number(row.schedule_sample_count || 0) >= 2 ? "learned" : "learning",
+      scheduleSampleCount: Number(row.schedule_sample_count || 0),
+      scheduleAnchorAt: row.schedule_anchor_at ? new Date(row.schedule_anchor_at).toISOString() : null,
+      shouldYield: !Number.isFinite(hardStopMs) || Date.now() >= hardStopMs,
+    },
+  };
 }
 
 export async function completeBridgeInvocation(input: {

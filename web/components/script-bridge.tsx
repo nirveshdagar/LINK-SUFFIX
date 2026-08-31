@@ -258,9 +258,10 @@ function TransientVerifiedSuffix({ campaign }: { campaign: BridgeCampaign }) {
   );
 }
 
-function shardHealth(shard?: BridgeShard): HealthState {
+function shardHealth(shard?: BridgeShard, hasActiveAlert = false): HealthState {
   if (!shard || shard.registered === false) return { label: "No worker", tone: "attention" };
   if (!shard.enabled) return { label: "Paused", tone: "paused" };
+  if (hasActiveAlert) return { label: "No contact", tone: "attention" };
   if (shard.last_error) return { label: "Attention", tone: "attention" };
   const lastPoll = Date.parse(String(shard.last_poll_at || ""));
   if (!Number.isFinite(lastPoll)) return { label: "Awaiting first run", tone: "waiting" };
@@ -269,9 +270,12 @@ function shardHealth(shard?: BridgeShard): HealthState {
   return { label: "Healthy", tone: "healthy" };
 }
 
-function targetHealth(campaign: BridgeCampaign, shard?: BridgeShard): HealthState {
+function targetHealth(campaign: BridgeCampaign, shard?: BridgeShard, hasShardAlert = false): HealthState {
   if (!campaign.enabled) return { label: "Paused", tone: "paused" };
   if (!shard || shard.registered === false) return { label: "No shard worker", tone: "attention" };
+  const worker = shardHealth(shard, hasShardAlert);
+  if (worker.tone === "attention") return { label: "Worker unavailable", tone: "attention" };
+  if (worker.tone === "paused") return { label: "Shard paused", tone: "paused" };
   if (campaign.delivery_health === "healthy") return { label: "Healthy", tone: "healthy" };
   if (!campaign.last_applied_at && campaign.account_readiness === "waiting_for_manifest") {
     return { label: "Waiting for worker manifest", tone: "waiting" };
@@ -282,9 +286,6 @@ function targetHealth(campaign: BridgeCampaign, shard?: BridgeShard): HealthStat
   if (campaign.last_error || campaign.latest_job_state === "dead" || campaign.latest_job_state === "failed") {
     return { label: "Attention", tone: "attention" };
   }
-  const worker = shardHealth(shard);
-  if (worker.tone === "attention") return { label: "Worker unavailable", tone: "attention" };
-  if (worker.tone === "paused") return { label: "Shard paused", tone: "paused" };
   if (campaign.latest_job_state === "leased") return { label: "Delivering", tone: "active" };
   if (campaign.latest_job_state === "pending") return { label: "Waiting", tone: "waiting" };
   if (campaign.latest_job_state === "applied") return { label: "Verified", tone: "healthy" };
@@ -433,13 +434,14 @@ export function ScriptBridge({
 
   useEffect(() => {
     if (selectedShardId && shardOptions.some((shard) => shard.shard_id === selectedShardId)) return;
-    const preferred = shardOptions.find((shard) => shard.registered && shardHealth(shard).tone === "healthy")
+    const preferred = shardOptions.find((shard) => shard.registered && shardHealth(shard, fleetAlertIndex.shardIds.has(shard.shard_id)).tone === "healthy")
       || shardOptions.find((shard) => shard.registered)
       || shardOptions[0];
     if (preferred) setSelectedShardId(preferred.shard_id);
-  }, [selectedShardId, shardOptions]);
+  }, [fleetAlertIndex, selectedShardId, shardOptions]);
 
   const selectedShard = shardOptions.find((shard) => shard.shard_id === selectedShardId);
+  const selectedShardHasAlert = Boolean(selectedShard && fleetAlertIndex.shardIds.has(selectedShard.shard_id));
   const selectedShardCount = Number(selectedShard?.campaign_count || 0);
   const selectedShardCapacity = Number(selectedShard?.capacity || SHARD_CAPACITY);
   const selectedShardFull = selectedShardCount >= selectedShardCapacity;
@@ -555,8 +557,8 @@ export function ScriptBridge({
   const totalPages = Math.max(1, Math.ceil((fleetCampaigns?.total || 0) / (fleetCampaigns?.pageSize || 25)));
   const activeRegisteredShards = shardOptions.filter((shard) => shard.registered && shard.enabled);
   const everyActiveShardHealthy = activeRegisteredShards.length > 0
-    && activeRegisteredShards.every((shard) => shardHealth(shard).tone === "healthy");
-  const workerAttention = activeRegisteredShards.some((shard) => shardHealth(shard).tone === "attention");
+    && activeRegisteredShards.every((shard) => shardHealth(shard, fleetAlertIndex.shardIds.has(shard.shard_id)).tone === "healthy");
+  const workerAttention = activeRegisteredShards.some((shard) => shardHealth(shard, fleetAlertIndex.shardIds.has(shard.shard_id)).tone === "attention");
   const deliveryActive = Number(summary?.pending || 0) + Number(summary?.leased || 0) > 0;
   const unassigned = Number(summary?.unassigned || 0);
   const healthy = status?.configured === true
@@ -625,7 +627,7 @@ export function ScriptBridge({
       <div className="fleet-shard-strip" aria-label="Fleet shards">
         {shardOptions.length === 0 && <p className="bridge-empty">No shard exists yet. Enter a shard ID below and generate its worker.</p>}
         {shardOptions.map((shard) => {
-          const health = shardHealth(shard);
+          const health = shardHealth(shard, fleetAlertIndex.shardIds.has(shard.shard_id));
           const count = Number(shard.campaign_count || 0);
           const capacity = Number(shard.capacity || SHARD_CAPACITY);
           return (
@@ -669,11 +671,12 @@ export function ScriptBridge({
               )}
               {[...targetItems].sort(compareCampaignCreationOrder).map((campaign) => {
                 const shard = shardOptions.find((item) => item.shard_id === campaign.shard_id);
-                const health = targetHealth(campaign, shard);
                 const savedCampaign = savedCampaigns.find((item) => item.id === campaign.campaign_record_id);
                 const busy = actionCampaignId === campaign.campaign_record_id;
                 const hasCampaignAlert = fleetAlertIndex.campaignIds.has(campaign.campaign_record_id);
                 const hasShardAlert = fleetAlertIndex.shardIds.has(campaign.shard_id);
+                const health = targetHealth(campaign, shard, hasShardAlert);
+                const rowShardHealth = shardHealth(shard, hasShardAlert);
                 const hasFleetAlert = hasCampaignAlert || hasShardAlert;
                 const indicatorState: FleetIndicatorState = fleetAlertsUnavailable
                   ? "issue"
@@ -737,7 +740,7 @@ export function ScriptBridge({
                         <strong>{campaign.shard_id}</strong>
                       </div>
                       <small>{Number(shard?.campaign_count || 0)} / {Number(shard?.capacity || SHARD_CAPACITY)} campaigns</small>
-                      <span className={"health-chip is-" + shardHealth(shard).tone}>{shardHealth(shard).label}</span>
+                      <span className={"health-chip is-" + rowShardHealth.tone}>{rowShardHealth.label}</span>
                       <button className="bridge-inline-action" type="button" disabled={busy || Boolean(savedCampaign && !controlConnected)} onClick={() => savedCampaign ? requestFleetUpdate(savedCampaign, false) : void deleteFleetTarget(campaign)}>
                         {busy ? "Deleting..." : "Delete from Fleet"}
                       </button>
@@ -809,7 +812,7 @@ export function ScriptBridge({
         </section>
 
         <section className="fleet-script-card" aria-labelledby="fleet-script-title">
-          <header><p className="eyebrow">Selected shard worker</p><h3 id="fleet-script-title">Generate the v9 adaptive two-phase shard script</h3><p>Choose the exact shard below before generating. The script belongs only to that shard and MCC, preserves V5's stable pacing, renews delivery leases, learns the hourly trigger, and yields two minutes before the next expected start. It can service at most 40 assigned campaigns.</p></header>
+          <header><p className="eyebrow">Selected shard worker</p><h3 id="fleet-script-title">Generate the v10 callback-resilient shard script</h3><p>Choose the exact shard below before generating. Each child account performs one short bootstrap pass, then the manager callback maintains continuous delivery until the protected hourly handoff. It can service at most 40 assigned campaigns.</p></header>
 
           <div className="fleet-worker-shard-picker">
             <label htmlFor="fleet-worker-shard">Shard to generate</label>
@@ -817,7 +820,7 @@ export function ScriptBridge({
               {shardOptions.length === 0 && <option value="">No shard selected</option>}
               {shardOptions.map((shard) => (
                 <option key={shard.shard_id} value={shard.shard_id}>
-                  {shard.shard_id} · {Number(shard.campaign_count || 0)}/{Number(shard.capacity || SHARD_CAPACITY)} campaigns · {shardHealth(shard).label}
+                  {shard.shard_id} · {Number(shard.campaign_count || 0)}/{Number(shard.capacity || SHARD_CAPACITY)} campaigns · {shardHealth(shard, fleetAlertIndex.shardIds.has(shard.shard_id)).label}
                 </option>
               ))}
             </select>
@@ -826,19 +829,19 @@ export function ScriptBridge({
 
           <div className="fleet-script-shard">
             <div><span>Shard ID</span><strong>{selectedShardId || "Not selected"}</strong><small>MCC {selectedShard?.manager_customer_id || "assigned by the first campaign"}</small></div>
-            <span className={"health-chip is-" + shardHealth(selectedShard).tone}>{shardHealth(selectedShard).label}</span>
+            <span className={"health-chip is-" + shardHealth(selectedShard, selectedShardHasAlert).tone}>{shardHealth(selectedShard, selectedShardHasAlert).label}</span>
           </div>
 
           <label htmlFor="fleet-public-url">Public HTTPS base URL</label>
           <input id="fleet-public-url" value={publicBaseUrl} onChange={(event) => setPublicBaseUrl(event.target.value)} placeholder="https://traffic.example.com" inputMode="url" />
           <button className="bridge-primary-action" type="button" onClick={generateWorker} disabled={generating || !publicBaseUrl.trim() || !selectedShardId}>
-            {generating ? "Generating v9 adaptive worker..." : selectedShard?.registered ? "Rotate token and regenerate v9 adaptive worker" : "Generate v9 adaptive worker for selected shard"}
+            {generating ? "Generating v10 resilient worker..." : selectedShard?.registered ? "Rotate token and regenerate v10 resilient worker" : "Generate v10 resilient worker for selected shard"}
           </button>
-          <p className="fleet-script-warning">Install this v9 copy once for adaptive handoff, durable delivery, and hot-add support. Generating again rotates the secret and immediately invalidates the older installed copy for this shard.</p>
+          <p className="fleet-script-warning">Install this v10 copy once for callback recovery, adaptive handoff, durable delivery, and hot-add support. Generating again rotates the secret and immediately invalidates the older installed copy for this shard.</p>
 
           {generatedScript && generatedForShard === selectedShardId ? (
             <div className="fleet-script-output">
-              <div><strong>{generatedForShard} · fleet-two-phase-adaptive-relay-v9</strong><button type="button" onClick={copyWorker}>Copy script</button><button className="bridge-secondary-action" type="button" onClick={() => setGeneratedScript("")}>Hide</button></div>
+              <div><strong>{generatedForShard} · fleet-callback-resilient-relay-v10</strong><button type="button" onClick={copyWorker}>Copy script</button><button className="bridge-secondary-action" type="button" onClick={() => setGeneratedScript("")}>Hide</button></div>
               <textarea readOnly value={generatedScript} aria-label={generatedForShard + " Google Ads worker script"} spellCheck={false} />
             </div>
           ) : (

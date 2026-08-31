@@ -1,18 +1,18 @@
-export const RELATIONAL_FLEET_WORKER_VERSION = "fleet-two-phase-adaptive-relay-v9";
+export const RELATIONAL_FLEET_WORKER_VERSION = "fleet-callback-resilient-relay-v10";
 
-export function buildRelationalFleetV9Worker(
+export function buildRelationalFleetV10Worker(
   endpoint: string,
   token: string,
   shardId: string,
 ) {
   return `/**
- * Traffic Armour Rolling Apps Script Fleet v9 adaptive two-phase relay.
+ * Traffic Armour Rolling Apps Script Fleet v10 callback-resilient relay.
  * Install this copy once for shard ${shardId} in its Google Ads MCC,
  * authorize it, and schedule it Hourly.
  *
- * It keeps V5's proven 50-second delivery pacing, retains V7 hot-add discovery,
- * renews immutable server leases, and yields two minutes before the server's
- * learned next Google hourly trigger.
+ * Each parallel child performs one short account pass and returns immediately.
+ * The manager callback then keeps V5's proven delivery pacing, retains hot-add
+ * discovery, renews immutable leases, and yields before the learned next trigger.
  */
 const CONFIG = Object.freeze({
   BRIDGE_URL: ${JSON.stringify(endpoint)},
@@ -24,7 +24,6 @@ const CONFIG = Object.freeze({
   WORKER_VERSION: "${RELATIONAL_FLEET_WORKER_VERSION}",
   MIN_REMAINING_SECONDS: 90,
   DEADLINE_GUARD_MS: 10000,
-  ACCOUNT_POLL_MS: 50000,
   IDLE_POLL_MS: 10000,
   POST_BATCH_SLEEP_MS: 50000,
   ERROR_BACKOFF_MS: 10000
@@ -89,33 +88,33 @@ function bootstrapAccount_(executionWindowJson) {
   const customerId = digits_(AdsApp.currentAccount().getCustomerId());
   const executionInfo = AdsApp.getExecutionInfo();
   const workerId = safeWorkerId_("child-" + customerId + "-" + executionWindow.invocationId);
-  let completedCycles = 0;
   let total = 0;
   let verified = 0;
+  let failure = "";
 
-  while (hasExecutionTime_(executionInfo, executionWindow.phaseOneStopAtMs)) {
-    try {
-      const response = leaseJobs_(workerId, customerId, false);
-      const jobs = Array.isArray(response.jobs) ? response.jobs : [];
-      const outcome = executeCurrentAccountBatch_(jobs, customerId, workerId);
-      completedCycles += 1;
-      total += outcome.total;
-      verified += outcome.verified;
-      sleepWithinDeadline_(CONFIG.ACCOUNT_POLL_MS, executionInfo, executionWindow.phaseOneStopAtMs);
-    } catch (error) {
-      Logger.log(
-        "Traffic Armour Fleet account cycle failed for " + customerId +
-        ": " + safeError_(error)
-      );
-      sleepWithinDeadline_(CONFIG.ERROR_BACKOFF_MS, executionInfo, executionWindow.phaseOneStopAtMs);
+  try {
+    if (!hasExecutionTime_(executionInfo, executionWindow.phaseOneStopAtMs)) {
+      throw new Error("The adaptive child window closed before this account pass began");
     }
+    const response = leaseJobs_(workerId, customerId, false);
+    const jobs = Array.isArray(response.jobs) ? response.jobs : [];
+    const outcome = executeCurrentAccountBatch_(jobs, customerId, workerId);
+    total = outcome.total;
+    verified = outcome.verified;
+  } catch (error) {
+    failure = safeError_(error);
+    Logger.log(
+      "Traffic Armour Fleet account bootstrap failed for " + customerId +
+      ": " + failure
+    );
   }
 
   return JSON.stringify({
     customerId: customerId,
-    cycles: completedCycles,
+    cycles: 1,
     total: total,
     verified: verified,
+    error: failure,
     executionWindow: executionWindow
   });
 }
@@ -124,24 +123,44 @@ function continueFleetRelay_(executionResults) {
   let bootstrapOk = 0;
   let bootstrapFailed = 0;
   let executionWindow = null;
+  const bootstrapErrors = [];
   (executionResults || []).forEach(function(result) {
     if (String(result.getStatus()) === "OK") {
       bootstrapOk += 1;
-      if (!executionWindow) {
-        try {
-          const returned = JSON.parse(String(result.getReturnValue() || "{}"));
-          executionWindow = returned.executionWindow || null;
-        } catch (error) { /* another successful child can supply the window */ }
+      try {
+        const returned = JSON.parse(String(result.getReturnValue() || "{}"));
+        if (!executionWindow) executionWindow = returned.executionWindow || null;
+        if (returned.error) bootstrapErrors.push(String(returned.error));
+      } catch (error) {
+        bootstrapErrors.push("A child returned an unreadable bootstrap result");
       }
-    } else bootstrapFailed += 1;
+    } else {
+      bootstrapFailed += 1;
+      try {
+        bootstrapErrors.push(String(result.getError() || "Unknown child execution failure"));
+      } catch (error) {
+        bootstrapErrors.push("Unknown child execution failure");
+      }
+    }
   });
   Logger.log(
     "Traffic Armour Fleet " + CONFIG.SHARD_ID + " bootstrap complete: " +
     bootstrapOk + " account(s) ready, " + bootstrapFailed + " failed."
   );
   if (!executionWindow) {
-    Logger.log("Traffic Armour Fleet callback stopped safely because no adaptive execution window was returned.");
-    return;
+    try {
+      executionWindow = recoverExecutionWindow_();
+      Logger.log("Traffic Armour Fleet callback recovered its adaptive execution window from the bridge.");
+    } catch (error) {
+      Logger.log("Traffic Armour Fleet callback could not recover its execution window: " + safeError_(error));
+      return;
+    }
+  }
+  if (bootstrapErrors.length) {
+    Logger.log(
+      "Traffic Armour Fleet callback is continuing after child warning(s): " +
+      bootstrapErrors.slice(0, 5).join(" | ")
+    );
   }
   runContinuousRelay_(executionWindow);
 }
@@ -389,6 +408,27 @@ function parseExecutionWindow_(value) {
   }
 }
 
+function recoverExecutionWindow_() {
+  const response = bridgeRequest_(CONFIG.BRIDGE_URL, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({
+      action: "window",
+      protocol: CONFIG.WORKER_VERSION,
+      contract: CONFIG.CONTRACT,
+      shardId: CONFIG.SHARD_ID
+    })
+  });
+  const recovered = normalizeExecutionWindow_(
+    response.executionWindow,
+    response.invocationId
+  );
+  if (!recovered || recovered.shouldYield) {
+    throw new Error("The bridge has no active execution window for this callback");
+  }
+  return recovered;
+}
+
 function completeInvocation_(invocationId, status) {
   try {
     bridgeRequest_(CONFIG.BRIDGE_URL, {
@@ -515,7 +555,8 @@ function safeError_(error) {
 }
 
 // Source-compatible aliases keep existing imports working during rolling deploys.
-export const buildRelationalFleetV8Worker = buildRelationalFleetV9Worker;
-export const buildRelationalFleetV7Worker = buildRelationalFleetV9Worker;
-export const buildRelationalFleetV6Worker = buildRelationalFleetV9Worker;
-export const buildRelationalFleetV5Worker = buildRelationalFleetV9Worker;
+export const buildRelationalFleetV9Worker = buildRelationalFleetV10Worker;
+export const buildRelationalFleetV8Worker = buildRelationalFleetV10Worker;
+export const buildRelationalFleetV7Worker = buildRelationalFleetV10Worker;
+export const buildRelationalFleetV6Worker = buildRelationalFleetV10Worker;
+export const buildRelationalFleetV5Worker = buildRelationalFleetV10Worker;
