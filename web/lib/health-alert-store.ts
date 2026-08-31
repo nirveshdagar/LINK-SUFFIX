@@ -303,6 +303,43 @@ async function readRelationalShardHealth() {
   }
 }
 
+async function readRelationalDeliveryHealth() {
+  try {
+    const result = await databasePool().query(`
+      SELECT
+        t.campaign_record_id AS "campaignRecordId",
+        j.job_id AS "jobId",
+        j.state AS status,
+        j.attempt_count AS "attemptCount",
+        j.created_at AS "createdAt",
+        j.created_at AS "queuedAt",
+        j.updated_at AS "updatedAt",
+        j.leased_at AS "leasedAt",
+        j.applied_at AS "appliedAt",
+        j.last_error AS "lastError",
+        c.version,
+        c.suffix_hash AS "suffixHash",
+        j.verified_suffix_hash AS "verifiedSuffixHash"
+      FROM tah_campaign_targets t
+      JOIN LATERAL (
+        SELECT candidate.*
+        FROM tah_delivery_jobs candidate
+        WHERE candidate.target_id = t.target_id
+        ORDER BY candidate.created_at DESC, candidate.job_id DESC
+        LIMIT 1
+      ) j ON true
+      JOIN tah_suffix_captures c ON c.capture_id = j.capture_id
+      WHERE t.enabled = true
+      ORDER BY t.campaign_record_id
+    `);
+    return result.rows.map((item) => record(item));
+  } catch (error) {
+    const code = record(error).code;
+    if (code === "42P01") return [];
+    throw error;
+  }
+}
+
 function addCandidate(target: Map<string, AlertCandidate>, candidate: AlertCandidate) {
   const previous = target.get(candidate.fingerprint);
   if (!previous || (previous.severity === "warning" && candidate.severity === "critical")) target.set(candidate.fingerprint, candidate);
@@ -413,11 +450,12 @@ async function evaluateHealth(source: string) {
   await ensureHealthSchema();
   const candidateMap = new Map<string, AlertCandidate>();
   const heartbeats: ComponentHeartbeat[] = [];
-  const [capacityResult, bridgeResult, registryResult, relationalShardsResult] = await Promise.allSettled([
+  const [capacityResult, bridgeResult, registryResult, relationalShardsResult, relationalDeliveriesResult] = await Promise.allSettled([
     readControlCapacity(),
     readBridgeState(),
     readCampaignRegistry(),
     readRelationalShardHealth(),
+    readRelationalDeliveryHealth(),
   ]);
 
   const now = Date.now();
@@ -441,7 +479,7 @@ async function evaluateHealth(source: string) {
     latencyMs: Date.now() - startedAt,
   });
 
-  if (bridgeResult.status === "rejected" || registryResult.status === "rejected") {
+  if (bridgeResult.status === "rejected" || registryResult.status === "rejected" || relationalDeliveriesResult.status === "rejected") {
     addCandidate(candidateMap, {
       fingerprint: "system:fleet-state-unavailable", severity: "critical", component: "script-fleet", scope: "delivery",
       code: "fleet_state_unavailable", title: "Rolling Apps Script Fleet state is unavailable",
@@ -556,7 +594,11 @@ async function evaluateHealth(source: string) {
     });
   }
 
-  const deliveries = records(bridge.deliveries ?? bridge.deliveryByCampaign ?? bridge.campaignDeliveries);
+  const relationalDeliveries = relationalDeliveriesResult.status === "fulfilled" ? relationalDeliveriesResult.value : [];
+  const deliveries = [
+    ...records(bridge.deliveries ?? bridge.deliveryByCampaign ?? bridge.campaignDeliveries),
+    ...relationalDeliveries,
+  ];
   const jobs = records(bridge.jobs ?? bridge.deliveryJobs ?? bridge.queue);
   const legacyShards = records(bridge.shards ?? bridge.fleetShards ?? bridge.workers);
   const relationalShards = relationalShardsResult.status === "fulfilled" ? relationalShardsResult.value : [];
