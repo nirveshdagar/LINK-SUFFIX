@@ -10,6 +10,7 @@ const maintenanceScript = path.join(projectRoot, "ops", "storage-maintenance.sh"
 const installerScript = path.join(projectRoot, "ops", "install-storage-maintenance.sh");
 const serviceFile = path.join(projectRoot, "ops", "systemd", "link-suffix-storage-maintenance.service");
 const timerFile = path.join(projectRoot, "ops", "systemd", "link-suffix-storage-maintenance.timer");
+const gitAttributesFile = path.join(projectRoot, ".gitattributes");
 
 function findBash() {
   const candidates = [
@@ -221,5 +222,12 @@ describe("guarded storage maintenance", () => {
     expect(service).toContain("IOSchedulingClass=idle");
     expect(service).toContain("NoNewPrivileges=true");
     expect(timer).toContain("Persistent=true");
+  });
+
+  it("forces Unix line endings for deployed operational files", () => {
+    const attributes = readFileSync(gitAttributesFile, "utf8");
+    expect(attributes).toContain("*.sh text eol=lf");
+    expect(attributes).toContain("*.service text eol=lf");
+    expect(attributes).toContain("*.timer text eol=lf");
   });
 });
