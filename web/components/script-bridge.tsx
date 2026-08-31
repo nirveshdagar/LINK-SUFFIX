@@ -133,7 +133,7 @@ function shardColorOrdinal(shardId: string) {
 
 function shardVisualStyle(shardId: string): CSSProperties {
   const ordinal = shardColorOrdinal(shardId);
-  const palettePosition = ((ordinal - 1) * 82.123 + 28) % 215;
+  const palettePosition = ((ordinal - 1) * 82.123 + 73) % 215;
   const hue = Math.round(palettePosition < 60 ? palettePosition : palettePosition + 145);
   const saturation = 36 + ((ordinal * 5) % 11);
   return {
