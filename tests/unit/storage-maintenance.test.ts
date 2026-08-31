@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -165,6 +165,24 @@ describe("guarded storage maintenance", () => {
     expect(calls).not.toContain("image rm sha256:previous");
     expect(calls).not.toContain("image rm sha256:active");
     expect(calls).toContain("image prune --force --filter until=12h");
+  });
+
+  it("retains an old release whose image is used by a running container", () => {
+    const test = fixture();
+    const releases: string[] = [];
+    for (let index = 0; index < 7; index += 1) {
+      const release = path.join(test.releases, `release-${index}`);
+      mkdirSync(release);
+      writeFileSync(path.join(release, ".env.production"), `TAH_IMAGE_TAG=${index === 0 ? "active" : `unused-${index}`}\n`);
+      const modified = new Date(Date.UTC(2026, 7, 1 + index));
+      utimesSync(release, modified, modified);
+      releases.push(release);
+    }
+    const result = runMaintenance({ ...test.baseEnv, MOCK_ACTIVE_IMAGE_REF: "traffic-armour-app:active" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(existsSync(releases[0])).toBe(true);
+    expect(existsSync(releases[1])).toBe(false);
+    expect(existsSync(releases[6])).toBe(true);
   });
 
   it("plans but does not execute destructive commands in dry-run mode", () => {

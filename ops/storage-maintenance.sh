@@ -228,6 +228,28 @@ container_release_directories() {
   done < <("$DOCKER_BIN" ps -aq)
 }
 
+container_image_release_directories() {
+  local releases_real="$1"
+  local release_dir
+  local environment_file
+  local image_tag
+  local image_reference
+  declare -A active_image_references=()
+
+  while IFS= read -r image_reference; do
+    [[ -n "$image_reference" ]] && active_image_references["$image_reference"]=1
+  done < <("$DOCKER_BIN" ps -a --format '{{.Image}}')
+
+  while IFS= read -r release_dir; do
+    environment_file="$release_dir/.env.production"
+    [[ -f "$environment_file" ]] || continue
+    image_tag="$(sed -n 's/^TAH_IMAGE_TAG=//p' "$environment_file" | tail -n 1)"
+    [[ -n "$image_tag" ]] || continue
+    image_reference="traffic-armour-app:$image_tag"
+    [[ -n "${active_image_references[$image_reference]:-}" ]] && printf '%s\n' "$release_dir"
+  done < <(find "$releases_real" -mindepth 1 -maxdepth 1 -type d -print)
+}
+
 cleanup_old_releases() {
   [[ -d "$RELEASES_ROOT" ]] || return 0
   local releases_real
@@ -253,7 +275,10 @@ cleanup_old_releases() {
   [[ -n "$current_real" ]] && protected["$current_real"]=1
   while IFS= read -r release_dir; do
     [[ -n "$release_dir" ]] && protected["$release_dir"]=1
-  done < <(container_release_directories "$releases_real" | awk 'NF && !seen[$0]++')
+  done < <({
+    container_release_directories "$releases_real"
+    container_image_release_directories "$releases_real"
+  } | awk 'NF && !seen[$0]++')
 
   while IFS= read -r row; do
     release_dir="${row#*|}"
