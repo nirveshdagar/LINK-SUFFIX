@@ -133,7 +133,8 @@ function shardColorOrdinal(shardId: string) {
 
 function shardVisualStyle(shardId: string): CSSProperties {
   const ordinal = shardColorOrdinal(shardId);
-  const hue = Math.round(((ordinal - 1) * 137.508 + 142) % 360);
+  const palettePosition = ((ordinal - 1) * 82.123 + 28) % 215;
+  const hue = Math.round(palettePosition < 60 ? palettePosition : palettePosition + 145);
   const saturation = 36 + ((ordinal * 5) % 11);
   return {
     "--fleet-shard-surface": `hsl(${hue} ${saturation}% 95%)`,
