@@ -1,0 +1,28 @@
+[Unit]
+Description=LINK SUFFIX guarded Docker storage maintenance
+Documentation=https://github.com/nirveshdagar/LINK-SUFFIX
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/link-suffix-storage-maintenance
+ExecStart=/usr/local/sbin/link-suffix-storage-maintenance
+Nice=19
+IOSchedulingClass=idle
+CPUAccounting=true
+CPUQuota=20%
+MemoryAccounting=true
+MemoryMax=256M
+StateDirectory=link-suffix-maintenance
+StateDirectoryMode=0750
+TimeoutStartSec=30min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/link-suffix/releases /var/lib/link-suffix-maintenance /run/lock
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

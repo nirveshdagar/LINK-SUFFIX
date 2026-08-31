@@ -1,0 +1,13 @@
+[Unit]
+Description=Run LINK SUFFIX storage maintenance every 15 minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitInactiveSec=15min
+RandomizedDelaySec=3min
+AccuracySec=1min
+Persistent=true
+Unit=link-suffix-storage-maintenance.service
+
+[Install]
+WantedBy=timers.target
