@@ -1,18 +1,19 @@
-export const RELATIONAL_FLEET_WORKER_VERSION = "fleet-callback-resilient-relay-v10";
+export const RELATIONAL_FLEET_WORKER_VERSION = "fleet-two-phase-resilient-relay-v11";
 
-export function buildRelationalFleetV10Worker(
+export function buildRelationalFleetV11Worker(
   endpoint: string,
   token: string,
   shardId: string,
 ) {
   return `/**
- * Traffic Armour Rolling Apps Script Fleet v10 callback-resilient relay.
+ * Traffic Armour Rolling Apps Script Fleet v11 two-phase resilient relay.
  * Install this copy once for shard ${shardId} in its Google Ads MCC,
  * authorize it, and schedule it Hourly.
  *
- * Each parallel child performs one short account pass and returns immediately.
- * The manager callback then keeps V5's proven delivery pacing, retains hot-add
- * discovery, renews immutable leases, and yields before the learned next trigger.
+ * Each parallel child maintains its account for the adaptive first phase. The
+ * manager callback then continues delivery in phase two, retains hot-add
+ * discovery, renews immutable leases, and yields two minutes before the learned
+ * next Google hourly trigger.
  */
 const CONFIG = Object.freeze({
   BRIDGE_URL: ${JSON.stringify(endpoint)},
@@ -24,6 +25,7 @@ const CONFIG = Object.freeze({
   WORKER_VERSION: "${RELATIONAL_FLEET_WORKER_VERSION}",
   MIN_REMAINING_SECONDS: 90,
   DEADLINE_GUARD_MS: 10000,
+  ACCOUNT_POLL_MS: 50000,
   IDLE_POLL_MS: 10000,
   POST_BATCH_SLEEP_MS: 50000,
   ERROR_BACKOFF_MS: 10000
@@ -88,33 +90,37 @@ function bootstrapAccount_(executionWindowJson) {
   const customerId = digits_(AdsApp.currentAccount().getCustomerId());
   const executionInfo = AdsApp.getExecutionInfo();
   const workerId = safeWorkerId_("child-" + customerId + "-" + executionWindow.invocationId);
+  let completedCycles = 0;
   let total = 0;
   let verified = 0;
-  let failure = "";
+  const failures = [];
 
-  try {
-    if (!hasExecutionTime_(executionInfo, executionWindow.phaseOneStopAtMs)) {
-      throw new Error("The adaptive child window closed before this account pass began");
+  while (hasExecutionTime_(executionInfo, executionWindow.phaseOneStopAtMs)) {
+    try {
+      const response = leaseJobs_(workerId, customerId, false);
+      const jobs = Array.isArray(response.jobs) ? response.jobs : [];
+      const outcome = executeCurrentAccountBatch_(jobs, customerId, workerId);
+      completedCycles += 1;
+      total += outcome.total;
+      verified += outcome.verified;
+      sleepWithinDeadline_(CONFIG.ACCOUNT_POLL_MS, executionInfo, executionWindow.phaseOneStopAtMs);
+    } catch (error) {
+      const failure = safeError_(error);
+      failures.push(failure);
+      Logger.log(
+        "Traffic Armour Fleet account cycle failed for " + customerId +
+        ": " + failure
+      );
+      sleepWithinDeadline_(CONFIG.ERROR_BACKOFF_MS, executionInfo, executionWindow.phaseOneStopAtMs);
     }
-    const response = leaseJobs_(workerId, customerId, false);
-    const jobs = Array.isArray(response.jobs) ? response.jobs : [];
-    const outcome = executeCurrentAccountBatch_(jobs, customerId, workerId);
-    total = outcome.total;
-    verified = outcome.verified;
-  } catch (error) {
-    failure = safeError_(error);
-    Logger.log(
-      "Traffic Armour Fleet account bootstrap failed for " + customerId +
-      ": " + failure
-    );
   }
 
   return JSON.stringify({
     customerId: customerId,
-    cycles: 1,
+    cycles: completedCycles,
     total: total,
     verified: verified,
-    error: failure,
+    error: failures.length ? failures.slice(-5).join(" | ") : "",
     executionWindow: executionWindow
   });
 }
@@ -555,7 +561,8 @@ function safeError_(error) {
 }
 
 // Source-compatible aliases keep existing imports working during rolling deploys.
-export const buildRelationalFleetV9Worker = buildRelationalFleetV10Worker;
+export const buildRelationalFleetV10Worker = buildRelationalFleetV11Worker;
+export const buildRelationalFleetV9Worker = buildRelationalFleetV11Worker;
 export const buildRelationalFleetV8Worker = buildRelationalFleetV10Worker;
 export const buildRelationalFleetV7Worker = buildRelationalFleetV10Worker;
 export const buildRelationalFleetV6Worker = buildRelationalFleetV10Worker;
