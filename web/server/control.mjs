@@ -1058,6 +1058,66 @@ async function reconcileCampaignSchedules() {
   if (changed) persistCampaigns();
   await pumpCampaignQueue();
 }
+function boundedControlMs(value, fallback, minimum, maximum) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed)
+    ? Math.min(maximum, Math.max(minimum, Math.floor(parsed)))
+    : fallback;
+}
+
+const CONTINUOUS_PROGRESS_STALE_MS = boundedControlMs(
+  process.env.TAH_CONTINUOUS_PROGRESS_STALE_MS,
+  240_000,
+  120_000,
+  900_000,
+);
+const CONTINUOUS_WATCHDOG_INTERVAL_MS = boundedControlMs(
+  process.env.TAH_CONTINUOUS_WATCHDOG_INTERVAL_MS,
+  15_000,
+  5_000,
+  60_000,
+);
+
+function noteContinuousRunProgress(run, kind) {
+  run.lastProgressAt = Date.now();
+  run.lastProgressKind = kind;
+}
+
+function recoverStalledContinuousRuns() {
+  const now = Date.now();
+  for (const run of activeRuns()) {
+    if (!run.continuous || run.exitCode !== null || run.watchdogTriggeredAt) continue;
+    const campaign = run.campaignRecordId ? campaigns.get(run.campaignRecordId) : undefined;
+    if (!campaign || campaign.desiredRunning !== true) continue;
+    const lastProgressAt = Number(run.lastProgressAt ?? run.startedAt ?? now);
+    const staleForMs = now - lastProgressAt;
+    if (staleForMs < CONTINUOUS_PROGRESS_STALE_MS) continue;
+
+    run.watchdogTriggeredAt = now;
+    run.error = "Journey watchdog detected no capture or route progress for " + staleForMs + "ms; restarting only this campaign.";
+    campaign.lastRecoveryAt = new Date(now).toISOString();
+    campaign.lastRecoveryReason = run.error;
+    campaign.updatedAt = campaign.lastRecoveryAt;
+    persistRuns();
+    persistCampaigns();
+    broadcast("log", { id: run.id, stream: "stderr", data: run.error + "\n" });
+    broadcast("run_watchdog", {
+      id: run.id,
+      campaignRecordId: run.campaignRecordId,
+      staleForMs,
+      lastProgressAt,
+      lastProgressKind: run.lastProgressKind,
+      action: "restart-campaign",
+    });
+    terminateRun(run);
+  }
+}
+
+const continuousRunWatchdogTimer = setInterval(
+  recoverStalledContinuousRuns,
+  CONTINUOUS_WATCHDOG_INTERVAL_MS,
+);
+continuousRunWatchdogTimer.unref?.();
 async function finalizeRun(run, code, errorMessage) {
   if (run.exitCode !== null) return;
   run.exitCode = code;
@@ -1148,7 +1208,7 @@ async function startRun(payload) {
   else args.push("--mitm-port", String(Number(process.env.TAH_MITM_PORT_START ?? 8188) + (sequence % 50_000)));
   if (payload.concurrent > 1) args.push("--parallel");
   const useShared = SHARED_ORCHESTRATOR_ENABLED && payload.tier === "human" && payload.continuous === true && payload.mitm !== true;
-  const run = { id, scenarioId, scenarioPath, challengeDir, dashboardPort, startedAt: Date.now(), mitmEnabled: payload.mitm === true, child: null, pid: null, tier: payload.tier, scheduleId: payload.scheduleId, campaignRecordId: payload.campaignRecordId, proxyPort: requestedProxyPort, continuous: payload.tier === "human" && payload.continuous === true, syncGoogleAds: payload.tier === "human" && payload.syncGoogleAds === true, useScriptMesh: payload.tier === "human" && payload.useScriptMesh === true, concurrent: requestedConcurrency, targetRps: requestedRps, exitCode: null, executionMode: useShared ? "shared" : "dedicated" };
+  const run = { id, scenarioId, scenarioPath, challengeDir, dashboardPort, startedAt: Date.now(), mitmEnabled: payload.mitm === true, child: null, pid: null, tier: payload.tier, scheduleId: payload.scheduleId, campaignRecordId: payload.campaignRecordId, proxyPort: requestedProxyPort, continuous: payload.tier === "human" && payload.continuous === true, syncGoogleAds: payload.tier === "human" && payload.syncGoogleAds === true, useScriptMesh: payload.tier === "human" && payload.useScriptMesh === true, concurrent: requestedConcurrency, targetRps: requestedRps, exitCode: null, executionMode: useShared ? "shared" : "dedicated", lastProgressAt: Date.now(), lastProgressKind: "started" };
   runs.set(id, run);
   persistRuns();
   if (useShared) {
@@ -1161,8 +1221,8 @@ async function startRun(payload) {
         creds: noProxy ? { user: "", pass: "" } : { user: proxy.user, pass: proxy.pass },
         proxyGateway: noProxy ? undefined : { hostname: proxy.host, port: Number(payload.proxyPort ?? proxy.port) },
       }, {
-        onCapture: capture => queueL4Capture(run, capture),
-        onRouteDecision: decision => recordRouteDecision(run, decision),
+        onCapture: capture => { noteContinuousRunProgress(run, "capture"); queueL4Capture(run, capture); },
+        onRouteDecision: decision => { noteContinuousRunProgress(run, "route-decision"); recordRouteDecision(run, decision); },
         onExit: (code, error) => { void finalizeRun(run, code, error); },
       });
       run.workerId = assignment.workerId;
@@ -1187,10 +1247,10 @@ async function startRun(payload) {
     stdoutBuffer = lines.pop() ?? "";
     for (const line of lines) {
       if (line.startsWith("TAH_L4_CAPTURE ")) {
-        try { queueL4Capture(run, JSON.parse(line.slice("TAH_L4_CAPTURE ".length))); }
+        try { noteContinuousRunProgress(run, "capture"); queueL4Capture(run, JSON.parse(line.slice("TAH_L4_CAPTURE ".length))); }
         catch (error) { broadcast("l4_capture", { id, capture: null, syncError: error instanceof Error ? error.message : String(error) }); }
       } else if (line.startsWith("TAH_ROUTE_DECISION ")) {
-        try { recordRouteDecision(run, JSON.parse(line.slice("TAH_ROUTE_DECISION ".length))); }
+        try { noteContinuousRunProgress(run, "route-decision"); recordRouteDecision(run, JSON.parse(line.slice("TAH_ROUTE_DECISION ".length))); }
         catch { broadcast("log", { id, stream: "stdout", data: `${line}\n` }); }
       } else if (line) broadcast("log", { id, stream: "stdout", data: `${line}\n` });
     }

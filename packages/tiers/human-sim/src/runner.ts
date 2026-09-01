@@ -39,13 +39,69 @@ const affiliateClickIdFromUrl = (rawUrl: string): string | undefined => {
 };
 
 
+function boundedDeadlineMs(value: string | undefined, fallback: number, minimum: number, maximum: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed)
+    ? Math.min(maximum, Math.max(minimum, Math.floor(parsed)))
+    : fallback;
+}
+
+const RESPONSE_READ_DEADLINE_MS = boundedDeadlineMs(
+  process.env.TAH_RESPONSE_READ_DEADLINE_MS,
+  5_000,
+  1_000,
+  30_000,
+);
+const RESPONSE_TASK_SETTLE_DEADLINE_MS = boundedDeadlineMs(
+  process.env.TAH_RESPONSE_TASK_SETTLE_DEADLINE_MS,
+  12_000,
+  2_000,
+  60_000,
+);
+
+class BrowserResponseDeadlineError extends Error {
+  constructor(label: string, timeoutMs: number) {
+    super(label + " exceeded its " + timeoutMs + "ms deadline");
+    this.name = "BrowserResponseDeadlineError";
+  }
+}
+
+async function withBrowserResponseDeadline<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new BrowserResponseDeadlineError(label, timeoutMs)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, deadline]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+async function settleResponseTasks(responseTasks: Iterable<Promise<unknown>>): Promise<void> {
+  const pending = Array.from(responseTasks);
+  if (pending.length === 0) return;
+  try {
+    await withBrowserResponseDeadline(
+      Promise.allSettled(pending).then(() => undefined),
+      RESPONSE_TASK_SETTLE_DEADLINE_MS,
+      "Browser response processing",
+    );
+  } catch (error) {
+    if (!(error instanceof BrowserResponseDeadlineError)) throw error;
+  }
+}
 async function readBoundedResponseBody(response: { allHeaders?: () => Promise<Record<string,string>>; headers?: () => Record<string,string>; body: () => Promise<Buffer> }, maxBytes: number) {
   if (maxBytes <= 0) return Buffer.alloc(0);
-  const headers = response.allHeaders ? await response.allHeaders() : response.headers ? response.headers() : {};
+  const headers = response.allHeaders ? await withBrowserResponseDeadline(response.allHeaders(), RESPONSE_READ_DEADLINE_MS, "Response headers") : response.headers ? response.headers() : {};
   const rawLength = headers["content-length"];
   const declaredLength = rawLength === undefined ? Number.NaN : Number(rawLength);
   if (!Number.isFinite(declaredLength) || declaredLength < 0 || declaredLength > maxBytes) return Buffer.alloc(0);
-  const body = await response.body();
+  const body = await withBrowserResponseDeadline(response.body(), RESPONSE_READ_DEADLINE_MS, "Response body");
   return body.length <= maxBytes ? body : body.subarray(0, maxBytes);
 }
 export async function* run(
@@ -276,7 +332,7 @@ export async function* run(
       error = cause instanceof Error ? cause.message : String(cause);
       break;
     }
-    await Promise.allSettled([...responseTasks]);
+    await settleResponseTasks(responseTasks);
     if (scenario.continuous) {
       const exactLandingUrl = findExactSuffixUrl([
         page.url(),
@@ -358,7 +414,7 @@ export async function* run(
     behaviorSummaries.push(telemetry.buildSummary(Date.now()));
   }
   activeTelemetry = null;
-  await Promise.allSettled([...responseTasks]);
+  await settleResponseTasks(responseTasks);
   const behavior = behaviorSummaries.reduce((summary, pageSummary) => ({
     frame_count: summary.frame_count + pageSummary.frame_count,
     event_count: summary.event_count + pageSummary.event_count,
