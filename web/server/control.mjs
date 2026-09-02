@@ -978,14 +978,7 @@ async function pumpCampaignQueue() {
         }
         fleetReadinessChecks++;
         try {
-          const ready = await ensureCampaignFleetReadyForFirstJourney(campaign);
-          if (!ready) {
-            campaign.status = "queued";
-            persistCampaigns();
-            broadcastCampaigns();
-            scheduleCampaignPump(FLEET_ACTIVATION_RETRY_MS);
-            continue;
-          }
+          await ensureCampaignFleetReadyForFirstJourney(campaign);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           campaign.retryCount = Math.min(10, Number(campaign.retryCount ?? 0) + 1);
