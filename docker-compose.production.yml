@@ -223,6 +223,13 @@ services:
       NODE_ENV: production
       TAH_ALERTS_INTERNAL_URL: http://web:3100/api/alerts
       TAH_HEALTH_INTERVAL_MS: "15000"
+      TAH_CONTROL_INTERNAL_WS_URL: ws://control:3101
+      TAH_CONTROL_RECOVERY_ORIGIN: https://${TAH_DOMAIN}
+      TAH_CAMPAIGN_SELF_HEAL_ENABLED: "1"
+      TAH_CAMPAIGN_RECOVERY_ALERT_FRESHNESS_MS: "45000"
+      TAH_CAMPAIGN_RECOVERY_BASE_COOLDOWN_MS: "120000"
+      TAH_CAMPAIGN_RECOVERY_MAX_ATTEMPTS: "4"
+      TAH_CAMPAIGN_RECOVERY_WINDOW_MS: "3600000"
     expose:
       - "3197"
     healthcheck:
@@ -245,6 +252,8 @@ services:
     image: traffic-armour-app:${TAH_IMAGE_TAG:-latest}
     depends_on:
       web:
+        condition: service_healthy
+      control:
         condition: service_healthy
       postgres:
         condition: service_healthy
