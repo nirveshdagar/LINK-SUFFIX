@@ -424,13 +424,7 @@ export async function leaseBridgeJobs(
 ): Promise<BridgeLease[]> {
   const limit = Math.max(1, Math.min(MAX_LEASE_JOBS, Math.floor(requestedLimit)));
   const customerId = normalizeId(requestedCustomerId);
-  const hotAdd = (
-    options.protocol === "fleet-callback-resilient-relay-v10"
-    || options.protocol === "fleet-two-phase-adaptive-relay-v9"
-    || options.protocol === "fleet-two-phase-durable-relay-v8"
-    || options.protocol === "fleet-two-phase-hot-add-relay-v7"
-    || options.protocol === "fleet-hot-add-relay-v6"
-  ) && options.hotAdd === true && !customerId;
+  const hotAdd = options.hotAdd === true && !customerId;
   if (customerId && !/^\d{10}$/.test(customerId)) throw new Error("A valid 10-digit customer filter is required");
   return await transaction(async (client) => {
     const missingJobs = await client.query(

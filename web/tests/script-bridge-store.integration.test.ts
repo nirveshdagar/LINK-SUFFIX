@@ -102,7 +102,7 @@ test("relational Fleet leases one unique target and verifies the exact suffix", 
   }
 });
 
-test("v7 hot-add polling makes a newly enrolled shard account immediately serviceable", { skip: !enabled }, async () => {
+test("v11 hot-add polling makes a newly enrolled shard account immediately serviceable", { skip: !enabled }, async () => {
   const discriminator = String(Date.now()).slice(-8);
   const campaignRecordId = `integration-hot-add-${randomUUID()}`;
   const managerCustomerId = `2${discriminator}0`;
@@ -123,7 +123,7 @@ test("v7 hot-add polling makes a newly enrolled shard account immediately servic
     });
     assert.equal((await bridgeTargetReadiness(campaignRecordId)).state, "waiting_for_manifest");
     const jobs = await leaseBridgeJobs(shardId, "integration-hot-add-worker", 10, "", {
-      protocol: "fleet-two-phase-hot-add-relay-v7",
+      protocol: "fleet-two-phase-resilient-relay-v11",
       hotAdd: true,
     });
     assert.equal(jobs.length, 0);
