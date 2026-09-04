@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 import { burstOffsetMs, burstRequestCount } from './burst.js';
 import { continuousIntervalMs, remainingContinuousDelayMs } from './continuousCadence.js';
 import { redirectFallbackCache } from './redirectFallbackCache.js';
+import type { CampaignProxyLease } from './proxyRuntimeClient.js';
 
 const DEFAULT_PROFILE = 'desktop-windows-chrome';
 
@@ -52,6 +53,22 @@ interface RunRuntime {
   proxyGateway?: { hostname?: string; port?: number };
   onCapture?: (capture: CapturePayload) => void;
   onRouteDecision?: (decision: RouteDecision) => void;
+  proxyAllocator?: ContextProxyAllocator;
+}
+
+export interface ContextProxyOutcome {
+  healthy: boolean;
+  reason?: string;
+  elapsedMs: number;
+}
+
+export interface ContextProxyAllocator {
+  acquire(input: {
+    campaignRecordId: string;
+    sessionId: string;
+    geo?: Record<string, unknown>;
+  }): Promise<CampaignProxyLease | null>;
+  release(lease: CampaignProxyLease, outcome: ContextProxyOutcome): Promise<void>;
 }
 
 export type CapturePayload = Pick<RequestEvent, 'session_id' | 'repeat_index' | 'geo_resolved' | 'proxy_mode'> & {
@@ -67,6 +84,43 @@ export function buildCapturePayload(event: RequestEvent): CapturePayload {
     geo_resolved: event.geo_resolved,
     proxy_mode: event.proxy_mode,
   };
+}
+
+let contextProxySequence = 0;
+const CONTEXT_PROXY_SESSION_RESERVATION_MS = 60 * 60_000;
+const contextProxySessionReservations = new Map<string, number>();
+const contextProxySessionExpiryQueue: Array<{ sessionId: string; expiresAt: number }> = [];
+
+function reapContextProxySessionReservations(now: number): void {
+  while (contextProxySessionExpiryQueue.length > 0 && contextProxySessionExpiryQueue[0]!.expiresAt <= now) {
+    const expired = contextProxySessionExpiryQueue.shift()!;
+    if (contextProxySessionReservations.get(expired.sessionId) === expired.expiresAt) {
+      contextProxySessionReservations.delete(expired.sessionId);
+    }
+  }
+}
+
+export function createContextProxySessionId(input: {
+  scenarioId: string;
+  runId: string;
+  repeatIndex: number;
+  attemptIndex: number;
+}): string {
+  const now = Date.now();
+  reapContextProxySessionReservations(now);
+  for (let collisionAttempt = 0; collisionAttempt < 256; collisionAttempt += 1) {
+    contextProxySequence = (contextProxySequence + 1) % Number.MAX_SAFE_INTEGER;
+    const sessionId = createHash('sha256')
+      .update(`${input.scenarioId}:${input.runId}:${input.repeatIndex}:${input.attemptIndex}:${process.pid}:${contextProxySequence}:${now}:${collisionAttempt}:${Math.random()}`)
+      .digest('hex')
+      .slice(0, 8);
+    if (contextProxySessionReservations.has(sessionId)) continue;
+    const expiresAt = now + CONTEXT_PROXY_SESSION_RESERVATION_MS;
+    contextProxySessionReservations.set(sessionId, expiresAt);
+    contextProxySessionExpiryQueue.push({ sessionId, expiresAt });
+    return sessionId;
+  }
+  throw new Error('Unable to allocate a unique proxy session token');
 }
 
 function abortError(): Error {
@@ -104,6 +158,7 @@ export async function runScenario(opts: {
   proxyGateway?: { hostname?: string; port?: number };
   onCapture?: RunRuntime['onCapture'];
   onRouteDecision?: RunRuntime['onRouteDecision'];
+  proxyAllocator?: ContextProxyAllocator;
 }): Promise<void> {
   const scenario = await loadScenario(opts.scenarioFile);
   const sigNames = (scenario.verdict_detection?.challenge_signatures ?? [
@@ -153,6 +208,7 @@ export async function runScenario(opts: {
     proxyGateway: opts.proxyGateway,
     onCapture: opts.onCapture,
     onRouteDecision: opts.onRouteDecision,
+    proxyAllocator: opts.proxyAllocator,
   };
 
   try {
@@ -199,34 +255,12 @@ async function runOneRepeat(
   mitmUrl: string | undefined,
   runtime: RunRuntime,
 ): Promise<void> {
-  // IPRoyal requires a sticky session identifier to be exactly eight
-  // alphanumeric characters. Any other length silently behaves as rotating.
-  const sessionId = createHash('sha256')
-    .update(scenario.continuous
-      ? `${scenario.id}:${runtime.runId}`
-      : `${scenario.id}:${i}:${Date.now()}:${Math.random()}`)
-    .digest('hex')
-    .slice(0, 8);
+  // The values below are replaced before every attempt. One attempt maps to
+  // one browser context (or one redirect-first network session), so retries
+  // can never silently reuse the previous context's proxy identity.
+  let sessionId = '';
   let resolvedEgress: Partial<ProxyEgressIdentity> = {};
-  let proxyUrl: URL;
-  try {
-    if (process.env.TAH_NO_PROXY === '1') {
-      proxyUrl = new URL('direct://');
-    } else if (mitmUrl) {
-      // Route through mitmproxy sidecar; mitm itself dials the upstream.
-      // Credentials don't need to live in the per-request proxy URL — mitm
-      // is already running with `--upstream-auth` or as a transparent proxy.
-      proxyUrl = new URL(mitmUrl);
-    } else {
-      proxyUrl = buildProxyEndpoint(scenario.geo, scenario.proxy_mode, creds, sessionId, runtime.proxyGateway).url;
-    }
-  } catch (e: any) {
-    await skippedSink.write({ scenario_id: scenario.id, repeat: i, reason: e.message });
-    return;
-  }
-  if (proxyUrl.protocol !== 'direct:') {
-    try { resolvedEgress = await resolveProxyEgress(proxyUrl) as typeof resolvedEgress; } catch { /* retain requested geo */ }
-  }
+  let proxyUrl = new URL('direct://');
 
   // Pull out the per-event strategy list from the surrounding closure by
   // reading it from the scenario (re-derived here to keep the helper
@@ -377,12 +411,57 @@ async function runOneRepeat(
   let lastErr: unknown;
   const maxAttempts = scenario.load_profile?.mode === 'burst' ? 1 : 2;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const attemptStartedAt = Date.now();
+    let attemptLease: CampaignProxyLease | null = null;
+    let attemptSucceeded = false;
+    let attemptFailure = '';
+    let proxyConfigurationFailure = false;
     try {
+      sessionId = createContextProxySessionId({ scenarioId: scenario.id, runId: runtime.runId, repeatIndex: i, attemptIndex: attempt });
+      resolvedEgress = {};
+      if (process.env.TAH_NO_PROXY === '1') {
+        proxyUrl = new URL('direct://');
+      } else {
+        attemptLease = await runtime.proxyAllocator?.acquire({
+          campaignRecordId: scenario.id,
+          sessionId,
+          geo: scenario.geo as unknown as Record<string, unknown>,
+        }) ?? null;
+        if (attemptLease) {
+          proxyUrl = new URL(attemptLease.proxyUrl);
+        } else if (mitmUrl) {
+          proxyUrl = new URL(mitmUrl);
+        } else {
+          try {
+            proxyUrl = buildProxyEndpoint(scenario.geo, scenario.proxy_mode, creds, sessionId, runtime.proxyGateway).url;
+          } catch (error) {
+            proxyConfigurationFailure = true;
+            throw error;
+          }
+        }
+      }
+      if (proxyUrl.protocol !== 'direct:') {
+        try { resolvedEgress = await resolveProxyEgress(proxyUrl) as typeof resolvedEgress; } catch { /* retain requested geo */ }
+      }
       await attemptOnce();
+      attemptSucceeded = true;
       return;
     } catch (e) {
-      if (runtime.signal?.aborted) throw abortError();
       lastErr = e;
+      attemptFailure = e instanceof Error ? e.message : String(e);
+      if (proxyConfigurationFailure) {
+        await skippedSink.write({ scenario_id: scenario.id, repeat: i, reason: attemptFailure });
+        return;
+      }
+      if (runtime.signal?.aborted) throw abortError();
+    } finally {
+      if (attemptLease && runtime.proxyAllocator) {
+        await runtime.proxyAllocator.release(attemptLease, {
+          healthy: attemptSucceeded,
+          reason: attemptSucceeded ? undefined : attemptFailure || 'Browser context failed',
+          elapsedMs: Math.max(0, Date.now() - attemptStartedAt),
+        }).catch(() => undefined);
+      }
     }
   }
   // Two failures — emit a synthetic error event so downstream consumers

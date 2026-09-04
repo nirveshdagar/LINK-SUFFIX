@@ -138,7 +138,11 @@ export async function* run(
   let ctx: BrowserContext | undefined;
   const abortContext = () => { void ctx?.close().catch(() => undefined); };
   try {
-    browserLease = await acquireBrowserLease({ engine: useWebKit ? 'webkit' : 'chromium', headless: scenario.session?.headless ?? true });
+    browserLease = await acquireBrowserLease({
+      engine: useWebKit ? 'webkit' : 'chromium',
+      headless: scenario.session?.headless ?? true,
+      proxyUrl,
+    });
   } catch (error) {
     browserPermit.release();
     throw error;
