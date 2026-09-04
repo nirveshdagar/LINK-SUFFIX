@@ -50,8 +50,23 @@ interface RunRuntime {
   challengeDir?: string;
   signal?: AbortSignal;
   proxyGateway?: { hostname?: string; port?: number };
-  onCapture?: (capture: { final_landing_url: string; session_id?: string; repeat_index?: number }) => void;
+  onCapture?: (capture: CapturePayload) => void;
   onRouteDecision?: (decision: RouteDecision) => void;
+}
+
+export type CapturePayload = Pick<RequestEvent, 'session_id' | 'repeat_index' | 'geo_resolved' | 'proxy_mode'> & {
+  final_landing_url: string;
+};
+
+export function buildCapturePayload(event: RequestEvent): CapturePayload {
+  if (!event.final_landing_url) throw new Error('Capture payload requires a final landing URL');
+  return {
+    final_landing_url: event.final_landing_url,
+    session_id: event.session_id,
+    repeat_index: event.repeat_index,
+    geo_resolved: event.geo_resolved,
+    proxy_mode: event.proxy_mode,
+  };
 }
 
 function abortError(): Error {
@@ -352,11 +367,7 @@ async function runOneRepeat(
       bus.emit('request', evt);
       await sink.write(evt);
       if (evt.tier === 'human' && evt.final_landing_url) {
-        const capture = {
-          final_landing_url: evt.final_landing_url,
-          session_id: evt.session_id,
-          repeat_index: evt.repeat_index,
-        };
+        const capture = buildCapturePayload(evt);
         if (runtime.onCapture) runtime.onCapture(capture);
         else console.log(`TAH_L4_CAPTURE ${JSON.stringify(capture)}`);
       }
