@@ -670,7 +670,7 @@ export function ScriptBridge({
     return [campaign.name, campaign.id, campaign.number, campaign.config.customerId, campaign.config.googleCampaignId]
       .some((value) => String(value || "").toLowerCase().includes(normalizedCampaignQuery));
   });
-  const visibleSavedCampaigns = matchingSavedCampaigns.slice(0, 10);
+  const visibleSavedCampaigns = matchingSavedCampaigns;
 
   return (
     <section className="bridge-panel fleet-console" aria-labelledby="fleet-title">
@@ -888,7 +888,6 @@ export function ScriptBridge({
                 );
               })}
             </div>
-            {matchingSavedCampaigns.length > visibleSavedCampaigns.length && <small>Refine the search to reach the other {(matchingSavedCampaigns.length - visibleSavedCampaigns.length).toLocaleString()} campaigns.</small>}
           </div>
         </section>
 
