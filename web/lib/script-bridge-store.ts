@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { isIP } from "node:net";
 import pg, { type Pool, type PoolClient } from "pg";
 
 const { Pool: PgPool } = pg;
@@ -28,6 +29,59 @@ export interface BridgeTargetInput {
   customerId: string;
   googleCampaignId: string;
   shardId?: string;
+}
+
+type BridgeCaptureEgress = {
+  ip: string;
+  country?: string;
+  state?: string;
+  city?: string;
+  timezone?: string;
+  asn?: number;
+  organization?: string;
+  isp?: string;
+  intelligenceProvider?: string;
+  proxyProvider?: string;
+  proxyMode?: string;
+  confidence: "stable_session" | "observed_probe" | "direct";
+  verified: boolean;
+  observedAt: string;
+};
+
+function normalizedCaptureEgress(input: unknown): BridgeCaptureEgress | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const value = input as Record<string, unknown>;
+  const ip = String(value.ip || "").trim();
+  if (!isIP(ip)) return null;
+  const text = (field: string, max: number) => {
+    const candidate = String(value[field] || "").trim();
+    return candidate ? candidate.slice(0, max) : undefined;
+  };
+  const countryValue = text("country", 2)?.toUpperCase();
+  const country = countryValue && /^[A-Z]{2}$/.test(countryValue) ? countryValue : undefined;
+  const asnValue = Number(value.asn);
+  const asn = Number.isSafeInteger(asnValue) && asnValue > 0 && asnValue <= 4_294_967_295 ? asnValue : undefined;
+  const confidenceValue = String(value.confidence || "observed_probe");
+  const confidence = ["stable_session", "observed_probe", "direct"].includes(confidenceValue)
+    ? confidenceValue as BridgeCaptureEgress["confidence"]
+    : "observed_probe";
+  const parsedObservedAt = Date.parse(String(value.observedAt || ""));
+  return {
+    ip,
+    country,
+    state: text("state", 120),
+    city: text("city", 160),
+    timezone: text("timezone", 80),
+    asn,
+    organization: text("organization", 240),
+    isp: text("isp", 240),
+    intelligenceProvider: text("intelligenceProvider", 80),
+    proxyProvider: text("proxyProvider", 80),
+    proxyMode: text("proxyMode", 40),
+    confidence,
+    verified: value.verified === true,
+    observedAt: Number.isFinite(parsedObservedAt) ? new Date(parsedObservedAt).toISOString() : new Date().toISOString(),
+  };
 }
 
 export interface BridgeLease {
@@ -330,17 +384,21 @@ export async function bridgeTargetReadiness(campaignRecordId: string) {
   };
 }
 
-export async function enqueueBridgeCapture(input: BridgeTargetInput & { exactSuffix: string; version?: number; sourceRunId?: string }) {
+export async function enqueueBridgeCapture(input: BridgeTargetInput & { exactSuffix: string; version?: number; sourceRunId?: string; egress?: unknown }) {
   const { targetId: id, shardId } = await upsertBridgeTarget(input);
   const suffixHash = digest(input.exactSuffix);
   const version = input.version && Number.isSafeInteger(input.version) ? input.version : Date.now();
+  const egress = normalizedCaptureEgress(input.egress);
   return await transaction(async (client) => {
     const capture = await client.query(
-      `INSERT INTO tah_suffix_captures(target_id,version,exact_suffix,suffix_hash,source_run_id)
-       VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (target_id,version) DO UPDATE SET exact_suffix=EXCLUDED.exact_suffix,suffix_hash=EXCLUDED.suffix_hash
+      `INSERT INTO tah_suffix_captures(target_id,version,exact_suffix,suffix_hash,source_run_id,egress_identity)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+       ON CONFLICT (target_id,version) DO UPDATE SET
+         exact_suffix=EXCLUDED.exact_suffix,
+         suffix_hash=EXCLUDED.suffix_hash,
+         egress_identity=COALESCE(EXCLUDED.egress_identity,tah_suffix_captures.egress_identity)
        RETURNING capture_id`,
-      [id, version, input.exactSuffix, suffixHash, input.sourceRunId || null],
+      [id, version, input.exactSuffix, suffixHash, input.sourceRunId || null, egress ? JSON.stringify(egress) : null],
     );
     await client.query(
       `UPDATE tah_delivery_jobs SET state='superseded',leased_at=NULL,leased_until=NULL,
@@ -846,6 +904,14 @@ export async function listBridgeTargets(options: { query?: string; page?: number
               ELSE 'waiting_for_manifest'
             END AS account_readiness,
             latest.version AS latest_version,latest.exact_suffix,latest.captured_at,
+            latest.egress_identity AS capture_egress,
+            (SELECT prior.egress_identity
+               FROM tah_suffix_captures prior
+              WHERE prior.target_id=t.target_id
+                AND prior.capture_id<>latest.capture_id
+                AND prior.egress_identity IS NOT NULL
+              ORDER BY prior.captured_at DESC,prior.capture_id DESC LIMIT 1
+            ) AS previous_capture_egress,
             (SELECT applied_capture.exact_suffix
                FROM tah_suffix_captures applied_capture
               WHERE applied_capture.target_id=t.target_id
@@ -866,7 +932,7 @@ export async function listBridgeTargets(options: { query?: string; page?: number
             count(*) OVER()::int AS total
      FROM tah_campaign_targets t
      LEFT JOIN LATERAL (
-       SELECT capture_id,version,exact_suffix,captured_at FROM tah_suffix_captures
+       SELECT capture_id,version,exact_suffix,captured_at,egress_identity FROM tah_suffix_captures
        WHERE target_id=t.target_id ORDER BY captured_at DESC LIMIT 1
      ) latest ON true
       LEFT JOIN LATERAL (

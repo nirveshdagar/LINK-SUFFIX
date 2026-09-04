@@ -6,6 +6,7 @@ export type ProxyEgressFailureCode = "proxy_auth_failed" | "proxy_connect_failed
 export type ProxyProbeAttempt = { provider: string; stage: "egress" | "timezone"; ok: boolean; statusCode?: number; error?: string };
 export type ProxyEgressIdentity = {
   ip: string | null; timezone: string | null; country?: string; state?: string; city?: string;
+  asn?: number; organization?: string; isp?: string;
   verified: boolean; provider?: string; attempts: ProxyProbeAttempt[];
 };
 
@@ -50,12 +51,29 @@ function normalizeParsed(parsed: Parsed): Parsed {
     country: parsed.country?.slice(0, 2).toUpperCase(),
     state: parsed.state?.slice(0, 120),
     city: parsed.city?.slice(0, 160),
+    asn: Number.isSafeInteger(parsed.asn) && Number(parsed.asn) > 0 && Number(parsed.asn) <= 4_294_967_295
+      ? Number(parsed.asn)
+      : undefined,
+    organization: parsed.organization?.slice(0, 240),
+    isp: parsed.isp?.slice(0, 240),
   };
 }
 const cleanError = (error: unknown) => (error instanceof Error ? error.message : String(error))
   .replace(/https?:\/\/[^\s@]+@/gi, "http://***:***@").slice(0, 240);
 const statusOf = (error: unknown) => typeof error === "object" && error && "statusCode" in error ? Number((error as { statusCode: unknown }).statusCode) : undefined;
 const value = (input: unknown) => typeof input === "string" && input.trim() ? input.trim() : undefined;
+const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+const asnValue = (input: unknown): number | undefined => {
+  const match = String(input ?? "").trim().match(/^(?:AS)?(\d{1,10})\b/i);
+  if (!match) return undefined;
+  const parsed = Number(match[1]);
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= 4_294_967_295 ? parsed : undefined;
+};
+const ipInfoNetwork = (input: unknown) => {
+  const raw = value(input);
+  const match = raw?.match(/^AS(\d{1,10})\s*(.*)$/i);
+  return { asn: asnValue(match?.[1]), organization: value(match?.[2]) };
+};
 const messageFor = (code: ProxyEgressFailureCode) => ({
   proxy_auth_failed: "IPRoyal rejected the proxy credentials or routing parameters (HTTP 407). Check the username, password, country, state, and city.",
   proxy_connect_failed: "The IPRoyal gateway could not be reached. Check the proxy host, port, network, and provider availability.",
@@ -120,13 +138,42 @@ async function fetchBody(url: string, dispatcher?: ProxyAgent): Promise<{ status
 type Parsed = Omit<ProxyEgressIdentity, "verified" | "attempts">;
 type Provider = { name: string; url: string; parse: (body: Record<string, unknown>) => Parsed };
 const parsers = {
-  ipapi: (body: Record<string, unknown>): Parsed => ({ ip: value(body.ip) ?? null, timezone: value(body.timezone) ?? null, country: value(body.country_code), state: value(body.region_code) ?? value(body.region), city: value(body.city) }),
-  ipwhois: (body: Record<string, unknown>): Parsed => ({
+  ipapi: (body: Record<string, unknown>): Parsed => ({
     ip: value(body.ip) ?? null,
-    timezone: body.timezone && typeof body.timezone === "object" ? value((body.timezone as Record<string, unknown>).id) ?? null : value(body.timezone) ?? null,
-    country: value(body.country_code), state: value(body.region_code) ?? value(body.region), city: value(body.city),
+    timezone: value(body.timezone) ?? null,
+    country: value(body.country_code),
+    state: value(body.region_code) ?? value(body.region),
+    city: value(body.city),
+    asn: asnValue(body.asn),
+    organization: value(body.org),
+    isp: value(body.org),
   }),
-  ipinfo: (body: Record<string, unknown>): Parsed => ({ ip: value(body.ip) ?? null, timezone: value(body.timezone) ?? null, country: value(body.country), state: value(body.region), city: value(body.city) }),
+  ipwhois: (body: Record<string, unknown>): Parsed => {
+    const connection = record(body.connection);
+    return {
+      ip: value(body.ip) ?? null,
+      timezone: body.timezone && typeof body.timezone === "object" ? value((body.timezone as Record<string, unknown>).id) ?? null : value(body.timezone) ?? null,
+      country: value(body.country_code),
+      state: value(body.region_code) ?? value(body.region),
+      city: value(body.city),
+      asn: asnValue(connection.asn),
+      organization: value(connection.org),
+      isp: value(connection.isp),
+    };
+  },
+  ipinfo: (body: Record<string, unknown>): Parsed => {
+    const network = ipInfoNetwork(body.org);
+    return {
+      ip: value(body.ip) ?? null,
+      timezone: value(body.timezone) ?? null,
+      country: value(body.country),
+      state: value(body.region),
+      city: value(body.city),
+      asn: network.asn,
+      organization: network.organization,
+      isp: network.organization,
+    };
+  },
 };
 const egressProviders: Provider[] = [
   { name: "ipapi", url: "https://ipapi.co/json/", parse: parsers.ipapi },
@@ -182,7 +229,7 @@ async function fetchProxyEgress(proxyUrl: URL): Promise<ProxyEgressIdentity> {
     for (const provider of egressProviders) {
       partial = await runProvider(provider, "egress", attempts, dispatcher);
       if (partial?.ip) {
-        if (partial.timezone) return { ...partial, verified: true, provider: provider.name, attempts };
+        if (partial.timezone && partial.asn && partial.organization) return { ...partial, verified: true, provider: provider.name, attempts };
         break;
       }
       if (classify(attempts) === "proxy_auth_failed") break;
@@ -203,7 +250,19 @@ async function fetchProxyEgress(proxyUrl: URL): Promise<ProxyEgressIdentity> {
     }
     for (const provider of timezoneProviders(partial.ip)) {
       const geo = await runProvider(provider, "timezone", attempts);
-      if (geo?.timezone) return { ...partial, timezone: geo.timezone, country: partial.country ?? geo.country, state: partial.state ?? geo.state, city: partial.city ?? geo.city, verified: true, provider: provider.name, attempts };
+      if (geo?.timezone) return {
+        ...partial,
+        timezone: partial.timezone ?? geo.timezone,
+        country: partial.country ?? geo.country,
+        state: partial.state ?? geo.state,
+        city: partial.city ?? geo.city,
+        asn: partial.asn ?? geo.asn,
+        organization: partial.organization ?? geo.organization,
+        isp: partial.isp ?? geo.isp,
+        verified: true,
+        provider: provider.name,
+        attempts,
+      };
     }
     throw new ProxyEgressResolutionError("timezone_lookup_failed", messageFor("timezone_lookup_failed"), attempts, partial.ip);
   } finally { await dispatcher.close(); }

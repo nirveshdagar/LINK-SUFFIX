@@ -38,7 +38,20 @@ export interface RequestEvent {
   repeat_index: number;
   tier: Tier;
   geo_requested: GeoTarget;
-  geo_resolved?: { ip: string; country: string; state?: string; city?: string; verified: boolean };
+  geo_resolved?: {
+    ip: string;
+    country: string;
+    state?: string;
+    city?: string;
+    timezone?: string;
+    asn?: number;
+    organization?: string;
+    isp?: string;
+    intelligence_provider?: string;
+    observed_at?: string;
+    confidence?: 'stable_session' | 'observed_probe' | 'direct';
+    verified: boolean;
+  };
   proxy_mode: ProxyMode;
   session_id?: string;
   expected_verdict?: 'block' | 'challenge' | 'allow';

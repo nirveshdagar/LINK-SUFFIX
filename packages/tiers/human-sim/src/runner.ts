@@ -120,6 +120,7 @@ export async function* run(
   const egress = scenario.proxy_mode === 'sticky-residential'
     ? await verifyProxyEgressStability(proxyUrl)
     : await resolveProxyEgress(proxyUrl);
+  const egressObservedAt = new Date().toISOString();
   const deviceId = String((device as any).id ?? '').toLowerCase();
   const antidetect = pickFingerprint(deviceId.includes('mac') ? 'mimic-gologin' : deviceId.includes('mobile') ? 'mimic-adspower' : 'mimic-multilogin');
   if (egress.ip && egress.timezone) {
@@ -477,6 +478,20 @@ export async function* run(
     repeat_index: 0,
     tier: 'human',
     geo_requested: scenario.geo,
+    geo_resolved: egress.ip ? {
+      ip: egress.ip,
+      country: egress.country ?? scenario.geo.country,
+      state: egress.state,
+      city: egress.city,
+      timezone: egress.timezone ?? undefined,
+      asn: egress.asn,
+      organization: egress.organization,
+      isp: egress.isp,
+      intelligence_provider: egress.provider,
+      observed_at: egressObservedAt,
+      confidence: scenario.proxy_mode === 'sticky-residential' ? 'stable_session' : 'observed_probe',
+      verified: egress.verified,
+    } : undefined,
     proxy_mode: scenario.proxy_mode,
     started_at: new Date(start).toISOString(),
     pages,

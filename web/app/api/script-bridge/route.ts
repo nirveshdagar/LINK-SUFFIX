@@ -76,6 +76,7 @@ export async function POST(request: Request) {
         exactSuffix: String(body.exactSuffix ?? body.suffix ?? capture.exactSuffix ?? capture.suffix ?? ""),
         version: Number(body.version || capture.version || Date.now()),
         sourceRunId: String(body.sourceRunId || body.runId || capture.runId || "") || undefined,
+        egress: body.captureEgress ?? capture.egress,
       });
       return NextResponse.json({ ok: true, ...result }, { status: 202 });
     }

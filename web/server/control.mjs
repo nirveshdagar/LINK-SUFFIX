@@ -235,6 +235,34 @@ const atomicWriteJson = (filePath, value, mode) => {
   renameSync(temporary, filePath);
 };
 
+function captureEgressIdentity(run, result, capturedAt) {
+  const source = result?.geo_resolved;
+  if (!source || typeof source !== "object" || !clean(source.ip, 64)) return null;
+  const parsedAsn = Number(source.asn);
+  const observedAt = Number.isFinite(Date.parse(String(source.observed_at || "")))
+    ? new Date(source.observed_at).toISOString()
+    : capturedAt;
+  const confidence = ["stable_session", "observed_probe", "direct"].includes(source.confidence)
+    ? source.confidence
+    : "observed_probe";
+  return {
+    ip: clean(source.ip, 64),
+    country: clean(source.country, 2).toUpperCase() || undefined,
+    state: clean(source.state, 120) || undefined,
+    city: clean(source.city, 160) || undefined,
+    timezone: clean(source.timezone, 80) || undefined,
+    asn: Number.isSafeInteger(parsedAsn) && parsedAsn > 0 ? parsedAsn : undefined,
+    organization: clean(source.organization, 240) || undefined,
+    isp: clean(source.isp, 240) || undefined,
+    intelligenceProvider: clean(source.intelligence_provider, 80) || undefined,
+    proxyProvider: clean(run.proxyProviderId || "iproyal", 80),
+    proxyMode: clean(result.proxy_mode || run.proxyMode, 40) || undefined,
+    confidence,
+    verified: source.verified === true,
+    observedAt,
+  };
+}
+
 function captureExactL4Suffix(run) {
   if (run.tier !== "human") return null;
   const resultsPath = path.join(ROOT, "runs", run.id, "scenarios.jsonl");
@@ -261,6 +289,7 @@ function persistL4Capture(run, result) {
   let state = {};
   try { state = JSON.parse(readFileSync(adsStatePath, "utf8")); } catch { /* first capture */ }
   const capturedAt = new Date().toISOString();
+  const egress = captureEgressIdentity(run, result, capturedAt);
   const capture = {
     capturedAt,
     runId: run.id,
@@ -269,12 +298,14 @@ function persistL4Capture(run, result) {
     repeatIndex: result.repeat_index,
     finalUrl,
     suffix,
+    egress,
   };
   if (run.campaignRecordId) {
     const campaign = campaigns.get(run.campaignRecordId);
     if (campaign) {
       const history = Array.isArray(campaign.captureHistory) ? campaign.captureHistory : [];
       campaign.latestSuffix = suffix;
+      campaign.latestCaptureEgress = egress;
       campaign.lastCapturedAt = capturedAt;
       campaign.captureHistory = [...history, capture].slice(-100);
       campaign.updatedAt = capturedAt;
@@ -288,6 +319,7 @@ function persistL4Capture(run, result) {
       suffix,
       finalQuery: suffix,
       finalUrl,
+      egress,
       capturedAt,
       capturedBy: "l4-browser",
       capturedRunId: run.id,
@@ -402,6 +434,7 @@ async function publishL4CaptureToMesh(run, capture) {
     exactSuffix: capture.suffix,
     version,
     sourceRunId: run.id,
+    captureEgress: capture.egress,
   });
   return { accepted: true, fleet: true, version, ...result };
 }
@@ -893,6 +926,7 @@ function saveCampaign(payload, id) {
     restartPending: existing?.restartPending ?? false,
     lastError: existing?.lastError,
     latestSuffix: existing?.latestSuffix,
+    latestCaptureEgress: existing?.latestCaptureEgress,
     lastCapturedAt: existing?.lastCapturedAt,
     lastStartedWindow: existing?.lastStartedWindow,
     createdAt: existing?.createdAt ?? now,
@@ -1201,7 +1235,7 @@ async function startRun(payload) {
   else args.push("--mitm-port", String(Number(process.env.TAH_MITM_PORT_START ?? 8188) + (sequence % 50_000)));
   if (payload.concurrent > 1) args.push("--parallel");
   const useShared = SHARED_ORCHESTRATOR_ENABLED && payload.tier === "human" && payload.continuous === true && payload.mitm !== true;
-  const run = { id, scenarioId, scenarioPath, challengeDir, dashboardPort, startedAt: Date.now(), mitmEnabled: payload.mitm === true, child: null, pid: null, tier: payload.tier, scheduleId: payload.scheduleId, campaignRecordId: payload.campaignRecordId, proxyPort: requestedProxyPort, continuous: payload.tier === "human" && payload.continuous === true, syncGoogleAds: payload.tier === "human" && payload.syncGoogleAds === true, useScriptMesh: payload.tier === "human" && payload.useScriptMesh === true, concurrent: requestedConcurrency, targetRps: requestedRps, exitCode: null, executionMode: useShared ? "shared" : "dedicated", lastProgressAt: Date.now(), lastProgressKind: "started" };
+  const run = { id, scenarioId, scenarioPath, challengeDir, dashboardPort, startedAt: Date.now(), mitmEnabled: payload.mitm === true, child: null, pid: null, tier: payload.tier, scheduleId: payload.scheduleId, campaignRecordId: payload.campaignRecordId, proxyPort: requestedProxyPort, proxyMode: payload.proxyMode, proxyProviderId: noProxy ? "direct" : clean(payload.proxyProviderId || payload.proxyProvider?.id || "iproyal", 80), continuous: payload.tier === "human" && payload.continuous === true, syncGoogleAds: payload.tier === "human" && payload.syncGoogleAds === true, useScriptMesh: payload.tier === "human" && payload.useScriptMesh === true, concurrent: requestedConcurrency, targetRps: requestedRps, exitCode: null, executionMode: useShared ? "shared" : "dedicated", lastProgressAt: Date.now(), lastProgressKind: "started" };
   runs.set(id, run);
   persistRuns();
   if (useShared) {

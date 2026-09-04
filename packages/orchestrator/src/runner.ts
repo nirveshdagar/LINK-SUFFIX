@@ -5,7 +5,7 @@ import { run as runHuman } from '@tah/human-sim';
 import { buildProxyEndpoint } from '@tah/proxy';
 import { defaultStrategies, aggregateVerdict, DEFAULT_SIGNATURES, signatureMatches } from '@tah/verdict';
 import { loadProfile } from '@tah/profiles';
-import { resolveProxyEgress } from '@tah/tz';
+import { resolveProxyEgress, type ProxyEgressIdentity } from '@tah/tz';
 import { loadScenario } from './scenarioLoader.js';
 import { EventBus } from '@tah/contracts';
 import { JsonlSink, AppendOnlyJsonl } from './jsonlSink.js';
@@ -192,7 +192,7 @@ async function runOneRepeat(
       : `${scenario.id}:${i}:${Date.now()}:${Math.random()}`)
     .digest('hex')
     .slice(0, 8);
-  let resolvedEgress: { ip?: string; timezone?: string; country?: string; state?: string; city?: string } = {};
+  let resolvedEgress: Partial<ProxyEgressIdentity> = {};
   let proxyUrl: URL;
   try {
     if (process.env.TAH_NO_PROXY === '1') {
@@ -209,7 +209,7 @@ async function runOneRepeat(
     await skippedSink.write({ scenario_id: scenario.id, repeat: i, reason: e.message });
     return;
   }
-  if (scenario.proxy_mode === 'sticky-residential') {
+  if (proxyUrl.protocol !== 'direct:') {
     try { resolvedEgress = await resolveProxyEgress(proxyUrl) as typeof resolvedEgress; } catch { /* retain requested geo */ }
   }
 
@@ -330,11 +330,25 @@ async function runOneRepeat(
       evt.session_id = sessionId;
       evt.expected_verdict = scenario.expected_verdict;
       evt.expectation_met = scenario.expected_verdict ? evt.final_verdict === scenario.expected_verdict : undefined;
-      if (resolvedEgress.ip) {
-        evt.geo_resolved = { ip: resolvedEgress.ip, country: resolvedEgress.country ?? scenario.geo.country, state: resolvedEgress.state, city: resolvedEgress.city, verified: Boolean(resolvedEgress.country) };
+      if (!evt.geo_resolved && resolvedEgress.ip) {
+        evt.geo_resolved = {
+          ip: resolvedEgress.ip,
+          country: resolvedEgress.country ?? scenario.geo.country,
+          state: resolvedEgress.state,
+          city: resolvedEgress.city,
+          timezone: resolvedEgress.timezone ?? undefined,
+          asn: resolvedEgress.asn,
+          organization: resolvedEgress.organization,
+          isp: resolvedEgress.isp,
+          intelligence_provider: resolvedEgress.provider,
+          observed_at: new Date().toISOString(),
+          confidence: 'observed_probe',
+          verified: resolvedEgress.verified === true,
+        };
       }
       const finalSignal = evt.events.at(-1)?.ta_signal;
-      if (finalSignal && resolvedEgress.timezone) finalSignal.egress_timezone = resolvedEgress.timezone;
+      const egressTimezone = evt.geo_resolved?.timezone ?? resolvedEgress.timezone;
+      if (finalSignal && egressTimezone) finalSignal.egress_timezone = egressTimezone;
       bus.emit('request', evt);
       await sink.write(evt);
       if (evt.tier === 'human' && evt.final_landing_url) {

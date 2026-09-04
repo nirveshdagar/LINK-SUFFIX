@@ -675,6 +675,15 @@ button.scenario-item { width: 100%; color: inherit; font: inherit; text-align: l
 .fleet-suffix-cell small,
 .fleet-health-cell small,
 .fleet-shard-cell small { display: block; margin-top: 7px; color: #66736c; font: 9px/1.35 monospace; }
+.fleet-egress-card { display: grid; gap: 4px; margin-top: 11px; padding: 10px; border: 1px solid #9eb2c5; border-left: 3px solid #2f6595; background: #edf5fb; color: #07110d; }
+.fleet-egress-card > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.fleet-egress-card > div strong { font: 700 11px/1.25 monospace; overflow-wrap: anywhere; }
+.fleet-egress-card > div span { flex: 0 0 auto; font: 700 9px/1 monospace; color: #174f7d; }
+.fleet-egress-card small { margin-top: 0; color: #14231d; font-weight: 600; overflow-wrap: anywhere; }
+.fleet-egress-card.is-verified { border-color: #6f9dbc; border-left-color: #174f7d; }
+.fleet-egress-card.is-observed { border-color: #c8a45e; border-left-color: #ad7411; background: #fff7df; }
+.fleet-egress-card.is-unknown { border-style: dashed; border-left-style: solid; border-color: #afb8ae; border-left-color: #68736d; background: #ffffff8f; }
+.fleet-egress-card .fleet-egress-source { color: #52635b; font-weight: 400; }
 .fleet-health-cell small { color: #07110d; font-weight: 700; }
 .fleet-cell-empty { min-height: 54px; display: grid; place-items: center; border: 1px dashed #afb8ae; color: #68736d; background: #ffffff8f; font: 10px monospace; text-align: center; }
 .fleet-health-cell,

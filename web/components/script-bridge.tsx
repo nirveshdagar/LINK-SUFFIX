@@ -33,6 +33,23 @@ type BridgeShard = {
   last_error?: string | null;
 };
 
+type CaptureEgress = {
+  ip?: string;
+  country?: string;
+  state?: string;
+  city?: string;
+  timezone?: string;
+  asn?: number;
+  organization?: string;
+  isp?: string;
+  intelligenceProvider?: string;
+  proxyProvider?: string;
+  proxyMode?: string;
+  confidence?: "stable_session" | "observed_probe" | "direct";
+  verified?: boolean;
+  observedAt?: string;
+};
+
 type BridgeCampaign = {
   target_id: string;
   campaign_record_id: string;
@@ -58,6 +75,8 @@ type BridgeCampaign = {
   delivery_health?: "healthy" | "attention" | "awaiting";
   newest_update_state?: "queued" | "processing" | "current" | "retrying" | "delayed" | "waiting";
   queue_age_ms?: number | string | null;
+  capture_egress?: CaptureEgress | null;
+  previous_capture_egress?: CaptureEgress | null;
 };
 
 type SavedFleetCampaign = {
@@ -157,6 +176,39 @@ function compareCampaignCreationOrder(left: BridgeCampaign, right: BridgeCampaig
   }
   if (left.target_id === right.target_id) return 0;
   return left.target_id < right.target_id ? -1 : 1;
+}
+
+function CaptureRouteIdentity({ current, previous }: { current?: CaptureEgress | null; previous?: CaptureEgress | null }) {
+  if (!current?.ip) {
+    return <div className="fleet-egress-card is-unknown"><strong>Capture route unavailable</strong><small>The next capture will record its proxy exit.</small></div>;
+  }
+  const location = [current.country, current.state, current.city, current.timezone].filter(Boolean).join(" · ") || "Location unavailable";
+  const company = current.organization || current.isp || "Network owner unavailable";
+  const asn = current.asn ? `AS${current.asn}` : "ASN unavailable";
+  const changed = Boolean(previous?.ip && previous.ip !== current.ip);
+  const same = Boolean(previous?.ip && previous.ip === current.ip);
+  const routeLabel = changed
+    ? `Rotated from ${previous?.ip}`
+    : same && current.confidence === "stable_session"
+      ? "Same sticky exit"
+      : same
+        ? "No rotation observed"
+        : "First recorded exit";
+  const confidenceLabel = current.confidence === "stable_session"
+    ? "Session IP verified"
+    : current.confidence === "direct"
+      ? "Direct connection"
+      : "Proxy probe only";
+  return (
+    <div className={"fleet-egress-card " + (changed || current.confidence === "stable_session" ? "is-verified" : "is-observed")}>
+      <div><strong>{current.ip}</strong><span>{asn}</span></div>
+      <small>{location}</small>
+      <small>Company · {company}</small>
+      <small>{current.proxyProvider || "Proxy"} · {confidenceLabel}</small>
+      <small>{routeLabel}</small>
+      <small className="fleet-egress-source">Geo estimate · {current.intelligenceProvider || "provider unavailable"}</small>
+    </div>
+  );
 }
 
 function FleetAlertIndicator({ state, title }: { state: FleetIndicatorState; title: string }) {
@@ -721,6 +773,7 @@ export function ScriptBridge({
                         : <span className="fleet-cell-empty">No capture yet</span>}
                       <small>{campaign.captured_at ? "Captured " + formatTimestamp(campaign.captured_at) : "Waiting for browser capture"}</small>
                       <small>Version {campaign.latest_version || "-"}</small>
+                      {campaign.exact_suffix != null && <CaptureRouteIdentity current={campaign.capture_egress} previous={campaign.previous_capture_egress} />}
                     </td>
                     <td className="fleet-suffix-cell fleet-inserted-cell">
                       <TransientVerifiedSuffix campaign={campaign} />
