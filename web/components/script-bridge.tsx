@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 type BridgeSummary = {
   campaigns?: number;
@@ -366,6 +366,12 @@ export function ScriptBridge({
   const [actionCampaignId, setActionCampaignId] = useState("");
   const [fleetAlerts, setFleetAlerts] = useState<FleetAlert[] | null>(null);
   const [fleetAlertsUnavailable, setFleetAlertsUnavailable] = useState(false);
+  const fleetRefreshSequence = useRef(0);
+  const fleetMembershipSignature = useMemo(() => savedCampaigns
+    .map((campaign) => `${campaign.id}:${campaign.config?.useScriptMesh === true ? "1" : "0"}:${campaign.config?.scriptFleetShardId || ""}`)
+    .sort()
+    .join("|"), [savedCampaigns]);
+  const previousFleetMembershipSignature = useRef(fleetMembershipSignature);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -418,6 +424,7 @@ export function ScriptBridge({
   }, [fleetAlerts]);
 
   const refresh = useCallback(async (signal?: AbortSignal, silent = false) => {
+    const requestSequence = ++fleetRefreshSequence.current;
     if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: "25" });
@@ -429,14 +436,17 @@ export function ScriptBridge({
       });
       const body = await response.json() as BridgeResponse;
       if (!response.ok) throw new Error(body.error || "Fleet status failed (" + response.status + ")");
+      if (signal?.aborted || requestSequence !== fleetRefreshSequence.current) return null;
       setStatus(body);
       setError("");
+      return body;
     } catch (nextError) {
-      if ((nextError as { name?: string }).name !== "AbortError") {
+      if ((nextError as { name?: string }).name !== "AbortError" && requestSequence === fleetRefreshSequence.current) {
         setError(nextError instanceof Error ? nextError.message : "Fleet status failed");
       }
+      return null;
     } finally {
-      if (!signal?.aborted && !silent) setLoading(false);
+      if (!signal?.aborted && requestSequence === fleetRefreshSequence.current) setLoading(false);
     }
   }, [debouncedQuery, page]);
 
@@ -449,6 +459,12 @@ export function ScriptBridge({
       window.clearInterval(timer);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (previousFleetMembershipSignature.current === fleetMembershipSignature) return;
+    previousFleetMembershipSignature.current = fleetMembershipSignature;
+    void refresh(undefined, true);
+  }, [fleetMembershipSignature, refresh]);
 
   const targetItems = status?.campaigns?.items || [];
   const shardOptions = useMemo(() => {
@@ -549,7 +565,7 @@ export function ScriptBridge({
     setNotice("Shard " + value + " is selected. Generate its worker before production delivery.");
   }
 
-  function requestFleetUpdate(campaign: SavedFleetCampaign, enabled: boolean) {
+  async function requestFleetUpdate(campaign: SavedFleetCampaign, enabled: boolean) {
     const nextShardId = selectedShardId.trim();
     setError("");
     setNotice("");
@@ -575,10 +591,22 @@ export function ScriptBridge({
     setNotice(campaign.name + (enabled
       ? " is being assigned to shard " + nextShardId + "."
       : " is being permanently deleted from Fleet delivery."));
-    window.setTimeout(() => {
-      setActionCampaignId("");
-      void refresh(undefined, true);
-    }, 1200);
+    const confirmationDelays = [200, 400, 800, 1_200, 2_000, 3_000];
+    for (const delay of confirmationDelays) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, delay));
+      const snapshot = await refresh(undefined, true);
+      const assigned = snapshot?.campaigns?.items?.find((item) => item.campaign_record_id === campaign.id);
+      const confirmed = enabled ? assigned?.shard_id === nextShardId : !assigned;
+      if (confirmed) {
+        setNotice(enabled
+          ? `${campaign.name} is assigned to shard ${nextShardId}.`
+          : `${campaign.name} was permanently deleted from Fleet delivery.`);
+        setActionCampaignId("");
+        return;
+      }
+    }
+    setActionCampaignId("");
+    setError(`Fleet accepted the request for ${campaign.name}, but the dashboard did not confirm it within 8 seconds. Automatic refresh is continuing.`);
   }
 
   async function deleteFleetTarget(campaign: BridgeCampaign) {
