@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { isEvomi, buildEvomiEndpoint, leaseEndpointKeys, physicalEndpointKey, requireBrowserSessionId } from "./proxy-setup-core.mjs";
 import { createClient } from "redis";
 import { configuredProxyProviderService } from "./proxy-provider-store.mjs";
 import { createPostgresProxyLeaseRepository, createProxyLeaseCoordinator, createRedisProxyLeaseLock, ProxyLeaseUnavailableError } from "./proxy-lease-coordinator.mjs";
@@ -48,6 +49,7 @@ function providerDefinition(provider) {
 }
 
 async function defaultEndpointBuilder(provider, secret, request) {
+  if (isEvomi(provider)) return buildEvomiEndpoint(provider, secret, request);
   const adapters = await import("@tah/proxy");
   const adapter = provider.providerType === "iproyal" ? adapters.ipRoyalProviderAdapter : adapters.universalResidentialAdapter;
   return adapter.buildEndpoint(providerDefinition(provider), secret, request);
@@ -79,6 +81,7 @@ export function createProxyRuntimeService({ providerService, leaseCoordinator, e
       if (!campaignRecordId) throw new ProxyPolicyNotFoundError("campaignRecordId is required");
       const policy = await repository.getPolicy(campaignRecordId);
       if (!policy?.enabled) throw new ProxyPolicyNotFoundError();
+      const sessionId = requireBrowserSessionId(input?.sessionId);
       const [providers, pools, circuits] = await Promise.all([repository.listProviders(), repository.listPools(), repository.listCircuits()]);
       const providerMap = new Map(providers.map((provider) => [provider.providerId, provider]));
       const candidates = [policy.primaryProviderId, ...policy.fallbackProviderIds];
@@ -98,22 +101,22 @@ export function createProxyRuntimeService({ providerService, leaseCoordinator, e
 
         let lease;
         try {
-          const endpointKeys = pool.endpointPorts
-            .map((port) => `${provider.gatewayHost}:${port}`)
-            .filter((endpointKey) => !circuitBlocks(circuits.find((item) => item.providerId === providerId && item.poolId === pool.poolId && item.endpointKey === endpointKey), checkedAt));
+          const endpointKeys = leaseEndpointKeys(pool, provider.gatewayHost, policy.rotationMode, sessionId)
+            .filter((endpointKey) => !circuitBlocks(circuits.find((item) => item.providerId === providerId && item.poolId === pool.poolId && item.endpointKey === physicalEndpointKey(endpointKey)), checkedAt));
           if (!endpointKeys.length) { failures.push(`${providerId}: every endpoint circuit is open`); continue; }
           lease = await leaseCoordinator.acquire({
             providerId, poolId: pool.poolId, campaignId: campaignRecordId, endpointKeys,
-            sessionId: String(input?.sessionId || campaignRecordId), rotationMode: policy.rotationMode,
+            sessionId, rotationMode: policy.rotationMode,
             ttlMs: Math.max(30_000, Math.min(300_000, Number(input?.leaseTtlMs) || DEFAULT_LEASE_TTL_MS)),
             metadata: { source: "universal-proxy-runtime" },
           });
-          const secret = await providerService.runtimeSecret(providerId);
+          const secret = provider.authMode === "ip-allowlist" ? {} : await providerService.runtimeSecret(providerId);
           const endpoint = await endpointBuilder(provider, secret, {
+            campaignId: campaignRecordId,
             geo: { ...policy.geo, ...(input?.geo || {}) },
             asn: input?.asn ? String(input.asn) : undefined,
             rotationMode: policy.rotationMode,
-            sessionId: String(input?.sessionId || campaignRecordId),
+            sessionId,
             ttlSeconds: policy.stickyTtlSeconds,
             port: endpointPort(lease.endpointKey),
           });
@@ -151,14 +154,14 @@ export function createProxyRuntimeService({ providerService, leaseCoordinator, e
       const databaseLatencyMs = Math.max(0, now() - lookupStarted);
       const healthy = input?.healthy === true;
       await providerService.recordHealth({
-        providerId: lease.providerId, poolId: lease.poolId, endpointKey: lease.endpointKey, healthy,
+        providerId: lease.providerId, poolId: lease.poolId, endpointKey: physicalEndpointKey(lease.endpointKey), healthy,
         reason: healthy ? "" : String(input?.reason || "proxy journey failed"), proxyLatencyMs: input?.proxyLatencyMs,
         payloadBytes: input?.payloadBytes, browserCpuMs: input?.browserCpuMs, browserMemoryBytes: input?.browserMemoryBytes,
         databaseLatencyMs, redisLatencyMs: input?.redisLatencyMs,
       });
       const circuits = await repository.listCircuits();
-      const current = circuits.find((item) => item.providerId === lease.providerId && item.poolId === lease.poolId && item.endpointKey === lease.endpointKey) || {
-        providerId: lease.providerId, poolId: lease.poolId, endpointKey: lease.endpointKey, state: "closed", consecutiveFailures: 0, consecutiveSuccesses: 0,
+      const current = circuits.find((item) => item.providerId === lease.providerId && item.poolId === lease.poolId && item.endpointKey === physicalEndpointKey(lease.endpointKey)) || {
+        providerId: lease.providerId, poolId: lease.poolId, endpointKey: physicalEndpointKey(lease.endpointKey), state: "closed", consecutiveFailures: 0, consecutiveSuccesses: 0,
       };
       let next;
       if (healthy) {

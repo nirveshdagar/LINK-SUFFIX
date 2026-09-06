@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import CampaignProxySelector, { EMPTY_PROXY_CHOICE } from "../../../../components/campaign-proxy-selector";
+import { WORLD_COUNTRIES } from "../../../../lib/world-locations";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -29,6 +31,7 @@ export default function CampaignEditorPage() {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [form, setForm] = useState<Record<string, any> | null>(null);
   const [lockedPorts, setLockedPorts] = useState<number[]>([]);
+  const [proxyChoice, setProxyChoice] = useState(EMPTY_PROXY_CHOICE);
   const [notice, setNotice] = useState("Connecting to campaign registry…");
   const [pendingAction, setPendingAction] = useState<"save" | "restart" | null>(null);
 
@@ -89,7 +92,7 @@ export default function CampaignEditorPage() {
   const schedule = form?.schedule as { timezone?: string; startTime?: string; stopTime?: string; days?: number[] } | undefined;
   const setSchedule = (value: Record<string, unknown> | undefined) => set("schedule", value);
   const submit = (action: "save" | "restart") => {
-    if (pendingAction || !form) return;
+    if (pendingAction || !form || !proxyChoice.ready) return;
     if (wsRef.current?.readyState !== WebSocket.OPEN) {
       setNotice("Control backend is not connected. Wait for reconnection and try again.");
       return;
@@ -97,7 +100,7 @@ export default function CampaignEditorPage() {
     pendingActionRef.current = action;
     setPendingAction(action);
     setNotice(action === "restart" ? "Saving changes before restart…" : "Saving campaign changes…");
-    wsRef.current.send(JSON.stringify({ type: "update_campaign", payload: { ...form, id, authorized: true } }));
+    wsRef.current.send(JSON.stringify({ type: "update_campaign", payload: { ...form, proxyPoolId: proxyChoice.poolId, proxyProviderId: proxyChoice.providerId, proxyProviderMode: proxyChoice.poolId ? "registry" : "legacy", proxyPort: proxyChoice.poolId ? 0 : Number(form.proxyPort) || 12321, id, authorized: true } }));
   };
 
   if (!form || !campaign) return <main style={styles.shell}><div style={styles.card}><p>{notice}</p><Link href="/#campaigns">Back to dashboard</Link></div></main>;
@@ -105,10 +108,11 @@ export default function CampaignEditorPage() {
   return <main style={styles.shell}>
     <header style={styles.header}><div><p style={styles.kicker}>Campaign {String(campaign.number).padStart(3, "0")}</p><h1 style={styles.title}>Edit {campaign.name}</h1><p style={styles.muted}>Changes apply on the next start or restart. The active process keeps its current immutable configuration.</p></div><Link href="/#campaigns" style={styles.link}>Back to dashboard</Link></header>
     {notice && <div style={styles.notice}>{notice}</div>}
+    <section style={styles.card}><h2>Campaign proxy</h2><CampaignProxySelector key={id} campaignId={id} initialPoolId={campaign.config.proxyPoolId} disabled={campaign.status !== "stopped"} onChange={(choice, userInitiated) => { setProxyChoice(choice); }} /></section>
     <section style={styles.card}>
       <h2>Identity and destination</h2>
       <div style={styles.grid}><label style={styles.label}>Campaign name<input style={styles.input} value={form.scenarioId ?? ""} onChange={(event) => set("scenarioId", event.target.value)} /></label><label style={styles.label}>Tracking URL<input style={styles.input} value={form.seedUrl ?? ""} onChange={(event) => set("seedUrl", event.target.value)} /></label></div>
-      <div style={styles.grid3}><label style={styles.label}>Dedicated gateway port<select style={styles.input} value={form.proxyPort} onChange={(event) => set("proxyPort", Number(event.target.value))}>{availablePorts.map((port) => <option key={port}>{port}</option>)}</select></label><label style={styles.label}>Country<input style={styles.input} value={form.geo?.country ?? "US"} onChange={(event) => setGeo("country", event.target.value.toUpperCase())} /></label><label style={styles.label}>State<input style={styles.input} value={form.geo?.state ?? ""} onChange={(event) => setGeo("state", event.target.value)} placeholder="Any" /></label><label style={styles.label}>City<input style={styles.input} value={form.geo?.city ?? ""} onChange={(event) => setGeo("city", event.target.value)} placeholder="Any" /></label><label style={styles.label}>Device pool IDs<input style={styles.input} value={(form.devicePool ?? []).join(", ")} onChange={(event) => set("devicePool", event.target.value.split(",").map((value) => value.trim()).filter(Boolean))} /></label></div>
+      <div style={styles.grid3}><label style={styles.label}>Dedicated gateway port<select style={styles.input} value={form.proxyPort || 12321} disabled={!proxyChoice.ready || Boolean(proxyChoice.poolId)} onChange={(event) => set("proxyPort", Number(event.target.value))}>{availablePorts.map((port) => <option key={port}>{port}</option>)}</select></label><label style={styles.label}>Country<select aria-label="Country" style={styles.input} value={form.geo?.country ?? "US"} onChange={(event) => { setGeo("country", event.target.value); setGeo("state", ""); setGeo("city", ""); }}>{form.geo?.country && !WORLD_COUNTRIES.some(country => country.code === form.geo.country) && <option value={form.geo.country}>{form.geo.country} (saved)</option>}{WORLD_COUNTRIES.map(country => <option key={country.code} value={country.code}>{country.name} ({country.code})</option>)}</select></label><label style={styles.label}>State<input style={styles.input} value={form.geo?.state ?? ""} onChange={(event) => setGeo("state", event.target.value)} placeholder="Any" /></label><label style={styles.label}>City<input style={styles.input} value={form.geo?.city ?? ""} onChange={(event) => setGeo("city", event.target.value)} placeholder="Any" /></label><label style={styles.label}>Device pool IDs<input style={styles.input} value={(form.devicePool ?? []).join(", ")} onChange={(event) => set("devicePool", event.target.value.split(",").map((value) => value.trim()).filter(Boolean))} /></label></div>
     </section>
     <section style={styles.card}>
       <h2>Google Ads target</h2>

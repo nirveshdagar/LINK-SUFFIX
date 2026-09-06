@@ -9,7 +9,8 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "test": "npm run test:vitest && npm run test:web",
+    "test": "npm run test:vitest && npm run test:web && npm run test:proxy",
+    "test:proxy": "node --test tooling/tests/evomi-country-selection.test.mjs tooling/tests/evomi-setup.test.mjs tooling/tests/evomi-control-admission.test.mjs",
     "test:unit": "vitest run tests/unit packages",
     "test:integration": "node tooling/run-integration-tests.mjs",
     "test:production": "node tooling/production-smoke.mjs",

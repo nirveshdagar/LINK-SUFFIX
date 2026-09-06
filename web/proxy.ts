@@ -6,6 +6,8 @@ const ROUTE_SCOPED_PREFIXES = [
   "/api/campaign-ads",
   "/api/script-bridge/jobs",
   "/api/auth/session",
+  // The runtime route authenticates CONTROL_TOKEN itself, including worker requests.
+  "/api/proxy-runtime",
 ];
 
 function isRouteScoped(pathname: string) {

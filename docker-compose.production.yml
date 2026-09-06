@@ -104,6 +104,7 @@ services:
         required: false
     environment:
       NODE_ENV: production
+      TAH_UNIVERSAL_PROXY_ENABLED: "1"
       TAH_DISTRIBUTED_REQUIRED: "1"
       TAH_CONTROL_INTERNAL_URL: http://control:3101
     read_only: true
@@ -147,6 +148,8 @@ services:
         required: false
     environment:
       NODE_ENV: production
+      TAH_UNIVERSAL_PROXY_ENABLED: "1"
+      TAH_PROXY_RUNTIME_INTERNAL_URL: http://web:3100/api/proxy-runtime
       TAH_DISTRIBUTED_REQUIRED: "1"
     read_only: true
     tmpfs:

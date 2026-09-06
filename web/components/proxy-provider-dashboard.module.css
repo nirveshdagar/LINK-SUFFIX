@@ -57,3 +57,11 @@
 .primary:disabled, .secondary:disabled { opacity: .5; cursor: wait; }
 @media (max-width: 1000px) { .formGrid { grid-template-columns: 1fr; } .stats { grid-template-columns: repeat(2, 1fr); } .stats article { border-bottom: 1px solid #b9c2b9; } }
 @media (max-width: 720px) { .workspace { padding: 18px 14px 50px; } .hero { padding: 24px 20px; display: block; } .heroState { justify-items: start; text-align: left; margin-top: 22px; } .stats { grid-template-columns: 1fr 1fr; } .providerGrid { grid-template-columns: 1fr; } .two, .three, .secret { grid-template-columns: 1fr; } .secret svg { display: none; } }
+
+.formGrid details { border: 1px solid #b4beb5; padding: 14px; background: #f9f6ec; }
+.formGrid summary { cursor: pointer; font-weight: 700; }
+.formGrid p { color: #10251d; font: 13px/1.6 Georgia, serif; }
+.cardActions { flex-wrap: wrap; }
+
+.providerCard[data-health="unknown"], .providerCard[data-health="disabled"] { border-left-color: #85919c; }
+.providerCard[data-health="unknown"] .healthDot, .providerCard[data-health="disabled"] .healthDot { background: #85919c; box-shadow: 0 0 0 5px rgba(133,145,156,.12); }

@@ -1,3 +1,4 @@
+import { prepareCampaignProxySelection, settleCampaignProxySelection, assertProxySelectionReady } from "./campaign-proxy-selection.mjs";
 import { WebSocketServer } from "ws";
 import { spawn, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, renameSync, openSync, closeSync, unlinkSync, statfsSync, statSync } from "node:fs";
@@ -14,6 +15,9 @@ import { verifySessionToken } from "../lib/session-token.mjs";
 import { computeCampaignLaunchGapMs, evaluateResourceAdmission } from "./resource-admission.mjs";
 import { createSerializedStateWriter } from "./serialized-state-writer.mjs";
 import { createOrchestratorWorkerPool } from "./orchestrator-worker-pool.mjs";
+import { createCampaignProxyAdmission, registryRunRequired, legacyRunPort, assertLegacyPortAvailable, selectQueuedCampaign } from "./campaign-proxy-admission.mjs";
+
+const campaignProxyAdmission = createCampaignProxyAdmission({ databaseUrl: process.env.DATABASE_URL });
 
 function normalizedGoogleAdsId(value) {
   return String(value ?? "").replace(/\D/g, "");
@@ -555,6 +559,11 @@ const persistCampaigns = () => {
   atomicWriteJson(campaignRegistryPath, payload);
   if (distributedStore.enabled) queueDistributedStateSave("campaigns", payload).catch(error => console.error("[postgres] persist campaigns:", error.message));
 };
+async function persistCampaignsDurably() {
+  const payload = [...campaigns.values()];
+  atomicWriteJson(campaignRegistryPath, payload);
+  if (distributedStore.enabled) await queueDistributedStateSave("campaigns", payload);
+}
 const persistControlSettings = () => {
   const payload = { activeLimit };
   atomicWriteJson(controlSettingsPath, payload);
@@ -758,7 +767,7 @@ function scenarioYaml(p) {
   return `${lines.join("\n")}\n`;
 }
 
-function validate(p) {
+function validate(p, { registry = false } = {}) {
   let url; try { url = new URL(p.seedUrl); } catch { throw new Error("Enter a valid target URL"); }
   if (!["http:", "https:"].includes(url.protocol)) throw new Error("Target URL must use HTTP or HTTPS");
   if (!["trivial-http", "headless", "stealth", "human"].includes(p.tier)) throw new Error("Invalid execution tier");
@@ -779,7 +788,7 @@ function validate(p) {
   if (p.continuous === true && p.tier !== "human") throw new Error("Continuous campaigns are available only for L4");
   if (p.tier === "human" && p.session?.challengeHandling?.enabled === true && (!Number.isInteger(p.session?.challengeHandling?.timeoutSeconds) || p.session.challengeHandling.timeoutSeconds < 30 || p.session.challengeHandling.timeoutSeconds > 3600)) throw new Error("Challenge timeout must be between 30 and 3,600 seconds");
   if (p.mitm === true && p.tier !== "trivial-http") throw new Error("TLS ClientHello capture is currently available only for Raw HTTP runs");
-  if (process.env.TAH_NO_PROXY !== "1" && !proxy?.verified) throw new Error("Verify IPRoyal before launching traffic");
+  if (!registry && process.env.TAH_NO_PROXY !== "1" && !proxy?.verified) throw new Error("Verify IPRoyal before launching traffic");
 }
 
 function targetExplicitlyAllowed(hostname) {
@@ -880,8 +889,18 @@ const broadcastCampaigns = () => {
   broadcast("capacity", { activeLimit, effectiveActiveLimit: Math.min(activeLimit, MAX_LOCAL_WORKERS), active: activeRuns().length, queued: [...campaigns.values()].filter(campaign => campaign.status === "queued").length, lockedPorts: [...lockedPorts()] });
 };
 
+let campaignSaveTail = Promise.resolve();
 function saveCampaign(payload, id) {
-  validate(payload);
+  const task = campaignSaveTail.then(() => saveCampaignInternal(payload, id));
+  campaignSaveTail = task.catch(() => undefined);
+  return task;
+}
+async function saveCampaignInternal(payload, id) {
+  const selection = await prepareCampaignProxySelection(payload, id ? campaigns.get(id) : undefined);
+  if (selection) payload = selection.payload;
+  const registryPolicy = selection ? (selection.registry ? { enabled: true } : null) : await campaignProxyAdmission.policyFor(id);
+  validate(payload, { registry: Boolean(registryPolicy) });
+  if (registryPolicy && (payload.tier !== "human" || payload.mitm === true)) throw new Error("The saved proxy requires continuous shared-browser mode without MITM");
   if (payload.syncGoogleAds === true && payload.useScriptMesh === true) throw new Error("Choose either direct Google Ads API sync or Rolling Apps Script Mesh delivery");
   if (payload.useScriptMesh === true) {
     if (!payload.customerId || !payload.googleCampaignId) throw new Error("Apps Script delivery requires one Google Ads customer ID and campaign ID");
@@ -891,8 +910,8 @@ function saveCampaign(payload, id) {
       campaignId: payload.googleCampaignId,
     });
   }
-  const port = Number(payload.proxyPort ?? proxy?.port);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Select a valid dedicated gateway port");
+  const port = registryPolicy ? 0 : Number(payload.proxyPort ?? proxy?.port);
+  if (!registryPolicy && (!Number.isInteger(port) || port < 1 || port > 65535)) throw new Error("Select a valid dedicated gateway port");
   if (payload.schedule) {
     if (!validTimezone(payload.schedule.timezone)) throw new Error("Select a valid IANA timezone");
     if (!validClockTime(payload.schedule.startTime) || !validClockTime(payload.schedule.stopTime) || payload.schedule.startTime === payload.schedule.stopTime) throw new Error("Select different valid schedule start and stop times");
@@ -925,6 +944,7 @@ function saveCampaign(payload, id) {
     activeRunId: existing?.activeRunId,
     restartPending: existing?.restartPending ?? false,
     lastError: existing?.lastError,
+    proxySelectionPending: existing?.proxySelectionPending,
     latestSuffix: existing?.latestSuffix,
     latestCaptureEgress: existing?.latestCaptureEgress,
     lastCapturedAt: existing?.lastCapturedAt,
@@ -947,7 +967,8 @@ function saveCampaign(payload, id) {
     },
   };
   campaigns.set(campaignId, campaign);
-  persistCampaigns();
+  await settleCampaignProxySelection(campaign, selection, { persist: persistCampaignsDurably });
+  await persistCampaignsDurably();
   return campaign;
 }
 
@@ -1000,10 +1021,12 @@ async function pumpCampaignQueue() {
   campaignPumpRunning = true;
   let fleetReadinessChecks = 0;
   try {
+    if (![...campaigns.values()].some(item => item.status === "queued" && item.desiredRunning)) return;
+    const registryCampaignIds = await campaignProxyAdmission.registryCampaignIds();
     while (activeRuns().length < Math.min(activeLimit, MAX_LOCAL_WORKERS)) {
       const leased = lockedPorts();
       const now = Date.now();
-      const campaign = [...campaigns.values()].sort((a, b) => a.number - b.number).find(item => item.status === "queued" && item.desiredRunning && Number(item.nextRetryAt ?? 0) <= now && !leased.has(Number(item.config.proxyPort)));
+      const campaign = selectQueuedCampaign([...campaigns.values()].filter(item => !item.proxySelectionPending), leased, registryCampaignIds, now);
       if (!campaign) break;
       if (campaign.config.useScriptMesh === true) {
         if (fleetReadinessChecks >= FLEET_ACTIVATION_CHECKS_PER_PUMP) {
@@ -1059,14 +1082,18 @@ async function pumpCampaignQueue() {
         break;
       }
     }
+  } catch (error) {
+    console.error("Campaign proxy admission unavailable:", error instanceof Error ? error.message : String(error));
+    scheduleCampaignPump(RESOURCE_ADMISSION_RETRY_MS);
   } finally { campaignPumpRunning = false; }
 }
 
 async function reconcileCampaignSchedules() {
   let changed = false;
   for (const campaign of campaigns.values()) {
+    if (campaign.proxySelectionPending) continue;
     const schedule = campaign.config.schedule;
-    if (!schedule) continue;
+    if (!schedule || campaign.config.draftOnly === true) continue;
     const window = scheduleWindow(schedule);
     const active = activeRuns().find(run => run.campaignRecordId === campaign.id);
     if (!window.active) {
@@ -1190,7 +1217,14 @@ async function finalizeRun(run, code, errorMessage) {
 }
 
 async function startRun(payload) {
-  validate(payload);
+  assertProxySelectionReady(campaigns.get(payload.campaignRecordId));
+  const registryPolicy = await campaignProxyAdmission.policyFor(payload.campaignRecordId);
+  const registryProxyRequired = registryRunRequired(registryPolicy, payload, {
+    runtimeEnabled: ["1", "true"].includes(String(process.env.TAH_UNIVERSAL_PROXY_ENABLED || "").toLowerCase()),
+    sharedEnabled: SHARED_ORCHESTRATOR_ENABLED,
+    noProxy: process.env.TAH_NO_PROXY === "1",
+  });
+  validate(payload, { registry: registryProxyRequired });
   if (payload.authorized !== true) throw new Error("Confirm that you are authorized to test this target");
   if (payload.syncGoogleAds === true && payload.useScriptMesh === true) throw new Error("Choose either direct Google Ads API sync or Rolling Apps Script Mesh delivery");
   if (payload.useScriptMesh === true) {
@@ -1205,8 +1239,8 @@ async function startRun(payload) {
   const live = activeRuns();
   if (payload.campaignRecordId && live.some(run => run.campaignRecordId === payload.campaignRecordId)) throw new Error("This campaign already has an active journey process");
   const noProxy = process.env.TAH_NO_PROXY === "1";
-  const requestedProxyPort = noProxy ? null : Number(payload.proxyPort ?? proxy?.port);
-  if (requestedProxyPort !== null && live.some(run => Number(run.proxyPort) === requestedProxyPort)) throw new Error(`Gateway port ${requestedProxyPort} is already leased by another active run`);
+  const requestedProxyPort = legacyRunPort(payload, { registry: registryProxyRequired, direct: noProxy, fallbackPort: proxy?.port });
+  assertLegacyPortAvailable(requestedProxyPort, live);
   const requestedConcurrency = Number(payload.concurrent ?? 1);
   const requestedRps = payload.loadProfile?.mode === "burst" ? Number(payload.loadProfile.targetRps ?? 0) : 0;
   const permitManaged = run => run.tier === "human" && run.continuous === true;
@@ -1226,8 +1260,8 @@ async function startRun(payload) {
   mkdirSync(SCENARIOS, { recursive: true });
   const challengeDir = path.join(ROOT, "runs", "challenge-queue", id);
   mkdirSync(challengeDir, { recursive: true });
-  writeFileSync(scenarioPath, scenarioYaml({ ...payload, scenarioId }), { encoding: "utf8", mode: 0o600 });
-  const env = noProxy
+  writeFileSync(scenarioPath, scenarioYaml({ ...payload, scenarioId: registryProxyRequired ? payload.campaignRecordId : scenarioId }), { encoding: "utf8", mode: 0o600 });
+  const env = noProxy || registryProxyRequired
     ? { ...process.env, TAH_RUN_ID: id, TAH_CHALLENGE_DIR: challengeDir }
     : { ...process.env, TAH_RUN_ID: id, TAH_CHALLENGE_DIR: challengeDir, IPROYAL_HOSTNAME: proxy.host, IPROYAL_PORT: String(payload.proxyPort ?? proxy.port), IPROYAL_USER: proxy.user, IPROYAL_PASS: proxy.pass };
   const args = [ORCH, "--scenario", scenarioPath, "--dashboard-port", String(dashboardPort)];
@@ -1235,7 +1269,7 @@ async function startRun(payload) {
   else args.push("--mitm-port", String(Number(process.env.TAH_MITM_PORT_START ?? 8188) + (sequence % 50_000)));
   if (payload.concurrent > 1) args.push("--parallel");
   const useShared = SHARED_ORCHESTRATOR_ENABLED && payload.tier === "human" && payload.continuous === true && payload.mitm !== true;
-  const run = { id, scenarioId, scenarioPath, challengeDir, dashboardPort, startedAt: Date.now(), mitmEnabled: payload.mitm === true, child: null, pid: null, tier: payload.tier, scheduleId: payload.scheduleId, campaignRecordId: payload.campaignRecordId, proxyPort: requestedProxyPort, proxyMode: payload.proxyMode, proxyProviderId: noProxy ? "direct" : clean(payload.proxyProviderId || payload.proxyProvider?.id || "iproyal", 80), continuous: payload.tier === "human" && payload.continuous === true, syncGoogleAds: payload.tier === "human" && payload.syncGoogleAds === true, useScriptMesh: payload.tier === "human" && payload.useScriptMesh === true, concurrent: requestedConcurrency, targetRps: requestedRps, exitCode: null, executionMode: useShared ? "shared" : "dedicated", lastProgressAt: Date.now(), lastProgressKind: "started" };
+  const run = { id, scenarioId, scenarioPath, challengeDir, dashboardPort, startedAt: Date.now(), mitmEnabled: payload.mitm === true, child: null, pid: null, tier: payload.tier, scheduleId: payload.scheduleId, campaignRecordId: payload.campaignRecordId, proxyPort: requestedProxyPort, proxyMode: payload.proxyMode, registryProxyRequired, proxyProviderId: noProxy ? "direct" : registryProxyRequired ? registryPolicy.primaryProviderId : "iproyal", continuous: payload.tier === "human" && payload.continuous === true, syncGoogleAds: payload.tier === "human" && payload.syncGoogleAds === true, useScriptMesh: payload.tier === "human" && payload.useScriptMesh === true, concurrent: requestedConcurrency, targetRps: requestedRps, exitCode: null, executionMode: useShared ? "shared" : "dedicated", lastProgressAt: Date.now(), lastProgressKind: "started" };
   runs.set(id, run);
   persistRuns();
   if (useShared) {
@@ -1245,8 +1279,9 @@ async function startRun(payload) {
         scenarioPath,
         runDir: path.join(ROOT, "runs", id),
         challengeDir,
-        creds: noProxy ? { user: "", pass: "" } : { user: proxy.user, pass: proxy.pass },
-        proxyGateway: noProxy ? undefined : { hostname: proxy.host, port: Number(payload.proxyPort ?? proxy.port) },
+        registryProxyRequired,
+        creds: noProxy || registryProxyRequired ? { user: "", pass: "" } : { user: proxy.user, pass: proxy.pass },
+        proxyGateway: noProxy || registryProxyRequired ? undefined : { hostname: proxy.host, port: Number(payload.proxyPort ?? proxy.port) },
       }, {
         onCapture: capture => { noteContinuousRunProgress(run, "capture"); queueL4Capture(run, capture); },
         onRouteDecision: decision => { noteContinuousRunProgress(run, "route-decision"); recordRouteDecision(run, decision); },
@@ -1300,9 +1335,9 @@ async function handle(ws, msg) {
     else if (msg.type === "get_proxy_config") send(ws, "proxy_status", status());
     else if (msg.type === "create_run") { const run = await startRun(msg.payload ?? {}); send(ws, "run_started", { id: run.id, scenarioId: run.scenarioId }); }
     else if (msg.type === "create_campaign") {
-      const campaign = saveCampaign(msg.payload ?? {});
+      const campaign = await saveCampaign(msg.payload ?? {});
       if (campaign.config.useScriptMesh) await registerCampaignFleetTarget(campaign, campaign.config.scriptFleetShardId);
-      if (!campaign.config.schedule) { campaign.desiredRunning = true; campaign.status = "queued"; persistCampaigns(); }
+      if (!campaign.config.schedule && msg.payload?.draftOnly !== true) { campaign.desiredRunning = true; campaign.status = "queued"; persistCampaigns(); }
       send(ws, "campaign_saved", publicCampaign(campaign));
       broadcastCampaigns();
       void reconcileCampaignSchedules();
@@ -1314,7 +1349,7 @@ async function handle(ws, msg) {
       broadcastCampaigns();
     }
     else if (msg.type === "update_campaign") {
-      const campaign = saveCampaign(msg.payload ?? {}, clean(msg.payload?.id, 120));
+      const campaign = await saveCampaign(msg.payload ?? {}, clean(msg.payload?.id, 120));
       if (campaign.config.useScriptMesh) await registerCampaignFleetTarget(campaign, campaign.config.scriptFleetShardId);
       send(ws, "campaign_saved", publicCampaign(campaign));
       broadcastCampaigns();
@@ -1324,6 +1359,7 @@ async function handle(ws, msg) {
     else if (msg.type === "start_campaign") {
       const campaign = campaigns.get(clean(msg.payload?.id, 120));
       if (!campaign) throw new Error("Campaign was not found");
+      assertProxySelectionReady(campaign);
       if (!campaign.activeRunId) { campaign.desiredRunning = true; campaign.status = "queued"; campaign.lastError = undefined; campaign.retryCount = 0; campaign.nextRetryAt = undefined; persistCampaigns(); }
       broadcastCampaigns();
       void pumpCampaignQueue();
@@ -1342,6 +1378,7 @@ async function handle(ws, msg) {
     else if (msg.type === "restart_campaign") {
       const campaign = campaigns.get(clean(msg.payload?.id, 120));
       if (!campaign) throw new Error("Campaign was not found");
+      assertProxySelectionReady(campaign);
       const run = activeRuns().find(item => item.campaignRecordId === campaign.id);
       campaign.desiredRunning = true;
       campaign.status = "queued";

@@ -12,6 +12,8 @@ interface WorkerJob {
   challengeDir?: string;
   creds: { user: string; pass: string };
   proxyGateway?: { hostname?: string; port?: number };
+  registryProxyRequired?: boolean;
+  campaignRecordId?: string;
 }
 
 interface WorkerMessage {
@@ -46,6 +48,7 @@ function start(job: WorkerJob): void {
   const controller = new AbortController();
   const promise = (async () => {
     const proxyRuntimeEnabled = ['1', 'true'].includes(String(process.env.TAH_UNIVERSAL_PROXY_ENABLED || '').toLowerCase());
+    const registryProxyRequired = job.registryProxyRequired === true;
     const proxyRuntimeOptions = {
       enabled: proxyRuntimeEnabled,
       baseUrl: process.env.TAH_PROXY_RUNTIME_INTERNAL_URL,
@@ -81,8 +84,11 @@ function start(job: WorkerJob): void {
     };
     const proxyAllocator: ContextProxyAllocator | undefined = proxyRuntimeEnabled ? {
       async acquire(input) {
-        const lease = await leaseCampaignProxy({ ...proxyRuntimeOptions, ...input });
-        if (!lease) return null;
+        const lease = await leaseCampaignProxy({ ...proxyRuntimeOptions, ...input, campaignRecordId: job.campaignRecordId || input.campaignRecordId });
+        if (!lease) {
+          if (registryProxyRequired) throw new Error("Registry proxy is required but no campaign proxy lease is available");
+          return null;
+        }
         const active: ActiveProxyLease = {
           lease,
           startedAt: Date.now(),
@@ -117,6 +123,7 @@ function start(job: WorkerJob): void {
     } : undefined;
     send({ type: 'started', runId: job.runId, pid: process.pid });
     try {
+      if (registryProxyRequired && !proxyRuntimeEnabled) throw new Error("Registry proxy is required but the universal proxy runtime is disabled");
       await runScenario({
         scenarioFile: job.scenarioPath,
         runDir: job.runDir,
