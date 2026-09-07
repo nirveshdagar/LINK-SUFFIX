@@ -62,7 +62,7 @@ describe('aggregateVerdict', () => {
       ...base,
       setCookies: ['cf_clearance=abc; Path=/'],
       responseHeaders: { server: 'cloudflare' },
-      responseBodySnippet: '<html>cf-chl-bypass</html>',
+      responseBodySnippet: '<html><title>Just a moment...</title><div id="cf-challenge-running"></div></html>',
     };
     const out = aggregateVerdict(input, ['http_status', 'challenge_html', 'cookies'], defaultStrategies());
     expect(out.final).toBe('challenge');

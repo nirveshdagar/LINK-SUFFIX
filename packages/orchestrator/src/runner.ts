@@ -408,6 +408,8 @@ async function runOneRepeat(
         );
 
         evt.final_verdict = out.final;
+        last.ta_signal.verdict_reason = out.reason;
+        last.ta_signal.verdict_strategies = JSON.stringify(out.byStrategy);
       }
       evt.session_id = sessionId;
       evt.proxy_mode = journeyProxyMode;
