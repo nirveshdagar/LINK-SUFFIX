@@ -1,3 +1,5 @@
+import { parseRedirectCapturePolicy, redirectLocationForPolicy } from './redirectCapture.js';
+
 export type CaptureDiagnostics = {
   hostname?: string;
   httpStatus?: number;
@@ -11,7 +13,7 @@ export type CaptureRejection = {
 };
 export type CaptureDecision = CaptureRejection | {
   accepted: true; finalUrl: string; suffix: string;
-  evidence: 'document-response' | 'redirect-location';
+  evidence: 'document-response' | 'redirect-location' | 'redirect-only';
 };
 
 function record(value: unknown): Record<string, any> {
@@ -101,7 +103,7 @@ export function edgeStopForResponse(value: unknown): CaptureRejection | undefine
     diagnostics: captureDiagnostics(response, response.url) };
 }
 
-export function evaluateCaptureResult(value: unknown): CaptureDecision {
+export function evaluateCaptureResult(value: unknown, options?: { redirectPolicy?: unknown }): CaptureDecision {
   const result = record(value);
   const finalUrl = result.final_landing_url;
   const events = Array.isArray(result.events) ? result.events : [];
@@ -141,6 +143,23 @@ export function evaluateCaptureResult(value: unknown): CaptureDecision {
   if (!suffix) return reject('missing_suffix', 'The final landing URL did not contain a suffix');
   if (!main) return reject('unverified_destination', 'No main-document response confirms this destination');
   const status = Number(main.status);
+  if (record(main.ta_signal).capture_path === 'browser-redirect-only' || result.redirect_capture != null || options?.redirectPolicy != null) {
+    try {
+      const policy = parseRedirectCapturePolicy(options ? options.redirectPolicy : result.redirect_capture);
+      if (!policy || record(main.ta_signal).capture_path !== 'browser-redirect-only'
+        || record(main.ta_signal).destination_visited !== 'false' || record(main.ta_signal).egress_guard !== 'origin_allowlist'
+        || documents.some(event => !policy.navigation_origins.includes(new URL(event.url).origin) || captureUrlIssue(event.url))) {
+        return reject('redirect_policy_mismatch', 'Redirect evidence does not match this run approved routing policy');
+      }
+      const location = redirectLocationForPolicy(policy, { url: main.url, status, headers: record(main.headers) });
+      if (location !== finalUrl) return reject('unverified_destination', 'No approved affiliate Location confirms these exact destination bytes');
+      const identifiers = new URL(finalUrl).searchParams.getAll(policy.required_parameter);
+      if (identifiers.length !== 1 || !identifiers[0]?.trim()) {
+        return reject('missing_tracking_identifier', 'The approved redirect requires exactly one nonempty tracking identifier');
+      }
+      return { accepted: true, finalUrl, suffix, evidence: 'redirect-only' };
+    } catch { return reject('redirect_policy_mismatch', 'Redirect evidence requires a valid explicit routing policy'); }
+  }
   if (Number.isInteger(status) && status >= 200 && status < 300 && documentUrl(main.url) === documentUrl(finalUrl)) {
     return { accepted: true, finalUrl, suffix, evidence: 'document-response' };
   }

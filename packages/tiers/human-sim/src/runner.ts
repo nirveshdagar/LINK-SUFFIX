@@ -1,5 +1,6 @@
 import type { BrowserContext } from 'playwright';
 import { isTopLevelNavigation } from './mainDocument.js';
+import { runRedirectCapture } from './redirectCapture.js';
 import { edgeStopForResponse, evaluateCaptureResult, type CaptureRejection } from '@tah/contracts';
 import { createPublicEgressProxy, ProxyTransportError, ProxyResponseError } from '@tah/proxy';
 import { templatesForProfile } from '@tah/ua';
@@ -113,6 +114,10 @@ export async function* run(
 ): AsyncIterable<RequestEvent> {
   const runtime = (scenario as Scenario & { __tahRuntime?: { signal?: AbortSignal; telemetryDir?: string; challengeDir?: string } }).__tahRuntime;
   if (runtime?.signal?.aborted) throw new Error('Campaign journey aborted');
+  if (scenario.redirect_capture != null) {
+    yield* runRedirectCapture(scenario, proxyUrl, device, runtime);
+    return;
+  }
   resetTzCache();
   const templates = templatesForProfile(device.id);
   const template = templates[Math.floor(Math.random() * templates.length)]!;

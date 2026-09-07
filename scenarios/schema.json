@@ -9,6 +9,18 @@
     "id": { "type": "string", "minLength": 1 },
     "tier": { "enum": ["trivial-http", "headless", "stealth", "human"] },
     "seed_url": { "type": "string", "format": "uri", "pattern": "^https?://" },
+    "redirect_capture": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "issuer_origin", "destination_origin", "required_parameter", "navigation_origins"],
+      "properties": {
+        "mode": { "const": "redirect_only" },
+        "issuer_origin": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "destination_origin": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "required_parameter": { "enum": ["irclickid", "im_ref"] },
+        "navigation_origins": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true,
+          "items": { "type": "string", "format": "uri", "pattern": "^https://" } }
+      }
+    },
     "device_pool": {
       "type": "array",
       "minItems": 1,

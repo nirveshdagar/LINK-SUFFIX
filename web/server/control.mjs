@@ -11,7 +11,7 @@ import path from "node:path";
 import { resolveProxyEgress, resetTzCache } from "@tah/tz";
 import { createDistributedControlStore } from "./distributed-store.mjs";
 import { extractExactQuerySuffix } from "./exact-suffix.mjs";
-import { evaluateCaptureResult } from "@tah/contracts";
+import { evaluateCaptureResult, parseRedirectCapturePolicy } from "@tah/contracts";
 import { verifySessionToken } from "../lib/session-token.mjs";
 import { computeCampaignLaunchGapMs, evaluateResourceAdmission } from "./resource-admission.mjs";
 import { createSerializedStateWriter } from "./serialized-state-writer.mjs";
@@ -334,7 +334,7 @@ function recordCaptureRejection(run, rejection) {
 }
 
 function persistL4Capture(run, result) {
-  const decision = evaluateCaptureResult(result);
+  const decision = evaluateCaptureResult(result, { redirectPolicy: run.redirectCapture });
   if (!decision.accepted) { recordCaptureRejection(run, decision); return null; }
   const finalUrl = decision.finalUrl;
   const suffix = decision.suffix;
@@ -348,6 +348,8 @@ function persistL4Capture(run, result) {
     scenarioId: run.scenarioId,
     sessionId: result.session_id,
     repeatIndex: result.repeat_index,
+    evidence: decision.evidence,
+    destinationVisited: decision.evidence === "document-response",
     finalUrl,
     suffix,
     egress,
@@ -360,6 +362,7 @@ function persistL4Capture(run, result) {
       delete campaign.lastCaptureRejection;
       campaign.latestSuffix = suffix;
       campaign.latestCaptureEgress = egress;
+      campaign.latestCaptureEvidence = { kind: decision.evidence, capturedAt, runId: run.id };
       campaign.lastCapturedAt = capturedAt;
       campaign.captureHistory = [...history, capture].slice(-100);
       campaign.updatedAt = capturedAt;
@@ -799,10 +802,12 @@ async function setProxy(input) {
 }
 
 function scenarioYaml(p) {
+  const redirectCapture = p.redirectCapture == null ? undefined : parseRedirectCapturePolicy(p.redirectCapture, p.seedUrl);
   const mode = p.tier === "trivial-http" ? p.proxyMode : "sticky-residential";
   const lines = [`id: ${scalar(p.scenarioId)}`, `tier: ${p.tier}`, `seed_url: ${scalar(p.seedUrl)}`, "geo:", `  country: ${p.geo.country}`];
   if (p.geo.state) lines.push(`  state: ${scalar(p.geo.state)}`);
   if (p.geo.city) lines.push(`  city: ${scalar(p.geo.city)}`);
+  if (redirectCapture) lines.push(`redirect_capture: ${JSON.stringify(redirectCapture)}`);
   lines.push(`proxy_mode: ${mode}`, `repeats: ${p.repeats}`, `concurrent: ${p.concurrent}`);
   if (p.tier === "human") lines.push(`continuous: ${p.continuous === true}`);
   if (p.loadProfile?.mode === "burst") lines.push("load_profile:", "  mode: burst", `  target_rps: ${p.loadProfile.targetRps}`, `  duration_seconds: ${p.loadProfile.durationSeconds}`, `  ramp_seconds: ${p.loadProfile.rampSeconds}`, `  max_requests: ${p.loadProfile.maxRequests}`);
@@ -818,6 +823,8 @@ function scenarioYaml(p) {
 }
 
 function validate(p, { registry = false } = {}) {
+  const redirectCapture = p.redirectCapture == null ? undefined : parseRedirectCapturePolicy(p.redirectCapture, p.seedUrl);
+  if (redirectCapture && (p.tier !== "human" || p.entry?.mode === "natural_click" || p.mitm === true)) throw new Error("Redirect-only capture requires direct-entry browser mode without MITM");
   let url; try { url = new URL(p.seedUrl); } catch { throw new Error("Enter a valid target URL"); }
   if (!["http:", "https:"].includes(url.protocol)) throw new Error("Target URL must use HTTP or HTTPS");
   if (!["trivial-http", "headless", "stealth", "human"].includes(p.tier)) throw new Error("Invalid execution tier");
@@ -946,6 +953,9 @@ function saveCampaign(payload, id) {
   return task;
 }
 async function saveCampaignInternal(payload, id) {
+  if (id && payload.redirectCapture === undefined && campaigns.get(id)?.config?.redirectCapture) {
+    payload = { ...payload, redirectCapture: campaigns.get(id).config.redirectCapture };
+  }
   const selection = await prepareCampaignProxySelection(payload, id ? campaigns.get(id) : undefined);
   if (selection) payload = selection.payload;
   const registryPolicy = selection ? (selection.registry ? { enabled: true } : null) : await campaignProxyAdmission.policyFor(id);
@@ -997,6 +1007,7 @@ async function saveCampaignInternal(payload, id) {
     proxySelectionPending: existing?.proxySelectionPending,
     latestSuffix: existing?.latestSuffix,
     latestCaptureEgress: existing?.latestCaptureEgress,
+    latestCaptureEvidence: existing?.latestCaptureEvidence,
     lastCapturedAt: existing?.lastCapturedAt,
     lastStartedWindow: existing?.lastStartedWindow,
     createdAt: existing?.createdAt ?? now,
@@ -1327,6 +1338,7 @@ async function startRun(payload) {
   if (payload.concurrent > 1) args.push("--parallel");
   const useShared = SHARED_ORCHESTRATOR_ENABLED && payload.tier === "human" && payload.continuous === true && payload.mitm !== true;
   const run = { id, scenarioId, scenarioPath, challengeDir, dashboardPort, startedAt: Date.now(), mitmEnabled: payload.mitm === true, child: null, pid: null, tier: payload.tier, scheduleId: payload.scheduleId, campaignRecordId: payload.campaignRecordId, proxyPort: requestedProxyPort, proxyMode: payload.proxyMode, registryProxyRequired, proxyProviderId: noProxy ? "direct" : registryProxyRequired ? registryPolicy.primaryProviderId : "iproyal", continuous: payload.tier === "human" && payload.continuous === true, syncGoogleAds: payload.tier === "human" && payload.syncGoogleAds === true, useScriptMesh: payload.tier === "human" && payload.useScriptMesh === true, concurrent: requestedConcurrency, targetRps: requestedRps, exitCode: null, executionMode: useShared ? "shared" : "dedicated", lastProgressAt: Date.now(), lastProgressKind: "started" };
+  run.redirectCapture = payload.redirectCapture == null ? undefined : parseRedirectCapturePolicy(payload.redirectCapture, payload.seedUrl);
   runs.set(id, run);
   persistRuns();
   if (useShared) {

@@ -176,10 +176,17 @@ export async function openPublicSocket(rawUrl: URL, upstream?: URL | null, optio
 }
 export async function createPublicEgressProxy(upstream?: URL | null, options: {
   port?: number; signal?: AbortSignal; timeoutMs?: number;
+  allowedOrigins?: readonly string[];
   onUpstreamFailure?: (failure: { hostname: string; error: ProxyTransportError | ProxyResponseError }) => void;
 } = {}) {
   assertProxyProtocol(upstream);
   if (options.signal?.aborted) throw abortError();
+  // Deny excluded origins before DNS lookup or any upstream socket.
+  // Undefined retains the normal policy; an empty allowlist denies all.
+  const allowed = options.allowedOrigins ? new Set(options.allowedOrigins.map(origin => publicHttpUrl(origin).origin)) : undefined;
+  const requireAllowed = (target: URL) => {
+    if (allowed && !allowed.has(target.origin)) throw new Error('Destination is outside this journey network policy');
+  };
   const sockets = new Set<Socket>();
   const reportFailure = (raw: string, error: unknown) => {
     if (!(error instanceof ProxyTransportError) && !(error instanceof ProxyResponseError)) return;
@@ -196,6 +203,7 @@ export async function createPublicEgressProxy(upstream?: URL | null, options: {
     void (async () => {
       const target = publicHttpUrl(incoming.url || '');
       if (target.protocol !== 'http:') throw new Error('HTTPS requires CONNECT');
+      requireAllowed(target);
       const socket = track(await openPublicSocket(target, upstream, options));
       if (closed || incoming.destroyed) { socket.destroy(); return; }
       const headers: import('node:http').OutgoingHttpHeaders = { ...incoming.headers, host: target.host, connection: 'close' };
@@ -223,6 +231,7 @@ export async function createPublicEgressProxy(upstream?: URL | null, options: {
     client.pause();
     void (async () => {
       const target = publicHttpUrl('https://' + (request.url || '') + '/');
+      requireAllowed(target);
       const socket = track(await openPublicSocket(target, upstream, options));
       if (closed || client.destroyed) { socket.destroy(); return; }
       client.once('close', () => socket.destroy()); socket.once('close', () => client.destroy());

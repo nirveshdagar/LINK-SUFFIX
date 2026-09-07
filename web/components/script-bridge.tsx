@@ -81,6 +81,9 @@ type BridgeCampaign = {
 };
 
 type SavedFleetCampaign = {
+  latestSuffix?: string;
+  lastCapturedAt?: string;
+  latestCaptureEvidence?: { kind: string; capturedAt: string; runId: string };
   id: string;
   number: number;
   name: string;
@@ -778,6 +781,11 @@ export function ScriptBridge({
                         : <span className="fleet-cell-empty">No capture yet</span>}
                       <small>{campaign.captured_at ? "Captured " + formatTimestamp(campaign.captured_at) : "Waiting for browser capture"}</small>
                       <small>Version {campaign.latest_version || "-"}</small>
+                      {savedCampaign?.latestCaptureEvidence?.kind === "redirect-only"
+                        && savedCampaign.latestSuffix === campaign.exact_suffix
+                        && savedCampaign.latestCaptureEvidence.capturedAt === savedCampaign.lastCapturedAt
+                        && Date.parse(savedCampaign.lastCapturedAt || "") === Date.parse(campaign.captured_at || "")
+                        && <small style={{ color: "#111", fontWeight: 700 }}>Redirect verified; destination not visited</small>}
                       {campaign.exact_suffix != null && <CaptureRouteIdentity current={campaign.capture_egress} previous={campaign.previous_capture_egress} />}
                     </td>
                     <td className="fleet-suffix-cell fleet-inserted-cell">

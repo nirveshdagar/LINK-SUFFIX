@@ -77,7 +77,7 @@ export interface ContextProxyAllocator {
   release(lease: CampaignProxyLease, outcome: ContextProxyOutcome): Promise<void>;
 }
 
-export type CapturePayload = Pick<RequestEvent, 'session_id' | 'repeat_index' | 'geo_resolved' | 'proxy_mode' | 'final_verdict' | 'challenge' | 'error' | 'events'> & {
+export type CapturePayload = Pick<RequestEvent, 'session_id' | 'repeat_index' | 'geo_resolved' | 'proxy_mode' | 'final_verdict' | 'challenge' | 'error' | 'events' | 'redirect_capture'> & {
   final_landing_url: string;
 };
 
@@ -85,6 +85,12 @@ export function buildCapturePayload(event: RequestEvent): CapturePayload {
   const decision = evaluateCaptureResult(event);
   if (!decision.accepted) throw new Error(decision.message);
   const main = [...event.events].reverse().find(item => item.ta_signal?.main_document === 'true');
+  const redirectEvents = event.redirect_capture ? event.events.filter(item => item.ta_signal?.main_document === 'true').map(item => ({
+    ...item, body_snippet: undefined,
+    headers: Object.fromEntries(Object.entries(item.headers).filter(([key]) => ['cf-mitigated', 'cf-ray', 'retry-after', 'location'].includes(key.toLowerCase()))),
+    ta_signal: { main_document: 'true', capture_path: item.ta_signal.capture_path ?? '',
+      destination_visited: item.ta_signal.destination_visited ?? '', egress_guard: item.ta_signal.egress_guard ?? '' },
+  })) : undefined;
   const headers: Record<string, string> = {};
   for (const [key, value] of Object.entries(main?.headers ?? {})) {
     if (['cf-mitigated', 'location'].includes(key.toLowerCase())) headers[key.toLowerCase()] = String(value);
@@ -94,8 +100,9 @@ export function buildCapturePayload(event: RequestEvent): CapturePayload {
     final_verdict: event.final_verdict,
     challenge: event.challenge,
     error: event.error,
-    events: main ? [{ url: main.url, method: main.method, status: main.status, time_ms: main.time_ms,
-      headers, ta_signal: { main_document: 'true', capture_path: main.ta_signal.capture_path ?? '' } }] : [],
+    ...(event.redirect_capture ? { redirect_capture: event.redirect_capture } : {}),
+    events: redirectEvents ?? (main ? [{ url: main.url, method: main.method, status: main.status, time_ms: main.time_ms,
+      headers, ta_signal: { main_document: 'true', capture_path: main.ta_signal.capture_path ?? '' } }] : []),
     session_id: event.session_id,
     repeat_index: event.repeat_index,
     geo_resolved: event.geo_resolved,
@@ -318,6 +325,7 @@ async function runOneRepeat(
     if (
       scenario.tier === 'human'
       && scenario.continuous === true
+      && scenario.redirect_capture == null
       && enabled(process.env.TAH_REDIRECT_FIRST_ENABLED, true)
     ) {
       const claim = redirectFallbackCache.claim(scenario.seed_url);

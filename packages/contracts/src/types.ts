@@ -1,5 +1,6 @@
 import type { GeoTarget, ProxyMode } from '@tah/proxy';
 import type { Vote } from '@tah/verdict';
+import type { RedirectCapturePolicy } from './redirectCapture.js';
 
 export interface RawRequestRecord {
   url: string;
@@ -34,6 +35,7 @@ export interface BehavioralTelemetrySummary {
 export type Tier = 'trivial-http' | 'headless' | 'stealth' | 'human';
 
 export interface RequestEvent {
+  redirect_capture?: RedirectCapturePolicy;
   scenario_id: string;
   repeat_index: number;
   tier: Tier;
@@ -74,6 +76,7 @@ export interface RequestEvent {
 }
 
 export interface Scenario {
+  redirect_capture?: RedirectCapturePolicy;
   id: string;
   tier: Tier;
   seed_url: string;
