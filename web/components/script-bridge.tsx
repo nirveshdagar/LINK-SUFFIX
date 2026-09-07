@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { getCampaignHealth, getShardHealth } from "../lib/fleet-health";
 
 type BridgeSummary = {
   campaigns?: number;
@@ -311,37 +312,13 @@ function TransientVerifiedSuffix({ campaign }: { campaign: BridgeCampaign }) {
 }
 
 function shardHealth(shard?: BridgeShard, hasActiveAlert = false): HealthState {
-  if (!shard || shard.registered === false) return { label: "No worker", tone: "attention" };
-  if (!shard.enabled) return { label: "Paused", tone: "paused" };
-  if (hasActiveAlert) return { label: "No contact", tone: "attention" };
-  if (shard.last_error) return { label: "Attention", tone: "attention" };
-  const lastPoll = Date.parse(String(shard.last_poll_at || ""));
-  if (!Number.isFinite(lastPoll)) return { label: "Awaiting first run", tone: "waiting" };
-  if (Date.now() - lastPoll > SHARD_STALE_AFTER_MS) return { label: "Worker stale", tone: "attention" };
-  if (Number(shard.campaign_count || 0) > 0 && !shard.last_ack_at) return { label: "Polling · no verified delivery", tone: "active" };
-  return { label: "Healthy", tone: "healthy" };
+  return getShardHealth(shard, { now: Date.now(), staleAfterMs: SHARD_STALE_AFTER_MS, hasActiveAlert });
 }
 
 function targetHealth(campaign: BridgeCampaign, shard?: BridgeShard, hasShardAlert = false): HealthState {
-  if (!campaign.enabled) return { label: "Paused", tone: "paused" };
-  if (!shard || shard.registered === false) return { label: "No shard worker", tone: "attention" };
-  const worker = shardHealth(shard, hasShardAlert);
-  if (worker.tone === "attention") return { label: "Worker unavailable", tone: "attention" };
-  if (worker.tone === "paused") return { label: "Shard paused", tone: "paused" };
-  if (campaign.delivery_health === "healthy") return { label: "Healthy", tone: "healthy" };
-  if (!campaign.last_applied_at && campaign.account_readiness === "waiting_for_manifest") {
-    return { label: "Waiting for worker manifest", tone: "waiting" };
-  }
-  if (!campaign.last_applied_at && campaign.account_readiness === "waiting_for_account_poll") {
-    return { label: "Waiting for account worker", tone: "waiting" };
-  }
-  if (campaign.last_error || campaign.latest_job_state === "dead" || campaign.latest_job_state === "failed") {
-    return { label: "Attention", tone: "attention" };
-  }
-  if (campaign.latest_job_state === "leased") return { label: "Delivering", tone: "active" };
-  if (campaign.latest_job_state === "pending") return { label: "Waiting", tone: "waiting" };
-  if (campaign.latest_job_state === "applied") return { label: "Verified", tone: "healthy" };
-  return { label: "Enrolled", tone: "waiting" };
+  return getCampaignHealth(campaign, shard, {
+    now: Date.now(), staleAfterMs: SHARD_STALE_AFTER_MS, hasActiveAlert: hasShardAlert,
+  });
 }
 
 export function ScriptBridge({
