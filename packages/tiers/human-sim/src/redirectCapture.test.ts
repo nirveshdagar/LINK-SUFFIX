@@ -30,9 +30,9 @@ const policy = { mode: 'redirect_only' as const, issuer_origin: 'https://affilia
 const scenario: Scenario = { id: 'fixture', tier: 'human', seed_url: 'https://tracker.example/start', geo: { country: 'US' },
   proxy_mode: 'sticky-residential', repeats: 1, continuous: true, redirect_capture: policy };
 const device = { id: 'fixture', locale: 'en-US', viewport: { w: 1280, h: 720, dpr: 1 } } as DeviceProfile;
-async function collect(signal?: AbortSignal): Promise<RequestEvent[]> {
+async function collect(signal?: AbortSignal, configuredScenario: Scenario = scenario): Promise<RequestEvent[]> {
   const output: RequestEvent[] = [];
-  for await (const event of runRedirectCapture(scenario, new URL('http://proxy.example:1000'), device, { signal })) output.push(event);
+  for await (const event of runRedirectCapture(configuredScenario, new URL('http://proxy.example:1000'), device, { signal })) output.push(event);
   return output;
 }
 beforeEach(() => {
@@ -63,6 +63,23 @@ describe('isolated browser redirect capture', () => {
     expect(state.createGuard.mock.calls[0]?.[1].allowedOrigins).not.toContain(policy.destination_origin);
     expect(state.context.close).toHaveBeenCalledOnce(); expect(state.closeGuard).toHaveBeenCalledOnce();
     expect(state.release).toHaveBeenCalledOnce(); expect(state.releasePermit).toHaveBeenCalledOnce();
+  });
+  it('handles ACM HTTPS entry, HTTP 307 intermediary and HTTPS affiliate Location without visiting the merchant', async () => {
+    const acmPolicy = { ...policy, issuer_origin: 'https://acmetools.pxf.io', destination_origin: 'https://www.acmetools.com',
+      navigation_origins: ['https://adpgtrack.com', 'http://sfc.apypx.com', 'https://imp.i284638.net', 'https://acmetools.pxf.io'] };
+    const finalUrl = acmPolicy.destination_origin + '/?irclickid=fixture%2fClick&sharedid=&irgwc=1';
+    state.responses = [
+      { url: 'https://adpgtrack.com/fixture', status: 200, headers: {} },
+      { url: 'http://sfc.apypx.com/fixture', status: 307, headers: { location: 'https://imp.i284638.net/fixture' } },
+      { url: 'https://imp.i284638.net/fixture', status: 301, headers: { location: 'https://acmetools.pxf.io/fixture' } },
+      { url: 'https://acmetools.pxf.io/fixture', status: 301, headers: { location: finalUrl } },
+    ];
+    const rows = await collect(undefined, { ...scenario, seed_url: 'https://adpgtrack.com/fixture', redirect_capture: acmPolicy });
+    expect(evaluateCaptureResult(rows[0], { redirectPolicy: acmPolicy })).toMatchObject({ accepted: true, evidence: 'redirect-only',
+      suffix: 'irclickid=fixture%2fClick&sharedid=&irgwc=1' });
+    expect(rows[0]?.events.map(e => e.status)).toEqual([200, 307, 301, 301]);
+    expect(rows[0]?.events.some(e => new URL(e.url).origin === acmPolicy.destination_origin)).toBe(false);
+    expect(state.createGuard.mock.calls[0]?.[1]).toMatchObject({ allowedOrigins: acmPolicy.navigation_origins });
   });
   it.each([403, 429])('stops on HTTP %s without accepting a later redirect or replacing the route', async status => {
     state.responses.unshift({ url: 'https://tracker.example/start', status,

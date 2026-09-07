@@ -208,7 +208,9 @@ export async function createPublicEgressProxy(upstream?: URL | null, options: {
       if (closed || incoming.destroyed) { socket.destroy(); return; }
       const headers: import('node:http').OutgoingHttpHeaders = { ...incoming.headers, host: target.host, connection: 'close' };
       delete headers['proxy-authorization']; delete headers['proxy-connection'];
-      const request = httpRequest({ hostname: normalizedHost(target.hostname), port: Number(target.port || 80), method: incoming.method, path: target.pathname + target.search, headers, agent: false, createConnection: () => socket }, (response) => {
+      // Supplying agent: false creates a new Agent that ignores this checked socket.
+      // Omit agent so HTTP forwarding cannot resolve or connect to the target again.
+      const request = httpRequest({ hostname: normalizedHost(target.hostname), port: Number(target.port || 80), method: incoming.method, path: target.pathname + target.search, headers, createConnection: () => socket }, (response) => {
         outgoing.writeHead(response.statusCode || 502, response.headers); response.pipe(outgoing);
       });
       const timer = setTimeout(() => request.destroy(new Error('Forward request deadline exceeded')), options.timeoutMs ?? 30_000);

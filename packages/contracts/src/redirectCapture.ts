@@ -6,13 +6,13 @@ export interface RedirectCapturePolicy {
   navigation_origins: string[];
 }
 
-function approvedOrigin(value: unknown): string {
-  if (typeof value !== 'string' || value.length > 300) throw new Error('Redirect capture requires an exact HTTPS origin');
+function approvedOrigin(value: unknown, allowHttp = false): string {
+  if (typeof value !== 'string' || value.length > 300) throw new Error('Redirect capture requires an exact public web origin');
   const url = new URL(value);
-  if (url.protocol !== 'https:' || url.origin !== value || url.username || url.password
+  if ((url.protocol !== 'https:' && !(allowHttp && url.protocol === 'http:')) || url.origin !== value || url.username || url.password
     || !/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/.test(url.hostname)
     || /\.(?:localhost|local|internal)$/.test(url.hostname)) {
-    throw new Error('Redirect capture requires exact public HTTPS origins without paths or credentials');
+    throw new Error('Redirect capture requires an approved public web origin without paths or credentials');
   }
   return value;
 }
@@ -30,14 +30,17 @@ export function parseRedirectCapturePolicy(value: unknown, seedUrl?: string): Re
   if (!Array.isArray(p.navigation_origins) || p.navigation_origins.length < 1 || p.navigation_origins.length > 16) {
     throw new Error('Redirect capture requires 1 to 16 explicit tracking origins');
   }
-  const origins = p.navigation_origins.map(approvedOrigin);
+  const origins = p.navigation_origins.map(origin => approvedOrigin(origin, true));
+  if (origins.some(origin => new URL(origin).hostname === new URL(issuer).hostname && origin !== issuer)) {
+    throw new Error('The final affiliate issuer must remain HTTPS-only on its approved origin');
+  }
   if (new Set(origins).size !== origins.length || !origins.includes(issuer)
     || origins.some(origin => new URL(origin).hostname === new URL(destination).hostname)) {
     throw new Error('The issuer must be approved and the merchant must be excluded from network access');
   }
   if (seedUrl !== undefined) {
     const seed = new URL(seedUrl);
-    if (seed.username || seed.password || !origins.includes(seed.origin)) throw new Error('The tracking URL is outside the redirect capture policy');
+    if (seed.protocol !== 'https:' || seed.username || seed.password || !origins.includes(seed.origin)) throw new Error('The tracking URL is outside the redirect capture policy');
   }
   return { mode: 'redirect_only', issuer_origin: issuer, destination_origin: destination,
     required_parameter: p.required_parameter as RedirectCapturePolicy['required_parameter'], navigation_origins: origins };

@@ -11,7 +11,9 @@ Browser routing is defense in depth, not the sole redirect boundary.
 
 Requirements:
 - Direct-entry human tier, one verified sticky proxy session, no MITM.
-- Exact HTTPS tracking origins; the seed and issuer must be approved.
+- Exact HTTP(S) intermediary origins, approved individually with their protocol.
+- The starting URL, final affiliate issuer and merchant must remain HTTPS.
+- An HTTP intermediary can redirect onward but cannot issue trusted final capture evidence.
 - The merchant hostname must be excluded, including alternate ports.
 - An actual 301, 302, 303, 307 or 308 Location from the approved issuer.
 - Exactly one nonempty required irclickid or im_ref parameter.

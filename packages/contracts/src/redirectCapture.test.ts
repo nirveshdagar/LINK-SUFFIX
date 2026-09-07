@@ -74,6 +74,32 @@ describe('explicit redirect-only capture policy', () => {
       expect(redirectLocationForPolicy(p, { url: policy.issuer_origin + '/', status: 302, headers: { location } })).toBeUndefined();
     }
   });
+  it('permits an explicitly approved HTTP intermediary, but not a seed or issuer downgrade', () => {
+    const p = { ...valid(), navigation_origins: [...valid().navigation_origins, 'http://intermediate.example'] };
+    expect(parseRedirectCapturePolicy(p, 'https://tracker.example/start')).toEqual(p);
+    expect(() => parseRedirectCapturePolicy(p, 'http://intermediate.example/start')).toThrow();
+    expect(() => parseRedirectCapturePolicy({ ...p, destination_origin: 'http://merchant.example' })).toThrow();
+    expect(() => parseRedirectCapturePolicy({ ...p, navigation_origins: [...p.navigation_origins, 'http://affiliate.example'] })).toThrow();
+    expect(() => parseRedirectCapturePolicy({ ...p, navigation_origins: [...p.navigation_origins, 'http://merchant.example'] })).toThrow();
+    expect(() => parseRedirectCapturePolicy({ ...p, navigation_origins: [...p.navigation_origins, 'http://127.0.0.1'] })).toThrow();
+    expect(() => parseRedirectCapturePolicy({ ...p, navigation_origins: [...p.navigation_origins, 'ftp://intermediate.example'] })).toThrow();
+  });
+  it('accepts the observed mixed-protocol chain only under its exact approved policy', () => {
+    const e = event();
+    e.redirect_capture.navigation_origins.push('http://intermediate.example');
+    e.events.unshift({ ...e.events[0]!, url: 'http://intermediate.example/click', status: 307,
+      headers: { location: 'https://affiliate.example/click' } });
+    expect(evaluateCaptureResult(e, { redirectPolicy: e.redirect_capture })).toMatchObject({ accepted: true, evidence: 'redirect-only', suffix });
+    expect(evaluateCaptureResult(e, { redirectPolicy: valid() }).accepted).toBe(false);
+    const changed = event();
+    changed.events[0]!.url = 'http://affiliate.example/click';
+    expect(evaluateCaptureResult(changed).accepted).toBe(false);
+  });
+  it.each([403, 429])('keeps HTTP intermediary refusal %s terminal', status => {
+    const e = event(); e.redirect_capture.navigation_origins.push('http://intermediate.example');
+    e.events.unshift({ ...e.events[0]!, url: 'http://intermediate.example/click', status, headers: { location: '' } });
+    expect(evaluateCaptureResult(e)).toMatchObject({ accepted: false, diagnostics: { hostname: 'intermediate.example', httpStatus: status } });
+  });
   it('leaves ordinary successful document capture unchanged', () => {
     const e = event({ redirect_capture: undefined });
     e.events[0]!.url = url; e.events[0]!.status = 200; e.events[0]!.ta_signal.capture_path = 'browser';
