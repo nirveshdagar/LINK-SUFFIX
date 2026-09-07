@@ -23,6 +23,7 @@ export function createOrchestratorWorkerPool(options) {
       const runId = String(message.runId ?? "");
       const handlers = runId ? worker.tasks.get(runId) : undefined;
       if (message.type === "capture") handlers?.onCapture?.(message.capture);
+      else if (message.type === "capture_rejected") handlers?.onCaptureRejected?.(message.rejection);
       else if (message.type === "route_decision") handlers?.onRouteDecision?.(message.decision);
       else if (message.type === "exit" && handlers) {
         worker.tasks.delete(runId);

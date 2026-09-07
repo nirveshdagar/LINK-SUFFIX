@@ -20,6 +20,8 @@ describe('shared capture payload', () => {
     };
     const event = {
       final_landing_url: 'https://example.com/?click=abc',
+      final_verdict: 'allow',
+      events: [{ url: 'https://example.com/?click=abc', method: 'GET', status: 200, time_ms: 1, headers: {}, ta_signal: { main_document: 'true' } }],
       session_id: 'session-1',
       repeat_index: 7,
       geo_resolved: geoResolved,
@@ -28,6 +30,8 @@ describe('shared capture payload', () => {
 
     expect(buildCapturePayload(event)).toEqual({
       final_landing_url: event.final_landing_url,
+      final_verdict: 'allow', challenge: undefined, error: undefined,
+      events: [{ ...event.events[0]!, ta_signal: { main_document: 'true', capture_path: '' } }],
       session_id: 'session-1',
       repeat_index: 7,
       geo_resolved: geoResolved,

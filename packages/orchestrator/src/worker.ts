@@ -65,7 +65,7 @@ function start(job: WorkerJob): void {
       active.closing = (async () => {
         const cpu = process.cpuUsage(active.cpuStarted);
         const reason = active.renewalFailure || outcome.reason || (outcome.healthy ? undefined : 'browser context failed');
-        await reportCampaignProxy({
+        if (outcome.healthy || outcome.failureDomain === 'proxy') await reportCampaignProxy({
           ...proxyRuntimeOptions,
           leaseId: lease.leaseId,
           healthy: outcome.healthy && !active.renewalFailure,
@@ -78,7 +78,7 @@ function start(job: WorkerJob): void {
           ...proxyRuntimeOptions,
           leaseId: lease.leaseId,
           state: active.renewalFailure ? 'expired' : 'released',
-        }).catch(() => undefined);
+        });
       })().finally(() => activeProxyLeases.delete(lease.leaseId));
       return active.closing;
     };
@@ -136,6 +136,7 @@ function start(job: WorkerJob): void {
         proxyGateway: job.proxyGateway,
         proxyAllocator,
         onCapture: (capture) => send({ type: 'capture', runId: job.runId, capture }),
+        onCaptureRejected: (rejection) => send({ type: 'capture_rejected', runId: job.runId, rejection }),
         onRouteDecision: (decision: RouteDecision) => send({ type: 'route_decision', runId: job.runId, decision }),
       });
       send({ type: 'exit', runId: job.runId, code: 0 });

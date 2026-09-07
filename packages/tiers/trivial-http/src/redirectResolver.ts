@@ -1,5 +1,6 @@
-import type { RawRequestRecord, Scenario } from '@tah/contracts';
+import { edgeStopForResponse, type RawRequestRecord, type Scenario } from '@tah/contracts';
 import { fireWithJa3 } from './ja3.js';
+import { publicHttpUrl, resolvePublicAddress, ProxyTransportError, ProxyResponseError } from '@tah/proxy';
 
 export interface RedirectResolutionHop {
   from: string;
@@ -9,7 +10,7 @@ export interface RedirectResolutionHop {
 }
 
 export interface RedirectFirstResult {
-  outcome: 'captured' | 'browser_required';
+  outcome: 'captured' | 'browser_required' | 'stopped';
   reason: string;
   startedAt: string;
   totalMs: number;
@@ -27,7 +28,7 @@ function boundedInteger(value: string | undefined, fallback: number, min: number
 function hasExactQuery(raw: string): boolean {
   const queryStart = raw.indexOf('?');
   if (queryStart < 0) return false;
-  const fragmentStart = raw.indexOf('#', queryStart + 1);
+  const fragmentStart = raw.indexOf('#');
   const queryEnd = fragmentStart >= 0 ? fragmentStart : raw.length;
   return queryEnd > queryStart + 1;
 }
@@ -95,8 +96,8 @@ function browserRequired(
 /**
  * Resolve server-side redirects using the campaign's existing residential
  * proxy session. It never parses or rebuilds a captured query string. HTML,
- * JavaScript, challenges, unsafe destinations, and ambiguous responses are
- * deliberately delegated to the browser tier.
+ * JavaScript and ordinary navigation may use the browser tier. Challenges,
+ * refusals and network failures never trigger a browser retry.
  */
 export async function resolveRedirectFirst(
   scenario: Scenario,
@@ -117,7 +118,8 @@ export async function resolveRedirectFirst(
   let current: URL;
 
   try {
-    current = new URL(scenario.seed_url);
+    current = publicHttpUrl(scenario.seed_url);
+    await resolvePublicAddress(current.hostname);
   } catch {
     return browserRequired('invalid_seed_url', startedAt, startedMs, events, redirects);
   }
@@ -128,6 +130,10 @@ export async function resolveRedirectFirst(
       return browserRequired('redirect_total_timeout', startedAt, startedMs, events, redirects);
     }
 
+    if (edgeStopForResponse({ url: current.href })) {
+      events.push({ url: current.href, method: 'GET', status: 0, time_ms: 0, headers: {}, ta_signal: { main_document: 'true', capture_path: 'redirect-first', request_not_sent: 'true' } });
+      return { ...browserRequired('challenge_url_blocked', startedAt, startedMs, events, redirects), outcome: 'stopped', finalUrl: current.href };
+    }
     const hopStarted = Date.now();
     let response: Awaited<ReturnType<typeof fireWithJa3>>;
     try {
@@ -144,8 +150,12 @@ export async function resolveRedirectFirst(
           'Upgrade-Insecure-Requests': '1',
         },
       });
-    } catch {
-      return browserRequired('redirect_request_failed', startedAt, startedMs, events, redirects);
+    } catch (error) {
+      // Retry is permitted only before a destination response or redirect.
+      if (error instanceof ProxyTransportError && events.length === 0) throw error;
+      if (error instanceof ProxyResponseError) events.push({ url: current.href, method: 'GET', status: error.status, time_ms: Date.now() - hopStarted,
+        headers: { 'retry-after': error.retryAfter, 'cf-ray': error.rayId }, ta_signal: { main_document: 'true', capture_path: 'redirect-first', proxy_response: 'true' } });
+      return { ...browserRequired('redirect_request_failed', startedAt, startedMs, events, redirects), outcome: 'stopped', finalUrl: current.href };
     }
 
     const location = response.headers.location ?? parseRefreshLocation(response.headers.refresh);
@@ -157,12 +167,16 @@ export async function resolveRedirectFirst(
       headers: response.headers,
       ta_signal: {
         main_document: 'true',
+        body_capture_state: 'unavailable',
         capture_path: 'redirect-first',
         redirect_hop: String(hop),
         ...(location ? { redirect_to: location } : {}),
       },
     });
 
+    if (edgeStopForResponse(events.at(-1))) {
+      return { ...browserRequired('edge_response_stopped', startedAt, startedMs, events, redirects), outcome: 'stopped', finalUrl: current.href };
+    }
     if (response.status >= 300 && response.status < 400) {
       if (!location) {
         return browserRequired('redirect_without_location', startedAt, startedMs, events, redirects);
@@ -178,6 +192,8 @@ export async function resolveRedirectFirst(
       if (isPrivateHostname(resolved.requestUrl.hostname)) {
         return browserRequired('private_redirect_blocked', startedAt, startedMs, events, redirects);
       }
+      try { publicHttpUrl(resolved.requestUrl); await resolvePublicAddress(resolved.requestUrl.hostname); }
+      catch { return browserRequired('private_redirect_blocked', startedAt, startedMs, events, redirects); }
 
       const redirect: RedirectResolutionHop = {
         from: current.toString(),

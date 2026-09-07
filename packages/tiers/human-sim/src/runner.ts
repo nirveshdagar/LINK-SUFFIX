@@ -1,4 +1,6 @@
 import type { BrowserContext } from 'playwright';
+import { edgeStopForResponse, evaluateCaptureResult, type CaptureRejection } from '@tah/contracts';
+import { createPublicEgressProxy, ProxyTransportError, ProxyResponseError } from '@tah/proxy';
 import { synthesizeUA, templatesForProfile, installFingerprintProfile } from '@tah/ua';
 import { resolveProxyEgress, verifyProxyEgressStability, resetTzCache, tzForGeo, commonTzForLocale, type Geo } from '@tah/tz';
 import { bezierMove, humanClick } from './behavior/mouse.js';
@@ -136,6 +138,7 @@ export async function* run(
   const browserPermit = await acquireBrowserPermit();
   let browserLease: Awaited<ReturnType<typeof acquireBrowserLease>> | undefined;
   let ctx: BrowserContext | undefined;
+  let guardedEgress: Awaited<ReturnType<typeof createPublicEgressProxy>> | undefined;
   const abortContext = () => { void ctx?.close().catch(() => undefined); };
   try {
     browserLease = await acquireBrowserLease({
@@ -170,6 +173,38 @@ export async function* run(
   const fp = synthesizeUA(template, { timezone });
   const locale = LOCALE_BY_COUNTRY[String(egress.country ?? scenario.geo.country).toUpperCase()] ?? device.locale ?? 'en-US';
   const runtimeFp = { ...fp, fingerprint: { ...fp.fingerprint, viewport: { ...device.viewport }, locale, languages: [locale, locale.split('-')[0]!], hardware: { ...device.hardware }, webgl: { ...device.webgl } } };
+  const edgeState: { rejection?: CaptureRejection; record?: RawRequestRecord } = {};
+  let activeDocumentHost = new URL(scenario.seed_url).hostname;
+  let upstreamTransportError: ProxyTransportError | undefined;
+  let destinationResponded = false;
+  let transportStopped = false;
+  const stopAtEdge = (record: RawRequestRecord): boolean => {
+    const rejection = edgeStopForResponse(record);
+    if (!rejection) return false;
+    if (!edgeState.rejection) {
+      edgeState.rejection = rejection;
+      edgeState.record = record;
+      allEvents.push(record);
+      error = 'Target rejected capture: ' + rejection.code;
+      capturedLandingUrl = undefined;
+      suffixCaptured = false;
+      // Close the entire context, including popups and pending subresources.
+      void ctx?.close().catch(() => undefined);
+    }
+    return true;
+  };
+  guardedEgress = await createPublicEgressProxy(proxyUrl, {
+    signal: runtime?.signal,
+    onUpstreamFailure: ({ hostname, error: failure }) => {
+      if (hostname !== activeDocumentHost) return;
+      if (failure instanceof ProxyTransportError && !destinationResponded) upstreamTransportError = failure;
+      if (failure instanceof ProxyResponseError) stopAtEdge({
+        url: 'https://' + hostname + '/', method: 'CONNECT', status: failure.status,
+        time_ms: Date.now() - start, headers: { 'retry-after': failure.retryAfter, 'cf-ray': failure.rayId },
+        ta_signal: { main_document: 'true', proxy_response: 'true' },
+      });
+    },
+  });
   ctx = await browserLease.browser.newContext({
     userAgent: runtimeFp.ua,
     viewport: { width: runtimeFp.fingerprint.viewport.w, height: runtimeFp.fingerprint.viewport.h },
@@ -178,11 +213,8 @@ export async function* run(
     timezoneId: runtimeFp.fingerprint.timezone,
     extraHTTPHeaders: { 'Accept-Language': runtimeFp.fingerprint.languages.join(',') },
     hasTouch: device.touch,
-    ...(proxyUrl.protocol === 'direct:' ? {} : { proxy: {
-      server: `${proxyUrl.protocol}//${proxyUrl.host}`,
-      username: decodeURIComponent(proxyUrl.username),
-      password: decodeURIComponent(proxyUrl.password),
-    } }),
+    proxy: guardedEgress.proxy,
+    serviceWorkers: 'block',
   });
   runtime?.signal?.addEventListener('abort', abortContext, { once: true });
   let activeTelemetry: TelemetryRecorder | null = null;
@@ -221,10 +253,32 @@ export async function* run(
   const page = await ctx.newPage();
   const responseTasks = new Set<Promise<void>>();
   const requestStarted = new WeakMap<object, number>();
-  page.on('request', (request) => requestStarted.set(request, Date.now()));
+  ctx.on('request', (request) => {
+    requestStarted.set(request, Date.now());
+    try {
+      if (request.isNavigationRequest() && request.frame() === request.frame().page().mainFrame()) activeDocumentHost = new URL(request.url()).hostname;
+    } catch { /* Detached frames cannot choose a replacement route. */ }
+  });
   const redirectState: { current: { from: string; to: string; status: number } | null } = { current: null };
   const redirectChain: RedirectHop[] = [];
-  page.on('response', (res) => {
+  ctx.on('response', (res) => {
+    if (edgeState.rejection || transportStopped) return;
+    const responseRequest = res.request();
+    const mainResponse = (() => { try { return responseRequest.isNavigationRequest() && responseRequest.frame() === responseRequest.frame().page().mainFrame(); } catch { return false; } })();
+    if (mainResponse) {
+      const record: RawRequestRecord = { url: res.url(), method: responseRequest.method(), status: res.status(),
+        time_ms: Date.now() - start, headers: res.headers(), ta_signal: { main_document: 'true' } };
+      if (stopAtEdge(record)) return;
+      if (upstreamTransportError && !destinationResponded && res.status() === 502 && new URL(res.url()).hostname === activeDocumentHost) {
+        record.ta_signal.proxy_transport_failure = upstreamTransportError.transportCode;
+        allEvents.push(record);
+        error = upstreamTransportError.message;
+        transportStopped = true;
+        void ctx?.close().catch(() => undefined);
+        return;
+      }
+      destinationResponded = true;
+    }
     const location = res.headers()['location'];
     if (res.status() >= 300 && res.status() < 400 && location) {
       try {
@@ -276,10 +330,15 @@ export async function* run(
       });
     })();
     responseTasks.add(task);
-    void task.finally(() => responseTasks.delete(task));
+    void task.then(() => responseTasks.delete(task), () => responseTasks.delete(task));
   });
-  await page.route('**/*', async (route) => {
+  await ctx.route('**/*', async (route) => {
     const request = route.request();
+    if (edgeState.rejection || transportStopped) { await route.abort('blockedbyclient').catch(() => undefined); return; }
+    if (request.isNavigationRequest() && stopAtEdge({ url: request.url(), method: request.method(),
+      status: 0, time_ms: Date.now() - start, headers: {}, ta_signal: { main_document: 'true', request_not_sent: 'true' } })) {
+      await route.abort('blockedbyclient').catch(() => undefined); return;
+    }
     if (shouldAbortResource(resourcePolicy, request.resourceType(), request.isNavigationRequest())) {
       await route.abort('blockedbyclient');
       return;
@@ -325,6 +384,8 @@ export async function* run(
       await page.waitForLoadState('domcontentloaded', { timeout: Math.min(10_000, NAVIGATION_TIMEOUT_MS) }).catch(() => undefined);
       pages.push(current.toString());
     } catch (cause) {
+      if (edgeState.rejection) { error = 'Target rejected capture: ' + edgeState.rejection.code; break; }
+      if (upstreamTransportError && !destinationResponded) { error = upstreamTransportError.message; transportStopped = true; break; }
       const externalRedirect = redirectState.current;
       if (externalRedirect) {
         pages.push(current.toString());
@@ -338,6 +399,7 @@ export async function* run(
       break;
     }
     await settleResponseTasks(responseTasks);
+    if (edgeState.rejection || transportStopped) break;
     if (scenario.continuous) {
       const exactLandingUrl = findExactSuffixUrl([
         page.url(),
@@ -438,9 +500,9 @@ export async function* run(
     event.ta_signal.behavior_frames = String(behavior.frame_count);
     event.ta_signal.behavior_events = String(behavior.event_count);
   }
-  if (scenario.continuous) {
+  if (scenario.continuous && !error && !edgeState.rejection && !transportStopped && (!challengeResult || challengeResult.status === 'resolved')) {
     const suffixDeadline = Date.now() + 2 * 60_000;
-    while (Date.now() < suffixDeadline) {
+    while (Date.now() < suffixDeadline && !edgeState.rejection && !transportStopped) {
       const candidate = findExactSuffixUrl([
         page.url(),
         redirectState.current?.to,
@@ -451,15 +513,15 @@ export async function* run(
         capturedLandingUrl = candidate;
         break;
       }
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(500).catch(cause => { if (!edgeState.rejection && !transportStopped) throw cause; });
     }
-    if (!suffixCaptured) {
+    if (!suffixCaptured && !edgeState.rejection && !transportStopped) {
       error = 'Final URL suffix was not captured within 120 seconds';
     }
-  } else if (session.headless === false && (session.visible_hold_seconds ?? 0) > 0) {
+  } else if (!edgeState.rejection && !transportStopped && session.headless === false && (session.visible_hold_seconds ?? 0) > 0) {
     await page.waitForTimeout(Math.min(120, session.visible_hold_seconds ?? 0) * 1000);
   }
-  const finalLandingUrl = capturedLandingUrl ?? findExactSuffixUrl([
+  const finalLandingUrl = edgeState.record?.url ?? capturedLandingUrl ?? findExactSuffixUrl([
     page.url(),
     redirectState.current?.to,
     redirectChain.at(-1)?.to,
@@ -476,7 +538,7 @@ export async function* run(
       main.ta_signal.affiliate_source_url = affiliateSourceUrl;
     }
   }
-  if (scenario.continuous && !suffixCaptured && challengeResult) await new Promise((resolve) => setTimeout(resolve, 10_000));
+  // Scheduler backoff begins after context and route cleanup.
   yield {
     scenario_id: scenario.id,
     repeat_index: 0,
@@ -520,9 +582,12 @@ export async function* run(
   };
   } finally {
     runtime?.signal?.removeEventListener('abort', abortContext);
-    await ctx?.close().catch(() => undefined);
+    let cleanupFailed = false;
+    await ctx?.close().catch(() => { cleanupFailed = browserLease?.browser.isConnected() === true; });
+    await guardedEgress?.close().catch(() => { cleanupFailed = true; });
     ctx = undefined;
     browserLease?.release();
     browserPermit.release();
+    if (cleanupFailed) throw new Error('Browser or route cleanup was not acknowledged; proxy replacement is disabled');
   }
 }

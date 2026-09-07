@@ -381,3 +381,6 @@ export function summarizeProxyMetrics(samples: ProxyMetricSample[]) {
     redisLatencyP95Ms: percentile(redisLatency, 0.95),
   };
 }
+
+export { abortError, withDeadline, normalizedHost, isPublicAddress, publicHttpUrl, resolvePublicAddress, assertProxyProtocol, openPublicSocket, createPublicEgressProxy } from './network.js';
+export { ProxyTransportError, ProxyResponseError, isProxyTransportFailure } from './transportFailure.js';

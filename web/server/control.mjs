@@ -11,6 +11,7 @@ import path from "node:path";
 import { resolveProxyEgress, resetTzCache } from "@tah/tz";
 import { createDistributedControlStore } from "./distributed-store.mjs";
 import { extractExactQuerySuffix } from "./exact-suffix.mjs";
+import { evaluateCaptureResult } from "@tah/contracts";
 import { verifySessionToken } from "../lib/session-token.mjs";
 import { computeCampaignLaunchGapMs, evaluateResourceAdmission } from "./resource-admission.mjs";
 import { createSerializedStateWriter } from "./serialized-state-writer.mjs";
@@ -277,19 +278,66 @@ function captureExactL4Suffix(run) {
     .map(line => { try { return JSON.parse(line); } catch { return null; } })
     .filter(Boolean);
   const result = [...results].reverse().find(item => {
-    if (item.tier !== "human" || typeof item.final_landing_url !== "string") return false;
-    return extractExactQuerySuffix(item.final_landing_url) !== null;
+    return item.tier === "human";
   });
   if (!result) return null;
 
   return persistL4Capture(run, result);
 }
 
+function recordCaptureRejection(run, rejection) {
+  if (run.exitCode !== null || run.stopping || rejection?.code === "missing_suffix") return;
+  const campaign = run.campaignRecordId ? campaigns.get(run.campaignRecordId) : undefined;
+  if (run.campaignRecordId) {
+    if (!campaign || campaign.activeRunId !== run.id || campaign.desiredRunning !== true) return;
+  }
+  const now = Date.now();
+  const at = new Date(now).toISOString();
+  const incoming = rejection?.diagnostics || {};
+  const diagnostics = {};
+  if (typeof incoming.hostname === "string" && /^[a-z0-9.-]{1,253}$/i.test(incoming.hostname)) diagnostics.hostname = incoming.hostname;
+  if (Number.isInteger(incoming.httpStatus) && incoming.httpStatus >= 100 && incoming.httpStatus <= 599) diagnostics.httpStatus = incoming.httpStatus;
+  if (typeof incoming.rayId === "string" && /^[a-f0-9]{16,32}(?:-[a-z0-9]{3,10})?$/i.test(incoming.rayId)) diagnostics.rayId = incoming.rayId;
+  const code = clean(rejection?.code || "capture_rejected", 80);
+  const blocked = ["cloudflare_challenge", "unresolved_challenge", "blocked_response", "rate_limited"].includes(code)
+    || [403, 429].includes(diagnostics.httpStatus);
+  const receivedRetry = rejection?.retry;
+  const validRetry = run.continuous && blocked && receivedRetry
+    && Number.isSafeInteger(receivedRetry.delayMs) && receivedRetry.delayMs >= 60_000
+    && Number.isSafeInteger(receivedRetry.notBefore) && receivedRetry.notBefore > now
+    && receivedRetry.notBefore <= 8_640_000_000_000_000 && receivedRetry.notBefore - now <= receivedRetry.delayMs;
+  run.captureRejection = {
+    code, message: clean(rejection?.message || "Capture rejected", 500), at,
+    ...(Object.keys(diagnostics).length ? { diagnostics } : {}),
+    ...(validRetry ? { retry: {
+      notBefore: receivedRetry.notBefore, delayMs: receivedRetry.delayMs,
+      consecutiveBlocks: Math.min(32, Math.max(1, Math.floor(Number(receivedRetry.consecutiveBlocks) || 1))),
+    } } : {}),
+  };
+  run.syncError = [
+    run.captureRejection.message,
+    diagnostics.hostname,
+    diagnostics.httpStatus ? "HTTP " + diagnostics.httpStatus : "",
+    diagnostics.rayId ? "Cloudflare Ray ID " + diagnostics.rayId : "",
+    validRetry ? "Retry not before " + new Date(receivedRetry.notBefore).toISOString() : "",
+  ].filter(Boolean).join(" | ");
+  noteContinuousRunProgress(run, "capture-rejected");
+  if (campaign) {
+    campaign.lastCaptureRejection = { ...run.captureRejection, runId: run.id };
+    campaign.lastError = run.syncError;
+    campaign.updatedAt = at;
+    persistCampaigns();
+  }
+  persistRuns();
+  broadcast("l4_capture", { id: run.id, capture: null, syncError: run.syncError });
+  broadcastCampaigns();
+}
+
 function persistL4Capture(run, result) {
-  const finalUrl = result.final_landing_url;
-  if (typeof finalUrl !== "string") return null;
-  const suffix = extractExactQuerySuffix(finalUrl);
-  if (suffix === null) return null;
+  const decision = evaluateCaptureResult(result);
+  if (!decision.accepted) { recordCaptureRejection(run, decision); return null; }
+  const finalUrl = decision.finalUrl;
+  const suffix = decision.suffix;
   let state = {};
   try { state = JSON.parse(readFileSync(adsStatePath, "utf8")); } catch { /* first capture */ }
   const capturedAt = new Date().toISOString();
@@ -308,6 +356,8 @@ function persistL4Capture(run, result) {
     const campaign = campaigns.get(run.campaignRecordId);
     if (campaign) {
       const history = Array.isArray(campaign.captureHistory) ? campaign.captureHistory : [];
+      delete run.captureRejection;
+      delete campaign.lastCaptureRejection;
       campaign.latestSuffix = suffix;
       campaign.latestCaptureEgress = egress;
       campaign.lastCapturedAt = capturedAt;
@@ -1144,6 +1194,13 @@ function recoverStalledContinuousRuns() {
     const campaign = run.campaignRecordId ? campaigns.get(run.campaignRecordId) : undefined;
     if (!campaign || campaign.desiredRunning !== true) continue;
     const lastProgressAt = Number(run.lastProgressAt ?? run.startedAt ?? now);
+    const rejectionAt = Date.parse(run.captureRejection?.at || "");
+    const retryAt = Number(run.captureRejection?.retry?.notBefore);
+    const retryDelay = Number(run.captureRejection?.retry?.delayMs);
+    const validRetry = Number.isFinite(rejectionAt) && Number.isSafeInteger(retryAt)
+      && Number.isSafeInteger(retryDelay) && retryDelay >= 60_000
+      && retryAt >= rejectionAt && retryAt <= 8_640_000_000_000_000 && retryAt - rejectionAt <= retryDelay;
+    if (validRetry && now < retryAt + CONTINUOUS_PROGRESS_STALE_MS) continue;
     const staleForMs = now - lastProgressAt;
     if (staleForMs < CONTINUOUS_PROGRESS_STALE_MS) continue;
 
@@ -1284,6 +1341,7 @@ async function startRun(payload) {
         proxyGateway: noProxy || registryProxyRequired ? undefined : { hostname: proxy.host, port: Number(payload.proxyPort ?? proxy.port) },
       }, {
         onCapture: capture => { noteContinuousRunProgress(run, "capture"); queueL4Capture(run, capture); },
+        onCaptureRejected: rejection => recordCaptureRejection(run, rejection),
         onRouteDecision: decision => { noteContinuousRunProgress(run, "route-decision"); recordRouteDecision(run, decision); },
         onExit: (code, error) => { void finalizeRun(run, code, error); },
       });
@@ -1311,6 +1369,8 @@ async function startRun(payload) {
       if (line.startsWith("TAH_L4_CAPTURE ")) {
         try { noteContinuousRunProgress(run, "capture"); queueL4Capture(run, JSON.parse(line.slice("TAH_L4_CAPTURE ".length))); }
         catch (error) { broadcast("l4_capture", { id, capture: null, syncError: error instanceof Error ? error.message : String(error) }); }
+      } else if (line.startsWith("TAH_L4_CAPTURE_REJECTED ")) {
+        try { recordCaptureRejection(run, JSON.parse(line.slice("TAH_L4_CAPTURE_REJECTED ".length))); } catch { /* Invalid diagnostics cannot interrupt run processing. */ }
       } else if (line.startsWith("TAH_ROUTE_DECISION ")) {
         try { noteContinuousRunProgress(run, "route-decision"); recordRouteDecision(run, JSON.parse(line.slice("TAH_ROUTE_DECISION ".length))); }
         catch { broadcast("log", { id, stream: "stdout", data: `${line}\n` }); }

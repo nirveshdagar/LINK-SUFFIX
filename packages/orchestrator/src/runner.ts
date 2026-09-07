@@ -2,7 +2,10 @@ import { resolveRedirectFirst, run as runTrivial } from '@tah/trivial-http';
 import { run as runHeadless } from '@tah/headless-browser';
 import { run as runStealth } from '@tah/stealth-browser';
 import { run as runHuman } from '@tah/human-sim';
-import { buildProxyEndpoint } from '@tah/proxy';
+import { buildProxyEndpoint, isProxyTransportFailure } from '@tah/proxy';
+import { evaluateCaptureResult, type CaptureRejection } from '@tah/contracts';
+import { CaptureBackoff, isBlockedCapture } from './captureBackoff.js';
+import { classifyAttemptOutcome } from './attemptOutcome.js';
 import { defaultStrategies, aggregateVerdict, DEFAULT_SIGNATURES, signatureMatches } from '@tah/verdict';
 import { loadProfile } from '@tah/profiles';
 import { resolveProxyEgress, type ProxyEgressIdentity } from '@tah/tz';
@@ -52,6 +55,8 @@ interface RunRuntime {
   signal?: AbortSignal;
   proxyGateway?: { hostname?: string; port?: number };
   onCapture?: (capture: CapturePayload) => void;
+  onCaptureRejected?: (rejection: CaptureRejection) => void;
+  captureBackoff: CaptureBackoff;
   onRouteDecision?: (decision: RouteDecision) => void;
   proxyAllocator?: ContextProxyAllocator;
 }
@@ -60,6 +65,7 @@ export interface ContextProxyOutcome {
   healthy: boolean;
   reason?: string;
   elapsedMs: number;
+  failureDomain?: 'proxy' | 'target' | 'unknown' | 'cancelled';
 }
 
 export interface ContextProxyAllocator {
@@ -71,14 +77,25 @@ export interface ContextProxyAllocator {
   release(lease: CampaignProxyLease, outcome: ContextProxyOutcome): Promise<void>;
 }
 
-export type CapturePayload = Pick<RequestEvent, 'session_id' | 'repeat_index' | 'geo_resolved' | 'proxy_mode'> & {
+export type CapturePayload = Pick<RequestEvent, 'session_id' | 'repeat_index' | 'geo_resolved' | 'proxy_mode' | 'final_verdict' | 'challenge' | 'error' | 'events'> & {
   final_landing_url: string;
 };
 
 export function buildCapturePayload(event: RequestEvent): CapturePayload {
-  if (!event.final_landing_url) throw new Error('Capture payload requires a final landing URL');
+  const decision = evaluateCaptureResult(event);
+  if (!decision.accepted) throw new Error(decision.message);
+  const main = [...event.events].reverse().find(item => item.ta_signal?.main_document === 'true');
+  const headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(main?.headers ?? {})) {
+    if (['cf-mitigated', 'location'].includes(key.toLowerCase())) headers[key.toLowerCase()] = String(value);
+  }
   return {
-    final_landing_url: event.final_landing_url,
+    final_landing_url: decision.finalUrl,
+    final_verdict: event.final_verdict,
+    challenge: event.challenge,
+    error: event.error,
+    events: main ? [{ url: main.url, method: main.method, status: main.status, time_ms: main.time_ms,
+      headers, ta_signal: { main_document: 'true', capture_path: main.ta_signal.capture_path ?? '' } }] : [],
     session_id: event.session_id,
     repeat_index: event.repeat_index,
     geo_resolved: event.geo_resolved,
@@ -157,6 +174,7 @@ export async function runScenario(opts: {
   signal?: AbortSignal;
   proxyGateway?: { hostname?: string; port?: number };
   onCapture?: RunRuntime['onCapture'];
+  onCaptureRejected?: RunRuntime['onCaptureRejected'];
   onRouteDecision?: RunRuntime['onRouteDecision'];
   proxyAllocator?: ContextProxyAllocator;
 }): Promise<void> {
@@ -207,6 +225,8 @@ export async function runScenario(opts: {
     signal: opts.signal,
     proxyGateway: opts.proxyGateway,
     onCapture: opts.onCapture,
+    onCaptureRejected: opts.onCaptureRejected,
+    captureBackoff: new CaptureBackoff(),
     onRouteDecision: opts.onRouteDecision,
     proxyAllocator: opts.proxyAllocator,
   };
@@ -261,6 +281,10 @@ async function runOneRepeat(
   let sessionId = '';
   let resolvedEgress: Partial<ProxyEgressIdentity> = {};
   let proxyUrl = new URL('direct://');
+  let yieldedFailure = '';
+  let destinationResponded = false;
+  const journeyProxyMode = scenario.tier === 'human' ? 'sticky-residential' : scenario.proxy_mode;
+  while (runtime.captureBackoff.remainingMs() > 0) await abortableDelay(runtime.captureBackoff.remainingMs(), runtime.signal);
 
   // Pull out the per-event strategy list from the surrounding closure by
   // reading it from the scenario (re-derived here to keep the helper
@@ -272,10 +296,8 @@ async function runOneRepeat(
   const enabledNames = (['http_status', 'challenge_html', 'header_signals', 'cookies', 'timing'] as const)
     .filter((n) => (scenario.verdict_detection as any)?.[n] !== false);
 
-  // Spec §9: retry the whole request once on a single request error before
-  // logging `error`. We run the iteration in a closure so the retry replays
-  // it from the start; on the second failure we emit a synthetic event
-  // tagged `final_verdict: 'error'`.
+  // A single replacement is allowed only for a confirmed pre-response proxy
+  // connection failure, after the old context and lease have been released.
   const attemptOnce = async (): Promise<void> => {
     // A continuous campaign keeps one coherent browser identity. This allows
     // unattended retries without using identity rotation to evade challenges.
@@ -288,7 +310,7 @@ async function runOneRepeat(
     // Let the tier emit exactly one request per repeat and keep its own concurrency.
     const tierScenarioBase = scenario.tier === 'trivial-http'
       ? { ...scenario, repeats: 1, concurrent: 1 }
-      : scenario;
+      : scenario.tier === 'human' ? { ...scenario, proxy_mode: journeyProxyMode } : scenario;
     const tierScenario = scenario.tier === 'human'
       ? { ...tierScenarioBase, __tahRuntime: { signal: runtime.signal, telemetryDir: runtime.telemetryDir, challengeDir: runtime.challengeDir } }
       : tierScenarioBase;
@@ -307,8 +329,17 @@ async function runOneRepeat(
         publishDecision({ outcome: 'browser_fallback', hostname: claim.hostname, reason: claim.reason ?? 'browser_required', preflightSkipped: true, cacheUntil: claim.cacheUntil });
         iter = tierFn(tierScenario as Scenario, proxyUrl, repeatProfile) as AsyncIterable<RequestEvent>;
       } else {
-      const resolved = await resolveRedirectFirst(scenario, proxyUrl);
-      if (resolved.outcome === 'captured' && resolved.finalUrl) {
+      const resolved = await resolveRedirectFirst(tierScenario, proxyUrl);
+      if (resolved.events.some(event => event.status >= 100 && event.ta_signal.request_not_sent !== 'true')) destinationResponded = true;
+      if (resolved.outcome === 'stopped') {
+        iter = (async function* stoppedRedirect() {
+          yield { scenario_id: scenario.id, repeat_index: i, tier: 'human' as const,
+            geo_requested: scenario.geo, proxy_mode: journeyProxyMode,
+            started_at: resolved.startedAt, final_landing_url: resolved.finalUrl ?? scenario.seed_url,
+            events: resolved.events, final_verdict: 'error' as const,
+            timing: { total_ms: resolved.totalMs }, error: 'Redirect resolution stopped: ' + resolved.reason };
+        })();
+      } else if (resolved.outcome === 'captured' && resolved.finalUrl) {
         redirectFallbackCache.recordCaptured(scenario.seed_url);
         publishDecision({ outcome: 'redirect_capture', hostname: claim.hostname, reason: resolved.reason, preflightSkipped: false, periodicProbe: claim.periodicProbe });
         const lightweightEvent: RequestEvent = {
@@ -343,6 +374,8 @@ async function runOneRepeat(
       iter = tierFn(tierScenario as Scenario, proxyUrl, repeatProfile) as AsyncIterable<RequestEvent>;
     }
     for await (const evt of iter) {
+      if (evt.events.some(event => event.ta_signal?.main_document === 'true' && event.status >= 100 && !event.ta_signal.proxy_transport_failure && event.ta_signal.request_not_sent !== 'true')) destinationResponded = true;
+      if (evt.error) yieldedFailure = evt.error;
       evt.repeat_index = i;
       const last = [...evt.events].reverse().find((event) => event.ta_signal?.main_document === 'true') ?? evt.events.at(-1);
       if (last) {
@@ -377,6 +410,7 @@ async function runOneRepeat(
         evt.final_verdict = out.final;
       }
       evt.session_id = sessionId;
+      evt.proxy_mode = journeyProxyMode;
       evt.expected_verdict = scenario.expected_verdict;
       evt.expectation_met = scenario.expected_verdict ? evt.final_verdict === scenario.expected_verdict : undefined;
       if (!evt.geo_resolved && resolvedEgress.ip) {
@@ -401,9 +435,18 @@ async function runOneRepeat(
       bus.emit('request', evt);
       await sink.write(evt);
       if (evt.tier === 'human' && evt.final_landing_url) {
-        const capture = buildCapturePayload(evt);
-        if (runtime.onCapture) runtime.onCapture(capture);
-        else console.log(`TAH_L4_CAPTURE ${JSON.stringify(capture)}`);
+        const decision = runtime.captureBackoff.observe(evaluateCaptureResult(evt));
+        if (decision.accepted) {
+          const capture = buildCapturePayload(evt);
+          if (runtime.onCapture) runtime.onCapture(capture);
+          else console.log(`TAH_L4_CAPTURE ${JSON.stringify(capture)}`);
+        } else {
+          if (isBlockedCapture(decision)) yieldedFailure = 'Target rejected capture: ' + decision.code;
+          else yieldedFailure ||= decision.message;
+          if (runtime.onCaptureRejected) runtime.onCaptureRejected(decision);
+          else console.log(`TAH_L4_CAPTURE_REJECTED ${JSON.stringify(decision)}`);
+          if (isBlockedCapture(decision)) return;
+        }
       }
     }
   };
@@ -416,6 +459,10 @@ async function runOneRepeat(
     let attemptSucceeded = false;
     let attemptFailure = '';
     let proxyConfigurationFailure = false;
+    let canAllocateReplacement = false;
+    let shouldFailover = false;
+    destinationResponded = false;
+    yieldedFailure = '';
     try {
       sessionId = createContextProxySessionId({ scenarioId: scenario.id, runId: runtime.runId, repeatIndex: i, attemptIndex: attempt });
       resolvedEgress = {};
@@ -428,12 +475,18 @@ async function runOneRepeat(
           geo: scenario.geo as unknown as Record<string, unknown>,
         }) ?? null;
         if (attemptLease) {
+          if (scenario.tier === 'human' && attemptLease.rotationMode !== 'sticky-session') {
+            proxyConfigurationFailure = true;
+            throw new Error('Browser journeys require a sticky-session proxy policy');
+          }
           proxyUrl = new URL(attemptLease.proxyUrl);
+          canAllocateReplacement = scenario.tier === 'human';
         } else if (mitmUrl) {
           proxyUrl = new URL(mitmUrl);
         } else {
           try {
-            proxyUrl = buildProxyEndpoint(scenario.geo, scenario.proxy_mode, creds, sessionId, runtime.proxyGateway).url;
+            proxyUrl = buildProxyEndpoint(scenario.geo, journeyProxyMode, creds, sessionId, runtime.proxyGateway).url;
+            canAllocateReplacement = scenario.tier === 'human';
           } catch (error) {
             proxyConfigurationFailure = true;
             throw error;
@@ -444,11 +497,14 @@ async function runOneRepeat(
         try { resolvedEgress = await resolveProxyEgress(proxyUrl) as typeof resolvedEgress; } catch { /* retain requested geo */ }
       }
       await attemptOnce();
-      attemptSucceeded = true;
+      attemptSucceeded = !yieldedFailure;
+      attemptFailure = yieldedFailure;
+      if (canAllocateReplacement && !destinationResponded && isProxyTransportFailure(yieldedFailure)) throw new Error(yieldedFailure);
       return;
     } catch (e) {
       lastErr = e;
       attemptFailure = e instanceof Error ? e.message : String(e);
+      shouldFailover = canAllocateReplacement && !destinationResponded && isProxyTransportFailure(e) && attempt + 1 < maxAttempts;
       if (proxyConfigurationFailure) {
         await skippedSink.write({ scenario_id: scenario.id, repeat: i, reason: attemptFailure });
         return;
@@ -457,14 +513,16 @@ async function runOneRepeat(
     } finally {
       if (attemptLease && runtime.proxyAllocator) {
         await runtime.proxyAllocator.release(attemptLease, {
-          healthy: attemptSucceeded,
-          reason: attemptSucceeded ? undefined : attemptFailure || 'Browser context failed',
+          ...classifyAttemptOutcome(attemptSucceeded, attemptFailure, runtime.signal?.aborted),
           elapsedMs: Math.max(0, Date.now() - attemptStartedAt),
-        }).catch(() => undefined);
+        }).catch(() => { shouldFailover = false; });
       }
     }
+    if (!shouldFailover) break;
+    console.log('TAH_PROXY_TRANSPORT_FAILOVER ' + JSON.stringify({ scenario_id: scenario.id, repeat_index: i, replacement: attempt + 1, reason: attemptFailure }));
+    await abortableDelay(1000, runtime.signal);
   }
-  // Two failures — emit a synthetic error event so downstream consumers
+  // Terminal failure — emit a synthetic error event so downstream consumers
   // (sink, dashboard) still see a record for this repeat.
   const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
   const errEvt: RequestEvent = {

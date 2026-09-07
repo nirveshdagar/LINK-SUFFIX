@@ -1,4 +1,6 @@
+import { captureUrlIssue } from "@tah/contracts";
 export function extractExactQuerySuffix(finalUrl) {
+  if (captureUrlIssue(finalUrl)) return null;
   if (typeof finalUrl !== "string" || finalUrl.length === 0) return null;
   try {
     new URL(finalUrl);

@@ -61,5 +61,6 @@ export async function reportCampaignProxy(options: RuntimeClientOptions & { leas
 
 export async function releaseCampaignProxy(options: RuntimeClientOptions & { leaseId: string; state?: string }) {
   if (!options.enabled) return;
-  await callRuntime(options, { action: 'release', leaseId: options.leaseId, state: options.state || 'released' });
+  const { response } = await callRuntime(options, { action: 'release', leaseId: options.leaseId, state: options.state || 'released' });
+  if (!response.ok) throw new Error('Proxy lease release was not acknowledged; replacement is disabled');
 }

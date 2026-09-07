@@ -1,3 +1,4 @@
+import { assertDeliverableSuffix, deliverySuffixIssue } from "@tah/contracts";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import pg, { type Pool, type PoolClient } from "pg";
@@ -385,6 +386,7 @@ export async function bridgeTargetReadiness(campaignRecordId: string) {
 }
 
 export async function enqueueBridgeCapture(input: BridgeTargetInput & { exactSuffix: string; version?: number; sourceRunId?: string; egress?: unknown }) {
+  assertDeliverableSuffix(input.exactSuffix);
   const { targetId: id, shardId } = await upsertBridgeTarget(input);
   const suffixHash = digest(input.exactSuffix);
   const version = input.version && Number.isSafeInteger(input.version) ? input.version : Date.now();
@@ -566,6 +568,11 @@ export async function leaseBridgeJobs(
     );
     const leases: BridgeLease[] = [];
     for (const row of candidates.rows) {
+      const issue = deliverySuffixIssue(row.exact_suffix);
+      if (issue) {
+        await client.query("UPDATE tah_delivery_jobs SET state='dead',last_error=$2,leased_at=NULL,leased_until=NULL,lease_token_hash=NULL,worker_id=NULL,updated_at=now() WHERE job_id=$1", [row.job_id, issue]);
+        continue;
+      }
       const leaseToken = randomBytes(32).toString("base64url");
       await client.query(
         `UPDATE tah_delivery_jobs SET state='leased',attempt_count=attempt_count+1,leased_at=now(),
@@ -750,6 +757,7 @@ export async function completeBridgeInvocation(input: {
 }
 
 export async function acknowledgeBridgeJob(input: { shardId: string; workerId: string; jobId: string; leaseToken: string; ok: boolean; appliedSuffix?: string; error?: string }) {
+  if (input.ok) assertDeliverableSuffix(input.appliedSuffix);
   return await transaction(async (client) => {
     const result = await client.query(
       `SELECT j.*,c.exact_suffix,c.suffix_hash FROM tah_delivery_jobs j
