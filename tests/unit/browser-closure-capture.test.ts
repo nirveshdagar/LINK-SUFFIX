@@ -3,10 +3,11 @@ import { evaluateCaptureResult } from '@tah/contracts';
 import { run } from '../../packages/tiers/human-sim/src/runner.js';
 import { isTopLevelNavigation } from '../../packages/tiers/human-sim/src/mainDocument.js';
 
-const mock = vi.hoisted(() => ({ context: null as any, scroll: vi.fn(), release: vi.fn(),
+const mock = vi.hoisted(() => ({ context: null as any, family: 'chrome', scroll: vi.fn(), release: vi.fn(),
+  newContext: vi.fn(), synthesize: vi.fn(), installFingerprint: vi.fn(),
   permitRelease: vi.fn(), routeClose: vi.fn(async () => {}) }));
 vi.mock('../../packages/tiers/human-sim/src/browserPool.js', () => ({
-  acquireBrowserLease: async () => ({ browser: { newContext: async () => mock.context,
+  acquireBrowserLease: async () => ({ browser: { newContext: mock.newContext,
     isConnected: () => true, version: () => 'fixture' }, release: mock.release }),
 }));
 vi.mock('../../packages/tiers/human-sim/src/browserPermit.js', () => ({
@@ -21,11 +22,9 @@ vi.mock('@tah/proxy', async importOriginal => ({
   createPublicEgressProxy: async () => ({ proxy: undefined, close: mock.routeClose }),
 }));
 vi.mock('@tah/ua', () => ({
-  templatesForProfile: () => [{ family: 'chrome' }],
-  synthesizeUA: () => ({ ua: 'fixture', templateId: 'fixture', fingerprint: {
-    timezone: 'America/New_York', viewport: { w: 1280, h: 720, dpr: 1 },
-    locale: 'en-US', languages: ['en-US'] } }),
-  installFingerprintProfile: async () => {},
+  templatesForProfile: () => [{ family: mock.family }],
+  synthesizeUA: mock.synthesize,
+  installFingerprintProfile: mock.installFingerprint,
 }));
 vi.mock('@tah/antidetect', () => ({ pickFingerprint: () => ({ id: 'fixture', family: 'fixture' }) }));
 vi.mock('@tah/tz', () => ({
@@ -60,7 +59,7 @@ function fixture() {
   const childFrame: any = { page: () => page };
   function request(url: string, child = false) {
     return { url: () => url, method: () => 'GET', isNavigationRequest: () => true,
-      headers: () => ({ 'user-agent': 'fixture' }),
+      headers: () => ({ 'user-agent': 'native-fixture HeadlessChrome/999.0' }),
       resourceType: () => 'document', frame: () => child ? childFrame : mainFrame };
   }
   function emitResponse(status: number, headers: Record<string, string>, child: boolean, url = current) {
@@ -71,7 +70,7 @@ function fixture() {
     handlers.get('response')?.forEach(fn => fn(res));
   }
   const context: any = {
-    exposeBinding: async () => {}, addInitScript: async () => {}, newPage: async () => page,
+    exposeBinding: async () => {}, addInitScript: vi.fn(async (_script: unknown) => {}), newPage: async () => page,
     close: vi.fn(async () => { closed = true; }),
     on: (name: string, handler: (value: any) => void) => {
       handlers.set(name, [...(handlers.get(name) || []), handler]); return context;
@@ -98,7 +97,13 @@ async function collect(signal?: AbortSignal) {
   for await (const event of run(scenario, new URL('http://proxy.example:1000'), profile)) events.push(event);
   return events;
 }
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  mock.family = 'chrome';
+  mock.newContext.mockImplementation(async () => mock.context);
+  mock.synthesize.mockImplementation(() => { throw new Error('Synthetic identity is forbidden in the native browser path'); });
+  mock.installFingerprint.mockImplementation(() => { throw new Error('Browser-property patching is forbidden in the native browser path'); });
+});
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('browser closure diagnostics and document ownership', () => {
@@ -169,5 +174,66 @@ describe('browser closure diagnostics and document ownership', () => {
     expect(isTopLevelNavigation(f.request('https://destination.example/'))).toBe(true);
     expect(isTopLevelNavigation(f.request('https://widget.example/', true))).toBe(false);
     expect(isTopLevelNavigation({ isNavigationRequest: () => true, frame: () => { throw new Error('detached'); } })).toBe(false);
+  });
+});
+
+describe('native browser identity', () => {
+  it.each(['chrome', 'safari'])('keeps native %s identity without synthesized headers or navigator patches', async family => {
+    mock.family = family;
+    const f = fixture();
+    mock.scroll.mockImplementation(async () => {
+      f.setUrl('https://destination.example/?click=fixture');
+      f.emitResponse(200, {}, false);
+    });
+    const [row] = await collect();
+    const options = mock.newContext.mock.calls[0]![0];
+    expect(options).toMatchObject({
+      viewport: { width: 1280, height: 720 }, locale: 'en-US',
+      timezoneId: 'America/New_York', serviceWorkers: 'block',
+    });
+    for (const key of ['userAgent', 'extraHTTPHeaders', 'deviceScaleFactor', 'hasTouch', 'isMobile']) {
+      expect(options).not.toHaveProperty(key);
+    }
+    expect(mock.synthesize).not.toHaveBeenCalled();
+    expect(mock.installFingerprint).not.toHaveBeenCalled();
+    for (const [script] of f.context.addInitScript.mock.calls) {
+      expect(String(script)).not.toMatch(/webdriver|Navigator\.prototype|WebGLRenderingContext|userAgentData/);
+    }
+    expect(evaluateCaptureResult(row)).toMatchObject({ accepted: true, suffix: 'click=fixture' });
+    expect(row!.events.some(event => event.ta_signal.template_id === (family === 'safari' ? 'native-webkit' : 'native-chromium'))).toBe(true);
+  });
+
+  it('records the request user-agent without stripping the browser automation marker', async () => {
+    const f = fixture();
+    mock.scroll.mockImplementation(async () => {
+      f.setUrl('https://destination.example/?click=fixture%2Fexact&empty=');
+      f.emitResponse(200, {}, false);
+    });
+    const [row] = await collect();
+    const documents = row!.events.filter(event => event.ta_signal.main_document === 'true');
+    expect(documents.length).toBeGreaterThan(0);
+    for (const document of documents) {
+      expect(document.ta_signal.ua_actual).toBe('native-fixture HeadlessChrome/999.0');
+    }
+    expect(evaluateCaptureResult(row)).toMatchObject({ accepted: true, suffix: 'click=fixture%2Fexact&empty=' });
+  });
+
+  it('creates and closes a separate context for each independent journey', async () => {
+    const contexts: any[] = [];
+    for (let index = 0; index < 2; index++) {
+      const f = fixture();
+      contexts.push(f.context);
+      mock.scroll.mockImplementation(async () => {
+        f.setUrl('https://destination.example/?click=fixture-' + index);
+        f.emitResponse(200, {}, false);
+      });
+      const [row] = await collect();
+      expect(evaluateCaptureResult(row)).toMatchObject({ accepted: true, suffix: 'click=fixture-' + index });
+      expect(f.context.close).toHaveBeenCalledTimes(1);
+    }
+    expect(contexts[0]).not.toBe(contexts[1]);
+    expect(mock.newContext).toHaveBeenCalledTimes(2);
+    expect(mock.release).toHaveBeenCalledTimes(2);
+    expect(mock.routeClose).toHaveBeenCalledTimes(2);
   });
 });

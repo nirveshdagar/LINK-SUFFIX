@@ -2,10 +2,9 @@ import type { BrowserContext } from 'playwright';
 import { isTopLevelNavigation } from './mainDocument.js';
 import { edgeStopForResponse, evaluateCaptureResult, type CaptureRejection } from '@tah/contracts';
 import { createPublicEgressProxy, ProxyTransportError, ProxyResponseError } from '@tah/proxy';
-import { synthesizeUA, templatesForProfile, installFingerprintProfile } from '@tah/ua';
+import { templatesForProfile } from '@tah/ua';
 import { resolveProxyEgress, verifyProxyEgressStability, resetTzCache, tzForGeo, commonTzForLocale, type Geo } from '@tah/tz';
 import { bezierMove, humanClick } from './behavior/mouse.js';
-import { pickFingerprint } from '@tah/antidetect';
 import { humanScroll } from './behavior/scroll.js';
 import { TelemetryRecorder, type BrowserFrameEvent, type PageSummary } from '@tah/telemetry';
 import { logNormalTimeMs } from './behavior/timing.js';
@@ -124,8 +123,6 @@ export async function* run(
     ? await verifyProxyEgressStability(proxyUrl)
     : await resolveProxyEgress(proxyUrl);
   const egressObservedAt = new Date().toISOString();
-  const deviceId = String((device as any).id ?? '').toLowerCase();
-  const antidetect = pickFingerprint(deviceId.includes('mac') ? 'mimic-gologin' : deviceId.includes('mobile') ? 'mimic-adspower' : 'mimic-multilogin');
   if (egress.ip && egress.timezone) {
     timezone = egress.timezone;
   } else {
@@ -171,9 +168,7 @@ export async function* run(
   let suffixCaptured = false;
   let capturedLandingUrl: string | undefined;
   let challengeResult: RequestEvent['challenge'];
-  const fp = synthesizeUA(template, { timezone });
   const locale = LOCALE_BY_COUNTRY[String(egress.country ?? scenario.geo.country).toUpperCase()] ?? device.locale ?? 'en-US';
-  const runtimeFp = { ...fp, fingerprint: { ...fp.fingerprint, viewport: { ...device.viewport }, locale, languages: [locale, locale.split('-')[0]!], hardware: { ...device.hardware }, webgl: { ...device.webgl } } };
   const edgeState: { rejection?: CaptureRejection; record?: RawRequestRecord } = {};
   let activeDocumentHost = new URL(scenario.seed_url).hostname;
   let upstreamTransportError: ProxyTransportError | undefined;
@@ -215,13 +210,11 @@ export async function* run(
     },
   });
   ctx = await browserLease.browser.newContext({
-    userAgent: runtimeFp.ua,
-    viewport: { width: runtimeFp.fingerprint.viewport.w, height: runtimeFp.fingerprint.viewport.h },
-    deviceScaleFactor: runtimeFp.fingerprint.viewport.dpr,
-    locale: runtimeFp.fingerprint.locale,
-    timezoneId: runtimeFp.fingerprint.timezone,
-    extraHTTPHeaders: { 'Accept-Language': runtimeFp.fingerprint.languages.join(',') },
-    hasTouch: device.touch,
+    // Keep the browser's native identity, including automation indicators and
+    // client hints. Device profiles control layout, not a forged browser version.
+    viewport: { width: device.viewport.w, height: device.viewport.h },
+    locale,
+    timezoneId: timezone,
     proxy: guardedEgress.proxy,
     serviceWorkers: 'block',
   });
@@ -258,7 +251,6 @@ export async function* run(
     addEventListener('blur', () => enqueue({ type: 'focus', focused: false }), { passive: true, capture: true });
     addEventListener('pointerover', (event) => enqueue({ type: 'hover', x: event.clientX, y: event.clientY, target: selector(event.target) }), { passive: true, capture: true });
   });
-  await installFingerprintProfile(ctx, runtimeFp, scenario.fingerprint?.mode);
   const page = await ctx.newPage();
   const responseTasks = new Set<Promise<void>>();
   const requestStarted = new WeakMap<object, number>();
@@ -325,9 +317,9 @@ export async function* run(
         time_ms: Date.now() - requestStart,
         headers: res.headers(),
         ta_signal: {
-          ua_actual: fp.ua,
-          template_id: fp.templateId,
-          timezone: fp.fingerprint.timezone,
+          ua_actual: request.headers()['user-agent'] ?? '',
+          template_id: useWebKit ? 'native-webkit' : 'native-chromium',
+          timezone,
           tz_lookup_failed: tzLookupFailed ? 'true' : 'false',
           main_document: mainResponse ? 'true' : 'false',
           ...(redirectState.current ? {
@@ -391,10 +383,8 @@ export async function* run(
     const telemetry = new TelemetryRecorder(current.toString());
     activeTelemetry = telemetry;
     visitCounts.set(current.toString(), (visitCounts.get(current.toString()) ?? 0) + 1);
-    // Cloudflare stalls the page in 'loading' state for synthetic fingerprints.
-    // We use 'commit' (response headers landed) with a proxy-safe timeout, then
-    // continue regardless — TA verdict comes from response status + headers
-    // + body snippet anyway.
+    // Record response headers before waiting for the page to finish loading.
+    // Refused or challenged responses still stop the journey immediately.
     try {
       await page.goto(current.toString(), { waitUntil: 'commit', timeout: NAVIGATION_TIMEOUT_MS });
       await page.waitForLoadState('domcontentloaded', { timeout: Math.min(10_000, NAVIGATION_TIMEOUT_MS) }).catch(() => undefined);
@@ -515,8 +505,8 @@ export async function* run(
   }), { frame_count: 0, event_count: 0, mouse_move_count: 0, click_count: 0, scroll_count: 0, keypress_count: 0, duration_ms: 0, mouse_velocity_avg: 0, mouse_velocity_max: 0 });
   if (behaviorSummaries.length) behavior.mouse_velocity_avg /= behaviorSummaries.length;
   for (const event of allEvents) {
-    event.ta_signal.antidetect_profile = antidetect.id;
-    event.ta_signal.antidetect_family = antidetect.family;
+    event.ta_signal.browser_identity = 'native';
+    event.ta_signal.browser_engine = useWebKit ? 'webkit' : 'chromium';
     event.ta_signal.behavior_frames = String(behavior.frame_count);
     event.ta_signal.behavior_events = String(behavior.event_count);
   }
