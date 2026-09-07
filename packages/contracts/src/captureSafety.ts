@@ -20,13 +20,20 @@ function record(value: unknown): Record<string, any> {
 
 export function deliverySuffixIssue(value: unknown): string | null {
   if (typeof value !== 'string') return 'Invalid final URL suffix';
-  // Decode parameter names for inspection only. Never reserialize captured bytes.
-  for (const [key] of new URLSearchParams(value)) {
+  // Inspect decoded fields, but never reserialize or invent captured bytes.
+  let incompleteIdentifier: string | undefined;
+  for (const [key, field] of new URLSearchParams(value)) {
     if (/^(?:__cf_chl(?:_|$)|cf_chl_(?:prog|seq)$)/i.test(key)) {
       return 'Invalid final URL suffix: Cloudflare challenge parameters cannot be delivered';
     }
+    // These are click identifiers, unlike optional sharedid, UTM or reward fields.
+    if (/^(?:irclickid|im_ref)$/i.test(key) && field.trim().length === 0) {
+      incompleteIdentifier = key.toLowerCase();
+    }
   }
-  return null;
+  return incompleteIdentifier
+    ? 'Invalid final URL suffix: empty tracking identifier ' + incompleteIdentifier + '; preserve the last valid suffix'
+    : null;
 }
 
 export function assertDeliverableSuffix(value: unknown): asserts value is string {
@@ -114,7 +121,8 @@ export function evaluateCaptureResult(value: unknown): CaptureDecision {
       ? 'Browser closed before capture completed; no suffix was accepted'
       : 'The journey failed; no suffix was accepted');
   }
-  if (urlIssue) return reject(/Cloudflare/i.test(urlIssue) ? 'cloudflare_challenge' : 'invalid_url', urlIssue);
+  if (urlIssue) return reject(/Cloudflare/i.test(urlIssue) ? 'cloudflare_challenge'
+    : /empty tracking identifier/.test(urlIssue) ? 'empty_tracking_identifier' : 'invalid_url', urlIssue);
   if (main && header(main.headers, 'cf-mitigated').toLowerCase() === 'challenge') {
     return reject('cloudflare_challenge', 'Blocked by Cloudflare; no destination suffix was captured');
   }
