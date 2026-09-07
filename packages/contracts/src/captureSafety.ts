@@ -108,6 +108,12 @@ export function evaluateCaptureResult(value: unknown): CaptureDecision {
     ...(Object.keys(diagnostics).length ? { diagnostics } : {}),
   });
   const urlIssue = captureUrlIssue(finalUrl);
+  if (result.error && !/Cloudflare/i.test(urlIssue ?? '')) {
+    const closed = /(?:target (?:page, context or browser|closed)|(?:page|context|browser).*(?:has been closed|was closed|is closed))/i.test(String(result.error));
+    return reject(closed ? 'browser_closed' : 'capture_error', closed
+      ? 'Browser closed before capture completed; no suffix was accepted'
+      : 'The journey failed; no suffix was accepted');
+  }
   if (urlIssue) return reject(/Cloudflare/i.test(urlIssue) ? 'cloudflare_challenge' : 'invalid_url', urlIssue);
   if (main && header(main.headers, 'cf-mitigated').toLowerCase() === 'challenge') {
     return reject('cloudflare_challenge', 'Blocked by Cloudflare; no destination suffix was captured');

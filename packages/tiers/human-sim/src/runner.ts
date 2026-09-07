@@ -1,4 +1,5 @@
 import type { BrowserContext } from 'playwright';
+import { isTopLevelNavigation } from './mainDocument.js';
 import { edgeStopForResponse, evaluateCaptureResult, type CaptureRejection } from '@tah/contracts';
 import { createPublicEgressProxy, ProxyTransportError, ProxyResponseError } from '@tah/proxy';
 import { synthesizeUA, templatesForProfile, installFingerprintProfile } from '@tah/ua';
@@ -178,6 +179,14 @@ export async function* run(
   let upstreamTransportError: ProxyTransportError | undefined;
   let destinationResponded = false;
   let transportStopped = false;
+  const rememberJourneyFailure = (cause: unknown) => {
+    if (runtime?.signal?.aborted) throw cause;
+    error = edgeState.rejection ? 'Target rejected capture: ' + edgeState.rejection.code
+      : upstreamTransportError && !destinationResponded ? upstreamTransportError.message
+      : cause instanceof Error ? cause.message : String(cause);
+    capturedLandingUrl = undefined;
+    suffixCaptured = false;
+  };
   const stopAtEdge = (record: RawRequestRecord): boolean => {
     const rejection = edgeStopForResponse(record);
     if (!rejection) return false;
@@ -256,7 +265,7 @@ export async function* run(
   ctx.on('request', (request) => {
     requestStarted.set(request, Date.now());
     try {
-      if (request.isNavigationRequest() && request.frame() === request.frame().page().mainFrame()) activeDocumentHost = new URL(request.url()).hostname;
+      if (isTopLevelNavigation(request)) activeDocumentHost = new URL(request.url()).hostname;
     } catch { /* Detached frames cannot choose a replacement route. */ }
   });
   const redirectState: { current: { from: string; to: string; status: number } | null } = { current: null };
@@ -264,7 +273,7 @@ export async function* run(
   ctx.on('response', (res) => {
     if (edgeState.rejection || transportStopped) return;
     const responseRequest = res.request();
-    const mainResponse = (() => { try { return responseRequest.isNavigationRequest() && responseRequest.frame() === responseRequest.frame().page().mainFrame(); } catch { return false; } })();
+    const mainResponse = isTopLevelNavigation(responseRequest);
     if (mainResponse) {
       const record: RawRequestRecord = { url: res.url(), method: responseRequest.method(), status: res.status(),
         time_ms: Date.now() - start, headers: res.headers(), ta_signal: { main_document: 'true' } };
@@ -320,7 +329,7 @@ export async function* run(
           template_id: fp.templateId,
           timezone: fp.fingerprint.timezone,
           tz_lookup_failed: tzLookupFailed ? 'true' : 'false',
-          main_document: request.resourceType() === 'document' && request.frame() === page.mainFrame() ? 'true' : 'false',
+          main_document: mainResponse ? 'true' : 'false',
           ...(redirectState.current ? {
             redirect_external: 'true',
             redirect_to: redirectState.current.to,
@@ -335,8 +344,13 @@ export async function* run(
   await ctx.route('**/*', async (route) => {
     const request = route.request();
     if (edgeState.rejection || transportStopped) { await route.abort('blockedbyclient').catch(() => undefined); return; }
-    if (request.isNavigationRequest() && stopAtEdge({ url: request.url(), method: request.method(),
+    if (isTopLevelNavigation(request) && stopAtEdge({ url: request.url(), method: request.method(),
       status: 0, time_ms: Date.now() - start, headers: {}, ta_signal: { main_document: 'true', request_not_sent: 'true' } })) {
+      await route.abort('blockedbyclient').catch(() => undefined); return;
+    }
+    // Abort challenge-only iframe navigation without claiming a top-level refusal.
+    if (request.isNavigationRequest() && !isTopLevelNavigation(request)
+      && edgeStopForResponse({ url: request.url(), status: 0, headers: {} })) {
       await route.abort('blockedbyclient').catch(() => undefined); return;
     }
     if (shouldAbortResource(resourcePolicy, request.resourceType(), request.isNavigationRequest())) {
@@ -371,7 +385,9 @@ export async function* run(
   // CTAs (then wire `page.on(...)` → humanClick).
 
   let current = new URL(scenario.seed_url);
+  try {
   for (let p = 0; p < target; p++) {
+    if (Boolean(edgeState.rejection) || transportStopped) break;
     const telemetry = new TelemetryRecorder(current.toString());
     activeTelemetry = telemetry;
     visitCounts.set(current.toString(), (visitCounts.get(current.toString()) ?? 0) + 1);
@@ -441,6 +457,7 @@ export async function* run(
       }
       if (!handling?.enabled || status !== 'resolved') break;
     }
+    if (edgeState.rejection || transportStopped) break;
     await humanScroll(page);
     await page.waitForTimeout(logNormalTimeMs() / 4);
     mouseMoves++;
@@ -480,6 +497,9 @@ export async function* run(
     }
     behaviorSummaries.push(telemetry.buildSummary(Date.now()));
   }
+  } catch (cause) {
+    rememberJourneyFailure(cause);
+  }
   activeTelemetry = null;
   await settleResponseTasks(responseTasks);
   const behavior = behaviorSummaries.reduce((summary, pageSummary) => ({
@@ -500,6 +520,7 @@ export async function* run(
     event.ta_signal.behavior_frames = String(behavior.frame_count);
     event.ta_signal.behavior_events = String(behavior.event_count);
   }
+  try {
   if (scenario.continuous && !error && !edgeState.rejection && !transportStopped && (!challengeResult || challengeResult.status === 'resolved')) {
     const suffixDeadline = Date.now() + 2 * 60_000;
     while (Date.now() < suffixDeadline && !edgeState.rejection && !transportStopped) {
@@ -520,6 +541,9 @@ export async function* run(
     }
   } else if (!edgeState.rejection && !transportStopped && session.headless === false && (session.visible_hold_seconds ?? 0) > 0) {
     await page.waitForTimeout(Math.min(120, session.visible_hold_seconds ?? 0) * 1000);
+  }
+  } catch (cause) {
+    rememberJourneyFailure(cause);
   }
   const finalLandingUrl = edgeState.record?.url ?? capturedLandingUrl ?? findExactSuffixUrl([
     page.url(),

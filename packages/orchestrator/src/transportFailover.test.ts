@@ -214,3 +214,32 @@ describe('rate-limit and release acknowledgements', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('browser failures retain scheduler and dashboard diagnostics', () => {
+  it('reports a thrown closure once, without rotating, and applies bounded backoff', async () => {
+    browserSteps([new Error('mouse.wheel: Target page, context or browser has been closed')]);
+    const pool = allocator(), result = await execute(pool);
+    expect(pool.acquire).toHaveBeenCalledTimes(1);
+    expect(result.capture).not.toHaveBeenCalled();
+    expect(result.rejected).toHaveBeenCalledTimes(1);
+    expect(result.rejected.mock.calls[0]![0]).toMatchObject({ code: 'browser_closed', retry: { delayMs: 60000 } });
+    expect(pool.release.mock.calls[0]![1].failureDomain).toBe('unknown');
+  });
+  it('preserves an edge rejection even when the browser also reports closure', async () => {
+    const failed = event(429, { 'retry-after': '600', 'cf-ray': 'a37602f159327d47-BOS' });
+    failed.error = 'mouse.wheel: Target page, context or browser has been closed';
+    browserSteps([failed]);
+    const result = await execute(allocator());
+    expect(result.rejected.mock.calls[0]![0]).toMatchObject({ code: 'rate_limited',
+      diagnostics: { httpStatus: 429, rayId: 'a37602f159327d47-BOS' }, retry: { delayMs: 600000 } });
+  });
+  it('bounds repeated closure retries and clears them after a successful capture', () => {
+    const backoff = new CaptureBackoff();
+    const failure = evaluateCaptureResult({ error: 'Target page, context or browser has been closed', events: [] });
+    for (const delay of [60000, 120000, 240000, 300000, 300000]) {
+      expect(backoff.observe(failure, 1000)).toMatchObject({ code: 'browser_closed', retry: { delayMs: delay } });
+    }
+    backoff.observe(evaluateCaptureResult(event()), 1001);
+    expect(backoff.remainingMs(1001)).toBe(0);
+  });
+});

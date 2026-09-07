@@ -19,7 +19,7 @@ export class CaptureBackoff {
   }
 
   observe(decision: CaptureDecision, now = Date.now()): CaptureDecision {
-    if (decision.accepted || !isBlockedCapture(decision)) {
+    if (decision.accepted || (!isBlockedCapture(decision) && !['browser_closed', 'capture_error'].includes(decision.code))) {
       this.consecutiveBlocks = 0;
       this.notBefore = 0;
       return decision;

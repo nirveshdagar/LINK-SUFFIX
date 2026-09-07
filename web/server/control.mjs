@@ -302,7 +302,7 @@ function recordCaptureRejection(run, rejection) {
   const blocked = ["cloudflare_challenge", "unresolved_challenge", "blocked_response", "rate_limited"].includes(code)
     || [403, 429].includes(diagnostics.httpStatus);
   const receivedRetry = rejection?.retry;
-  const validRetry = run.continuous && blocked && receivedRetry
+  const validRetry = run.continuous && (blocked || ["browser_closed", "capture_error"].includes(code)) && receivedRetry
     && Number.isSafeInteger(receivedRetry.delayMs) && receivedRetry.delayMs >= 60_000
     && Number.isSafeInteger(receivedRetry.notBefore) && receivedRetry.notBefore > now
     && receivedRetry.notBefore <= 8_640_000_000_000_000 && receivedRetry.notBefore - now <= receivedRetry.delayMs;

@@ -407,7 +407,7 @@ async function runOneRepeat(
           strategies,
         );
 
-        evt.final_verdict = out.final;
+        if (evt.final_verdict !== 'error' && !evt.error) evt.final_verdict = out.final;
         last.ta_signal.verdict_reason = out.reason;
         last.ta_signal.verdict_strategies = JSON.stringify(out.byStrategy);
       }
@@ -436,7 +436,7 @@ async function runOneRepeat(
       if (finalSignal && egressTimezone) finalSignal.egress_timezone = egressTimezone;
       bus.emit('request', evt);
       await sink.write(evt);
-      if (evt.tier === 'human' && evt.final_landing_url) {
+      if (evt.tier === 'human') {
         const decision = runtime.captureBackoff.observe(evaluateCaptureResult(evt));
         if (decision.accepted) {
           const capture = buildCapturePayload(evt);
@@ -544,6 +544,13 @@ async function runOneRepeat(
   };
   bus.emit('request', errEvt);
   await sink.write(errEvt);
+  if (errEvt.tier === 'human') {
+    const decision = runtime.captureBackoff.observe(evaluateCaptureResult(errEvt));
+    if (!decision.accepted) {
+      if (runtime.onCaptureRejected) runtime.onCaptureRejected(decision);
+      else console.log(`TAH_L4_CAPTURE_REJECTED ${JSON.stringify(decision)}`);
+    }
+  }
 }
 
 function pickTier(scenario: Scenario): TierRunner {
