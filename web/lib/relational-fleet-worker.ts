@@ -1,10 +1,14 @@
+import { normalizeFleetManagerId, normalizeFleetShardId } from "./fleet-shard-config.ts";
 export const RELATIONAL_FLEET_WORKER_VERSION = "fleet-two-phase-resilient-relay-v11";
 
 export function buildRelationalFleetV11Worker(
   endpoint: string,
   token: string,
   shardId: string,
+  managerCustomerId = "",
 ) {
+  shardId = normalizeFleetShardId(shardId);
+  if (managerCustomerId) managerCustomerId = normalizeFleetManagerId(managerCustomerId);
   return `/**
  * Traffic Armour Rolling Apps Script Fleet v11 two-phase resilient relay.
  * Install this copy once for shard ${shardId} in its Google Ads MCC,
@@ -19,6 +23,7 @@ const CONFIG = Object.freeze({
   BRIDGE_URL: ${JSON.stringify(endpoint)},
   BRIDGE_TOKEN: ${JSON.stringify(token)},
   SHARD_ID: ${JSON.stringify(shardId)},
+  MANAGER_CUSTOMER_ID: ${JSON.stringify(managerCustomerId)},
   CONTRACT: "relational-lease-v2",
   MAX_ACCOUNTS: 50,
   MAX_JOBS: 200,
@@ -32,6 +37,12 @@ const CONFIG = Object.freeze({
 });
 
 function main() {
+  // Reject installation in another MCC before sending a heartbeat or leasing jobs.
+  const installedManagerId = digits_(AdsApp.currentAccount().getCustomerId());
+  if (CONFIG.MANAGER_CUSTOMER_ID && installedManagerId !== CONFIG.MANAGER_CUSTOMER_ID) {
+    throw new Error("This worker is for MCC " + CONFIG.MANAGER_CUSTOMER_ID +
+      ", but is installed in MCC " + installedManagerId + ". No campaign was changed.");
+  }
   const executionInfo = AdsApp.getExecutionInfo();
   const preview = executionInfo.isPreview();
   const invocationId = Utilities.getUuid();

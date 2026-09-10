@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { getCampaignHealth, getShardHealth } from "../lib/fleet-health";
+import { normalizeFleetManagerId } from "../lib/fleet-shard-config";
 
 type BridgeSummary = {
   campaigns?: number;
@@ -339,6 +340,7 @@ export function ScriptBridge({
   const [page, setPage] = useState(1);
   const [selectedShardId, setSelectedShardId] = useState("");
   const [newShardId, setNewShardId] = useState("");
+  const [draftShardManagers, setDraftShardManagers] = useState<Record<string, string>>({});
   const [publicBaseUrl, setPublicBaseUrl] = useState("");
   const [generatedScript, setGeneratedScript] = useState("");
   const [generatedForShard, setGeneratedForShard] = useState("");
@@ -461,6 +463,7 @@ export function ScriptBridge({
       if (!byId.has(campaign.shard_id)) {
         byId.set(campaign.shard_id, {
           shard_id: campaign.shard_id,
+          manager_customer_id: campaign.manager_customer_id,
           enabled: false,
           registered: false,
           campaign_count: targetItems.filter((item) => item.enabled && item.shard_id === campaign.shard_id).length,
@@ -489,6 +492,8 @@ export function ScriptBridge({
   }, [fleetAlertIndex, selectedShardId, shardOptions]);
 
   const selectedShard = shardOptions.find((shard) => shard.shard_id === selectedShardId);
+  const selectedShardManager = selectedShard?.manager_customer_id || draftShardManagers[selectedShardId] || "";
+  const selectedManagerValid = /^[0-9\s-]+$/.test(selectedShardManager) && /^\d{10}$/.test(normalizedId(selectedShardManager));
   const selectedShardHasAlert = Boolean(selectedShard && fleetAlertIndex.shardIds.has(selectedShard.shard_id));
   const selectedShardCount = Number(selectedShard?.campaign_count || 0);
   const selectedShardCapacity = Number(selectedShard?.capacity || SHARD_CAPACITY);
@@ -500,6 +505,18 @@ export function ScriptBridge({
       setError("Choose a valid shard ID before generating its worker.");
       return;
     }
+    let managerCustomerId: string;
+    try {
+      managerCustomerId = normalizeFleetManagerId(selectedShardManager);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Enter a valid MCC ID.");
+      return;
+    }
+    if (newShardId.trim()) {
+      setError("Click Use new shard first, or clear the custom shard name before generating.");
+      return;
+    }
+    if (selectedShard?.registered && !window.confirm("Regenerate " + shardId + " for MCC " + managerCustomerId + "? This rotates its token and the installed copy must be replaced.")) return;
     setGenerating(true);
     setError("");
     setNotice("");
@@ -512,6 +529,7 @@ export function ScriptBridge({
           action: "generate-worker",
           publicBaseUrl: publicBaseUrl.trim(),
           shardId,
+          managerCustomerId,
         }),
       });
       const body = await response.json() as { script?: string; error?: string };
@@ -535,6 +553,10 @@ export function ScriptBridge({
 
   function chooseNewShard() {
     const value = newShardId.trim();
+    if (shardOptions.some((shard) => shard.shard_id === value)) {
+      setError("That shard name already exists. Select it above or choose a unique name.");
+      return;
+    }
     if (!SHARD_ID_PATTERN.test(value)) {
       setError("Shard IDs must start with a letter or number and use only letters, numbers, period, underscore, colon, or hyphen.");
       return;
@@ -542,7 +564,7 @@ export function ScriptBridge({
     setSelectedShardId(value);
     setNewShardId("");
     setError("");
-    setNotice("Shard " + value + " is selected. Generate its worker before production delivery.");
+    setNotice("Shard " + value + " is selected. Enter its MCC ID below, then generate its worker.");
   }
 
   async function requestFleetUpdate(campaign: SavedFleetCampaign, enabled: boolean) {
@@ -831,14 +853,11 @@ export function ScriptBridge({
 
           <div className="fleet-shard-picker">
             <label htmlFor="fleet-selected-shard">Selected shard</label>
-            <select id="fleet-selected-shard" value={selectedShardId} onChange={(event) => setSelectedShardId(event.target.value)}>
+            <select id="fleet-selected-shard" value={selectedShardId} disabled={generating} onChange={(event) => { setSelectedShardId(event.target.value); setNewShardId(""); }}>
               {shardOptions.length === 0 && <option value="">No shard selected</option>}
               {shardOptions.map((shard) => <option key={shard.shard_id} value={shard.shard_id}>{shard.shard_id} · {Number(shard.campaign_count || 0)}/{Number(shard.capacity || SHARD_CAPACITY)}</option>)}
             </select>
-            <div>
-              <input aria-label="New shard ID" value={newShardId} onChange={(event) => setNewShardId(event.target.value)} placeholder="New shard ID" />
-              <button type="button" onClick={chooseNewShard} disabled={!newShardId.trim()}>Use new shard</button>
-            </div>
+            <small>Create a custom shard and enter its MCC in the worker setup beside this panel.</small>
           </div>
 
           <div className="fleet-capacity-card">
@@ -881,7 +900,7 @@ export function ScriptBridge({
 
           <div className="fleet-worker-shard-picker">
             <label htmlFor="fleet-worker-shard">Shard to generate</label>
-            <select id="fleet-worker-shard" value={selectedShardId} onChange={(event) => setSelectedShardId(event.target.value)}>
+            <select id="fleet-worker-shard" value={selectedShardId} disabled={generating} onChange={(event) => { setSelectedShardId(event.target.value); setNewShardId(""); }}>
               {shardOptions.length === 0 && <option value="">No shard selected</option>}
               {shardOptions.map((shard) => (
                 <option key={shard.shard_id} value={shard.shard_id}>
@@ -889,17 +908,36 @@ export function ScriptBridge({
                 </option>
               ))}
             </select>
-            <small>New shards appear here automatically. Select the new shard before generating or rotating its worker.</small>
+            <small>Choose an existing shard, or create one with your own name below. Existing shards are not renamed.</small>
+          </div>
+
+          <div className="fleet-worker-shard-picker">
+            <label htmlFor="fleet-new-shard">New custom shard name</label>
+            <input id="fleet-new-shard" value={newShardId} onChange={(event) => setNewShardId(event.target.value)} placeholder="For example: us-retail-01" maxLength={80} disabled={generating} />
+            <button type="button" onClick={chooseNewShard} disabled={generating || !newShardId.trim()}>Use new shard</button>
+            <small>Use 1-80 letters, numbers, periods, underscores, colons or hyphens. The name does not determine the MCC.</small>
+          </div>
+
+          <div className="fleet-worker-shard-picker">
+            <label htmlFor="fleet-manager-id">Google Ads manager (MCC) account ID</label>
+            <input id="fleet-manager-id" value={selectedShardManager}
+              onChange={(event) => setDraftShardManagers((current) => ({ ...current, [selectedShardId]: event.target.value }))}
+              placeholder="Enter the 10-digit MCC ID" inputMode="tel" maxLength={20}
+              readOnly={Boolean(selectedShard?.manager_customer_id)} disabled={generating || !selectedShardId}
+              aria-describedby="fleet-manager-help" />
+            <small id="fleet-manager-help">{selectedShard?.manager_customer_id
+              ? "This shard is bound to this MCC. For a different MCC, create a new shard; existing campaigns and workers stay unchanged."
+              : "Enter the manager account where this script will run, not the child customer or campaign ID. Hyphens and spaces are accepted. One MCC per shard."}</small>
           </div>
 
           <div className="fleet-script-shard">
-            <div><span>Shard ID</span><strong>{selectedShardId || "Not selected"}</strong><small>MCC {selectedShard?.manager_customer_id || "assigned by the first campaign"}</small></div>
+            <div><span>Shard ID</span><strong>{selectedShardId || "Not selected"}</strong><small>MCC {selectedShardManager || "not entered"}</small></div>
             <span className={"health-chip is-" + shardHealth(selectedShard, selectedShardHasAlert).tone}>{shardHealth(selectedShard, selectedShardHasAlert).label}</span>
           </div>
 
           <label htmlFor="fleet-public-url">Public HTTPS base URL</label>
           <input id="fleet-public-url" value={publicBaseUrl} onChange={(event) => setPublicBaseUrl(event.target.value)} placeholder="https://traffic.example.com" inputMode="url" />
-          <button className="bridge-primary-action" type="button" onClick={generateWorker} disabled={generating || !publicBaseUrl.trim() || !selectedShardId}>
+          <button className="bridge-primary-action" type="button" onClick={generateWorker} disabled={generating || !publicBaseUrl.trim() || !selectedShardId || !selectedManagerValid || Boolean(newShardId.trim())}>
             {generating ? "Generating v11 resilient worker..." : selectedShard?.registered ? "Rotate token and regenerate v11 resilient worker" : "Generate v11 resilient worker for selected shard"}
           </button>
           <p className="fleet-script-warning">Install this v11 copy once for two-phase execution, callback recovery, adaptive handoff, durable delivery, and hot-add support. Generating again rotates the secret and immediately invalidates the older installed copy for this shard.</p>

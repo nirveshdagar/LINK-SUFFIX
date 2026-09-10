@@ -1,3 +1,4 @@
+import { normalizeFleetManagerId, normalizeFleetShardId } from "@/lib/fleet-shard-config";
 import { NextResponse } from "next/server";
 import { hasValidApiAuth } from "@/lib/api-auth-core";
 import {
@@ -27,11 +28,12 @@ function normalizePublicBaseUrl(value: string) {
   return url.toString().replace(/\/$/, "");
 }
 
-function workerScript(baseUrl: string, shardId: string, token: string) {
+function workerScript(baseUrl: string, shardId: string, token: string, managerCustomerId: string) {
   return buildRelationalFleetV11Worker(
     `${baseUrl}/api/script-bridge/jobs`,
     token,
     shardId,
+    managerCustomerId,
   );
 }
 
@@ -125,10 +127,11 @@ export async function POST(request: Request) {
     }
     if (action === "generate-worker") {
       if (!hasValidApiAuth(request, { envVarName: "TAH_API_BEARER_TOKEN", scope: "control" })) return NextResponse.json({ error: "Control authentication required" }, { status: 401 });
-      const shardId = String(body.shardId || "default").trim();
+      const shardId = normalizeFleetShardId(String(body.shardId || ""));
+      const managerCustomerId = normalizeFleetManagerId(String(body.managerCustomerId || ""));
       const baseUrl = normalizePublicBaseUrl(String(body.publicBaseUrl || process.env.TAH_PUBLIC_BASE_URL || ""));
-      const shard = await createBridgeShard(shardId);
-      return NextResponse.json({ ok: true, shardId, token: shard.token, script: workerScript(baseUrl, shardId, shard.token) }, { headers: { "cache-control": "no-store" } });
+      const shard = await createBridgeShard(shardId, managerCustomerId);
+      return NextResponse.json({ ok: true, shardId: shard.shardId, managerCustomerId: shard.managerCustomerId, token: shard.token, script: workerScript(baseUrl, shard.shardId, shard.token, shard.managerCustomerId) }, { headers: { "cache-control": "no-store" } });
     }
     return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
   } catch (error) {

@@ -1,3 +1,4 @@
+import { normalizeFleetManagerId, normalizeFleetShardId } from "./fleet-shard-config.ts";
 import { assertDeliverableSuffix, deliverySuffixIssue } from "@tah/contracts";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
@@ -233,8 +234,10 @@ export async function upsertBridgeTarget(input: BridgeTargetInput) {
   };
   try {
     await transaction(async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('fleet-enrollment-assignment'))");
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`fleet-manager:${managerCustomerId}`]);
       let assignedShardId = assignment.shardId;
+      await bindFleetShardManager(client, assignedShardId, managerCustomerId);
       const occupancy = await client.query(
         `SELECT count(*)::int AS count,
                 min(NULLIF(manager_customer_id, '')) AS manager_customer_id,
@@ -262,6 +265,8 @@ export async function upsertBridgeTarget(input: BridgeTargetInput) {
                   min(NULLIF(t.manager_customer_id,'')) FILTER (WHERE t.enabled) AS manager_customer_id
              FROM shard_ids ids
              LEFT JOIN tah_campaign_targets t ON t.shard_id=ids.shard_id
+             LEFT JOIN tah_fleet_shard_managers binding ON binding.shard_id=ids.shard_id
+            WHERE binding.manager_customer_id IS NULL OR binding.manager_customer_id=$1
             GROUP BY ids.shard_id
            HAVING count(t.target_id) FILTER (WHERE t.enabled AND t.campaign_record_id<>$2) < $4
               AND (min(NULLIF(t.manager_customer_id,'')) FILTER (WHERE t.enabled) IS NULL
@@ -285,6 +290,7 @@ export async function upsertBridgeTarget(input: BridgeTargetInput) {
           assignedShardId = `${shardPrefix}${String(highest + 1).padStart(3, "0")}`;
         }
       }
+      await bindFleetShardManager(client, assignedShardId, managerCustomerId);
       const conflicts = await client.query(
         `SELECT target_id,campaign_record_id,enabled,archived_at
            FROM tah_campaign_targets
@@ -460,13 +466,53 @@ export async function queueLatestBridgeCapture(campaignRecordId: string) {
   });
 }
 
-export async function registerBridgeShard(shardId: string, rawToken: string) {
-  if (!shardId.trim() || rawToken.length < 24) throw new Error("A shard ID and strong token are required");
-  await getPool().query(
-    `INSERT INTO tah_script_shards(shard_id,token_hash) VALUES ($1,$2)
-     ON CONFLICT (shard_id) DO UPDATE SET token_hash=EXCLUDED.token_hash,enabled=true,updated_at=now()`,
-    [shardId, digest(rawToken)],
+// Called only while holding fleet-enrollment-assignment. Empty shards retain
+// their manager even when every campaign is paused, moved or removed.
+async function bindFleetShardManager(client: PoolClient, shardId: string, requestedManager = "") {
+  const bindings = await client.query(
+    "SELECT manager_customer_id FROM tah_fleet_shard_managers WHERE shard_id=$1",
+    [shardId],
   );
+  const targets = await client.query(
+    "SELECT DISTINCT manager_customer_id FROM tah_campaign_targets WHERE shard_id=$1 AND archived_at IS NULL",
+    [shardId],
+  );
+  const managers = new Set<string>();
+  for (const row of [...bindings.rows, ...targets.rows]) {
+    if (row.manager_customer_id) managers.add(normalizeFleetManagerId(String(row.manager_customer_id)));
+  }
+  if (requestedManager) managers.add(requestedManager);
+  if (managers.size > 1) {
+    throw new Error("Fleet shard " + shardId + " belongs to a different MCC; create a new shard for the other MCC.");
+  }
+  const managerCustomerId = Array.from(managers)[0] || "";
+  if (!managerCustomerId) return ""; // Compatibility for legacy registration before enrollment.
+  const saved = await client.query(
+    `INSERT INTO tah_fleet_shard_managers(shard_id,manager_customer_id) VALUES($1,$2)
+     ON CONFLICT(shard_id) DO UPDATE SET manager_customer_id=EXCLUDED.manager_customer_id
+       WHERE tah_fleet_shard_managers.manager_customer_id=EXCLUDED.manager_customer_id
+     RETURNING manager_customer_id`,
+    [shardId,managerCustomerId],
+  );
+  if (saved.rowCount !== 1) throw new Error("Fleet shard belongs to a different MCC.");
+  return managerCustomerId;
+}
+
+export async function registerBridgeShard(shardId: string, rawToken: string, requestedManager = "") {
+  const id = normalizeFleetShardId(shardId);
+  if (rawToken.length < 24) throw new Error("A strong shard token is required");
+  const manager = requestedManager ? normalizeFleetManagerId(requestedManager) : "";
+  return transaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('fleet-enrollment-assignment'))");
+    const managerCustomerId = await bindFleetShardManager(client, id, manager);
+    // Validate ownership BEFORE rotating a registered worker's token.
+    await client.query(
+      `INSERT INTO tah_script_shards(shard_id,token_hash) VALUES ($1,$2)
+       ON CONFLICT (shard_id) DO UPDATE SET token_hash=EXCLUDED.token_hash,enabled=true,updated_at=now()`,
+      [id, digest(rawToken)],
+    );
+    return { shardId: id, managerCustomerId };
+  });
 }
 
 export async function authenticateBridgeShard(shardId: string, rawToken: string) {
@@ -643,7 +689,8 @@ export async function bridgeShardManifest(
     );
     const row = result.rows[0];
     if (!row || !row.enabled) throw new Error("Fleet shard was not found or is disabled");
-    const managerIds = Array.isArray(row.manager_ids) ? row.manager_ids.map(String) : [];
+    const binding = await client.query("SELECT manager_customer_id FROM tah_fleet_shard_managers WHERE shard_id=$1", [normalizedShardId]);
+    const managerIds = Array.from(new Set<string>([...(Array.isArray(row.manager_ids) ? row.manager_ids.map(String) : []), ...binding.rows.map((entry) => String(entry.manager_customer_id))]));
     const accountIds = Array.isArray(row.account_ids) ? row.account_ids.map(String) : [];
     if (managerIds.length > 1) throw new Error(`Fleet shard ${normalizedShardId} contains campaigns from multiple MCC accounts`);
     let executionWindow: ReturnType<typeof adaptiveExecutionWindow> | null = null;
@@ -886,10 +933,10 @@ export async function bridgeStoreSummary() {
   return result.rows[0];
 }
 
-export async function createBridgeShard(shardId: string) {
+export async function createBridgeShard(shardId: string, requestedManager = "") {
   const token = randomBytes(36).toString("base64url");
-  await registerBridgeShard(shardId, token);
-  return { shardId, token };
+  const identity = await registerBridgeShard(shardId, token, requestedManager);
+  return { ...identity, token };
 }
 
 export async function listBridgeTargets(options: { query?: string; page?: number; pageSize?: number } = {}) {
@@ -960,6 +1007,12 @@ export async function listBridgeTargets(options: { query?: string; page?: number
 
 export async function setBridgeTargetEnabled(campaignRecordId: string, enabled: boolean) {
   await transaction(async (client) => {
+    if (enabled) {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('fleet-enrollment-assignment'))");
+      const target = await client.query("SELECT shard_id,manager_customer_id FROM tah_campaign_targets WHERE campaign_record_id=$1 AND archived_at IS NULL FOR UPDATE", [campaignRecordId]);
+      if (target.rowCount !== 1) throw new Error("Campaign target was not found");
+      await bindFleetShardManager(client, String(target.rows[0].shard_id), normalizeFleetManagerId(String(target.rows[0].manager_customer_id)));
+    }
     const result = await client.query(
       "UPDATE tah_campaign_targets SET enabled=$2,updated_at=now() WHERE campaign_record_id=$1 AND archived_at IS NULL RETURNING target_id",
       [campaignRecordId, enabled],
@@ -1019,7 +1072,8 @@ export async function bridgeShardStatus() {
             s.expected_next_start_at,s.phase_one_stop_at,s.hard_stop_at,s.handoff_margin_ms,
             s.schedule_anchor_at,s.schedule_sample_count,s.last_invocation_id,
             (count(t.target_id) FILTER (WHERE t.enabled AND t.archived_at IS NULL))::int AS campaign_count,
-            min(NULLIF(t.manager_customer_id,'')) FILTER (WHERE t.enabled AND t.archived_at IS NULL) AS manager_customer_id,
+            COALESCE((SELECT binding.manager_customer_id FROM tah_fleet_shard_managers binding WHERE binding.shard_id=ids.shard_id),
+              min(NULLIF(t.manager_customer_id,'')) FILTER (WHERE t.enabled AND t.archived_at IS NULL)) AS manager_customer_id,
             ${SHARD_CAPACITY}::int AS capacity
        FROM shard_ids ids
        LEFT JOIN tah_script_shards s ON s.shard_id=ids.shard_id
