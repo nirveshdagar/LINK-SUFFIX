@@ -29,6 +29,7 @@ type BridgeShard = {
   enabled: boolean;
   registered?: boolean;
   campaign_count?: number;
+  assigned_campaign_count?: number;
   capacity?: number;
   last_poll_at?: string | null;
   last_ack_at?: string | null;
@@ -345,6 +346,8 @@ export function ScriptBridge({
   const [generatedScript, setGeneratedScript] = useState("");
   const [generatedForShard, setGeneratedForShard] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [deletingShard, setDeletingShard] = useState(false);
+  const [removedShardIds, setRemovedShardIds] = useState<string[]>([]);
   const [actionCampaignId, setActionCampaignId] = useState("");
   const [fleetAlerts, setFleetAlerts] = useState<FleetAlert[] | null>(null);
   const [fleetAlertsUnavailable, setFleetAlertsUnavailable] = useState(false);
@@ -480,8 +483,8 @@ export function ScriptBridge({
         capacity: SHARD_CAPACITY,
       });
     }
-    return Array.from(byId.values()).sort((left, right) => left.shard_id.localeCompare(right.shard_id));
-  }, [selectedShardId, status?.shards, targetItems]);
+    return Array.from(byId.values()).filter((shard) => !removedShardIds.includes(shard.shard_id)).sort((left, right) => left.shard_id.localeCompare(right.shard_id));
+  }, [removedShardIds, selectedShardId, status?.shards, targetItems]);
 
   useEffect(() => {
     if (selectedShardId && shardOptions.some((shard) => shard.shard_id === selectedShardId)) return;
@@ -498,6 +501,40 @@ export function ScriptBridge({
   const selectedShardCount = Number(selectedShard?.campaign_count || 0);
   const selectedShardCapacity = Number(selectedShard?.capacity || SHARD_CAPACITY);
   const selectedShardFull = selectedShardCount >= selectedShardCapacity;
+
+  async function deleteSelectedShard() {
+    if (!selectedShard?.registered || deletingShard || generating) return;
+    const shardId = selectedShard.shard_id;
+    if (Number(selectedShard.assigned_campaign_count ?? selectedShard.campaign_count ?? 0) > 0) {
+      setError("Move or remove every campaign from this shard first, including paused campaigns.");
+      return;
+    }
+    const confirmed = window.prompt("Delete shard " + shardId + "?\n\nStop its Google Ads script first. Its token will be revoked and this name cannot be reused. Campaign and delivery history will not be deleted.\n\nType the exact shard name to confirm:");
+    if (confirmed === null) return;
+    if (confirmed !== shardId) { setError("The shard name did not match. Nothing was deleted."); return; }
+    setDeletingShard(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/script-bridge", {
+        method: "POST", credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "delete-shard", shardId, confirmedShardId: confirmed }),
+      });
+      const body = await response.json() as { deleted?: boolean; error?: string };
+      if (!response.ok || !body.deleted) throw new Error(body.error || "Shard deletion failed");
+      setRemovedShardIds((current) => [...current, shardId]);
+      setSelectedShardId("");
+      setNewShardId("");
+      setDraftShardManagers((current) => { const next = { ...current }; delete next[shardId]; return next; });
+      setGeneratedScript("");
+      setGeneratedForShard("");
+      setNotice("Shard " + shardId + " was deleted and its token revoked. History is retained. Disable its installed script in Google Ads; this dashboard cannot remove it from Google.");
+      void refresh(undefined, true);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Shard deletion failed");
+    } finally { setDeletingShard(false); }
+  }
 
   async function generateWorker() {
     const shardId = selectedShardId.trim();
@@ -553,7 +590,7 @@ export function ScriptBridge({
 
   function chooseNewShard() {
     const value = newShardId.trim();
-    if (shardOptions.some((shard) => shard.shard_id === value)) {
+    if (removedShardIds.includes(value) || shardOptions.some((shard) => shard.shard_id === value)) {
       setError("That shard name already exists. Select it above or choose a unique name.");
       return;
     }
@@ -853,7 +890,7 @@ export function ScriptBridge({
 
           <div className="fleet-shard-picker">
             <label htmlFor="fleet-selected-shard">Selected shard</label>
-            <select id="fleet-selected-shard" value={selectedShardId} disabled={generating} onChange={(event) => { setSelectedShardId(event.target.value); setNewShardId(""); }}>
+            <select id="fleet-selected-shard" value={selectedShardId} disabled={deletingShard || generating} onChange={(event) => { setSelectedShardId(event.target.value); setNewShardId(""); }}>
               {shardOptions.length === 0 && <option value="">No shard selected</option>}
               {shardOptions.map((shard) => <option key={shard.shard_id} value={shard.shard_id}>{shard.shard_id} · {Number(shard.campaign_count || 0)}/{Number(shard.capacity || SHARD_CAPACITY)}</option>)}
             </select>
@@ -900,7 +937,7 @@ export function ScriptBridge({
 
           <div className="fleet-worker-shard-picker">
             <label htmlFor="fleet-worker-shard">Shard to generate</label>
-            <select id="fleet-worker-shard" value={selectedShardId} disabled={generating} onChange={(event) => { setSelectedShardId(event.target.value); setNewShardId(""); }}>
+            <select id="fleet-worker-shard" value={selectedShardId} disabled={deletingShard || generating} onChange={(event) => { setSelectedShardId(event.target.value); setNewShardId(""); }}>
               {shardOptions.length === 0 && <option value="">No shard selected</option>}
               {shardOptions.map((shard) => (
                 <option key={shard.shard_id} value={shard.shard_id}>
@@ -913,8 +950,8 @@ export function ScriptBridge({
 
           <div className="fleet-worker-shard-picker">
             <label htmlFor="fleet-new-shard">New custom shard name</label>
-            <input id="fleet-new-shard" value={newShardId} onChange={(event) => setNewShardId(event.target.value)} placeholder="For example: us-retail-01" maxLength={80} disabled={generating} />
-            <button type="button" onClick={chooseNewShard} disabled={generating || !newShardId.trim()}>Use new shard</button>
+            <input id="fleet-new-shard" value={newShardId} onChange={(event) => setNewShardId(event.target.value)} placeholder="For example: us-retail-01" maxLength={80} disabled={deletingShard || generating} />
+            <button type="button" onClick={chooseNewShard} disabled={deletingShard || generating || !newShardId.trim()}>Use new shard</button>
             <small>Use 1-80 letters, numbers, periods, underscores, colons or hyphens. The name does not determine the MCC.</small>
           </div>
 
@@ -923,7 +960,7 @@ export function ScriptBridge({
             <input id="fleet-manager-id" value={selectedShardManager}
               onChange={(event) => setDraftShardManagers((current) => ({ ...current, [selectedShardId]: event.target.value }))}
               placeholder="Enter the 10-digit MCC ID" inputMode="tel" maxLength={20}
-              readOnly={Boolean(selectedShard?.manager_customer_id)} disabled={generating || !selectedShardId}
+              readOnly={Boolean(selectedShard?.manager_customer_id)} disabled={deletingShard || generating || !selectedShardId}
               aria-describedby="fleet-manager-help" />
             <small id="fleet-manager-help">{selectedShard?.manager_customer_id
               ? "This shard is bound to this MCC. For a different MCC, create a new shard; existing campaigns and workers stay unchanged."
@@ -937,10 +974,22 @@ export function ScriptBridge({
 
           <label htmlFor="fleet-public-url">Public HTTPS base URL</label>
           <input id="fleet-public-url" value={publicBaseUrl} onChange={(event) => setPublicBaseUrl(event.target.value)} placeholder="https://traffic.example.com" inputMode="url" />
-          <button className="bridge-primary-action" type="button" onClick={generateWorker} disabled={generating || !publicBaseUrl.trim() || !selectedShardId || !selectedManagerValid || Boolean(newShardId.trim())}>
+          <button className="bridge-primary-action" type="button" onClick={generateWorker} disabled={deletingShard || generating || !publicBaseUrl.trim() || !selectedShardId || !selectedManagerValid || Boolean(newShardId.trim())}>
             {generating ? "Generating v11 resilient worker..." : selectedShard?.registered ? "Rotate token and regenerate v11 resilient worker" : "Generate v11 resilient worker for selected shard"}
           </button>
           <p className="fleet-script-warning">Install this v11 copy once for two-phase execution, callback recovery, adaptive handoff, durable delivery, and hot-add support. Generating again rotates the secret and immediately invalidates the older installed copy for this shard.</p>
+
+          <div className="fleet-worker-shard-picker">
+            <button type="button" className="bridge-secondary-action"
+              style={{ color: "#b42318", borderColor: "#b42318" }}
+              disabled={generating || deletingShard || !selectedShard?.registered || Number(selectedShard?.assigned_campaign_count ?? selectedShard?.campaign_count ?? 0) > 0}
+              onClick={deleteSelectedShard} aria-describedby="fleet-delete-help">
+              {deletingShard ? "Deleting shard..." : "Delete shard"}
+            </button>
+            <small id="fleet-delete-help">{Number(selectedShard?.assigned_campaign_count ?? selectedShard?.campaign_count ?? 0) > 0
+              ? "Move or remove all assigned campaigns, including paused campaigns, before deleting this shard."
+              : "Stop its Google Ads script first and allow the active execution to finish. Deletion revokes its token, reserves its name and retains delivery history."}</small>
+          </div>
 
           {generatedScript && generatedForShard === selectedShardId ? (
             <div className="fleet-script-output">

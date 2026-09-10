@@ -237,7 +237,8 @@ export async function upsertBridgeTarget(input: BridgeTargetInput) {
       await client.query("SELECT pg_advisory_xact_lock(hashtext('fleet-enrollment-assignment'))");
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`fleet-manager:${managerCustomerId}`]);
       let assignedShardId = assignment.shardId;
-      await bindFleetShardManager(client, assignedShardId, managerCustomerId);
+      const retired = (await client.query("SELECT deleted_at FROM tah_script_shards WHERE shard_id=$1", [assignedShardId])).rows[0]?.deleted_at;
+      if (requestedShardId !== "default" || !retired) await bindFleetShardManager(client, assignedShardId, managerCustomerId);
       const occupancy = await client.query(
         `SELECT count(*)::int AS count,
                 min(NULLIF(manager_customer_id, '')) AS manager_customer_id,
@@ -253,7 +254,7 @@ export async function upsertBridgeTarget(input: BridgeTargetInput) {
       if (existingManager && existingManager !== managerCustomerId) {
         throw new Error(`Fleet shard ${assignedShardId} belongs to MCC ${existingManager}; select a shard for MCC ${managerCustomerId}`);
       }
-      if (occupied >= SHARD_CAPACITY) {
+      if (occupied >= SHARD_CAPACITY || retired) {
         const available = await client.query(
           `WITH shard_ids AS (
              SELECT shard_id FROM tah_script_shards WHERE shard_id LIKE $3
@@ -266,7 +267,9 @@ export async function upsertBridgeTarget(input: BridgeTargetInput) {
              FROM shard_ids ids
              LEFT JOIN tah_campaign_targets t ON t.shard_id=ids.shard_id
              LEFT JOIN tah_fleet_shard_managers binding ON binding.shard_id=ids.shard_id
-            WHERE binding.manager_customer_id IS NULL OR binding.manager_customer_id=$1
+             LEFT JOIN tah_script_shards candidate_shard ON candidate_shard.shard_id=ids.shard_id
+            WHERE candidate_shard.deleted_at IS NULL
+              AND (binding.manager_customer_id IS NULL OR binding.manager_customer_id=$1)
             GROUP BY ids.shard_id
            HAVING count(t.target_id) FILTER (WHERE t.enabled AND t.campaign_record_id<>$2) < $4
               AND (min(NULLIF(t.manager_customer_id,'')) FILTER (WHERE t.enabled) IS NULL
@@ -468,7 +471,27 @@ export async function queueLatestBridgeCapture(campaignRecordId: string) {
 
 // Called only while holding fleet-enrollment-assignment. Empty shards retain
 // their manager even when every campaign is paused, moved or removed.
+function shardConflict(message: string) {
+  return Object.assign(new Error(message), { code: "FLEET_SHARD_CONFLICT" });
+}
+
+async function assertShardNotDeleted(client: PoolClient, shardId: string) {
+  const result = await client.query("SELECT deleted_at FROM tah_script_shards WHERE shard_id=$1", [shardId]);
+  if (result.rows[0]?.deleted_at) {
+    throw shardConflict("This shard was deleted and its name is reserved. Choose a new shard name.");
+  }
+}
+
+async function lockActiveShard(client: PoolClient, shardId: string) {
+  // Serialize leasing with retirement, including requests authenticated just before deletion.
+  const result = await client.query("SELECT enabled,deleted_at FROM tah_script_shards WHERE shard_id=$1 FOR UPDATE", [shardId]);
+  if (!result.rows[0]?.enabled || result.rows[0].deleted_at) {
+    throw shardConflict("This shard is disabled, deleted or not registered.");
+  }
+}
+
 async function bindFleetShardManager(client: PoolClient, shardId: string, requestedManager = "") {
+  await assertShardNotDeleted(client, shardId);
   const bindings = await client.query(
     "SELECT manager_customer_id FROM tah_fleet_shard_managers WHERE shard_id=$1",
     [shardId],
@@ -515,9 +538,62 @@ export async function registerBridgeShard(shardId: string, rawToken: string, req
   });
 }
 
+export async function deleteBridgeShard(shardId: string, confirmedShardId: string) {
+  const id = normalizeFleetShardId(shardId);
+  if (confirmedShardId !== id) throw new Error("Exact shard-name confirmation is required.");
+  return transaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('fleet-enrollment-assignment'))");
+    const result = await client.query("SELECT * FROM tah_script_shards WHERE shard_id=$1 FOR UPDATE", [id]);
+    const shard = result.rows[0];
+    if (!shard) throw new Error("Registered shard was not found.");
+    if (shard.deleted_at) return { deleted: true, shardId: id, alreadyDeleted: true, historyPreserved: true };
+    const assigned = await client.query(
+      "SELECT count(*)::int AS count FROM tah_campaign_targets WHERE shard_id=$1 AND archived_at IS NULL", [id],
+    );
+    if (Number(assigned.rows[0].count) > 0) {
+      throw shardConflict("Move or remove all campaigns from this shard, including paused campaigns, before deleting it.");
+    }
+    const leases = await client.query(
+      `SELECT 1 FROM tah_delivery_jobs j JOIN tah_campaign_targets t USING(target_id)
+       WHERE j.state='leased' AND (j.leased_until IS NULL OR j.leased_until>=now())
+         AND (j.lease_shard_id=$1 OR (j.lease_shard_id IS NULL AND t.shard_id=$1))
+       LIMIT 1`, [id],
+    );
+    if (leases.rowCount) throw shardConflict("This shard still has an active delivery lease. Wait for delivery to settle before deleting it.");
+    const terminal = ["completed", "yielded", "empty", "failed"].includes(String(shard.last_execution_status || ""));
+    const startedAt = dateMs(shard.last_execution_started_at);
+    const finishedAt = dateMs(shard.last_execution_completed_at);
+    const activeUntil = startedAt
+      ? dateMs(shard.hard_stop_at) || startedAt + 65 * 60_000
+      : dateMs(shard.last_poll_at) ? dateMs(shard.last_poll_at) + 65 * 60_000 : 0;
+    if ((!startedAt || (!terminal && finishedAt < startedAt)) && activeUntil > Date.now()) {
+      throw shardConflict("Stop this shard's Google Ads script and wait for its current execution window to finish before deleting it.");
+    }
+
+    await client.query(
+      "UPDATE tah_script_shards SET enabled=false,deleted_at=now(),token_hash=$2,updated_at=now() WHERE shard_id=$1",
+      [id,digest(randomBytes(36).toString("base64url"))],
+    );
+    await client.query(
+      `INSERT INTO tah_audit_log(actor_id,action,resource_type,resource_id,details)
+       VALUES('dashboard-session','fleet.shard.deleted','script_shard',$1,
+         '{"history_preserved":true,"worker_token_revoked":true,"name_reserved":true}'::jsonb)`, [id],
+    );
+    // Only current health state is cleared. Resolved alerts and all delivery history remain.
+    const healthTables = await client.query("SELECT to_regclass('tah_health_alerts') AS alerts,to_regclass('tah_component_heartbeats') AS heartbeats");
+    if (healthTables.rows[0].alerts) await client.query(
+      "UPDATE tah_health_alerts SET status='resolved',resolved_at=now(),updated_at=now() WHERE shard_id=$1 AND scope='script-fleet' AND status<>'resolved'", [id],
+    );
+    if (healthTables.rows[0].heartbeats) await client.query(
+      "DELETE FROM tah_component_heartbeats WHERE component_type='apps-script-shard' AND component_id=$1", ["shard:" + id],
+    );
+    return { deleted: true, shardId: id, alreadyDeleted: false, historyPreserved: true };
+  });
+}
+
 export async function authenticateBridgeShard(shardId: string, rawToken: string) {
   if (!rawToken) return false;
-  const result = await getPool().query("SELECT enabled,token_hash FROM tah_script_shards WHERE shard_id=$1", [shardId]);
+  const result = await getPool().query("SELECT enabled,token_hash FROM tah_script_shards WHERE shard_id=$1 AND deleted_at IS NULL", [shardId]);
   return result.rowCount === 1 && result.rows[0].enabled === true && result.rows[0].token_hash === digest(rawToken);
 }
 
@@ -533,6 +609,7 @@ export async function leaseBridgeJobs(
   const hotAdd = options.hotAdd === true && !customerId;
   if (customerId && !/^\d{10}$/.test(customerId)) throw new Error("A valid 10-digit customer filter is required");
   return await transaction(async (client) => {
+    await lockActiveShard(client, shardId);
     const missingJobs = await client.query(
       `SELECT t.target_id,latest.capture_id
          FROM tah_campaign_targets t
@@ -622,9 +699,9 @@ export async function leaseBridgeJobs(
       const leaseToken = randomBytes(32).toString("base64url");
       await client.query(
         `UPDATE tah_delivery_jobs SET state='leased',attempt_count=attempt_count+1,leased_at=now(),
-         leased_until=now()+($2||' milliseconds')::interval,lease_token_hash=$3,worker_id=$4,updated_at=now()
+         leased_until=now()+($2||' milliseconds')::interval,lease_token_hash=$3,worker_id=$4,lease_shard_id=$5,updated_at=now()
          WHERE job_id=$1`,
-        [row.job_id, LEASE_MS, digest(leaseToken), workerId],
+        [row.job_id, LEASE_MS, digest(leaseToken), workerId, shardId],
       );
       leases.push({
         jobId: String(row.job_id), leaseToken, campaignRecordId: String(row.campaign_record_id), campaignName: String(row.campaign_name),
@@ -1071,6 +1148,7 @@ export async function bridgeShardStatus() {
             s.last_execution_started_at,s.last_execution_completed_at,s.last_execution_status,
             s.expected_next_start_at,s.phase_one_stop_at,s.hard_stop_at,s.handoff_margin_ms,
             s.schedule_anchor_at,s.schedule_sample_count,s.last_invocation_id,
+            (count(t.target_id) FILTER (WHERE t.archived_at IS NULL))::int AS assigned_campaign_count,
             (count(t.target_id) FILTER (WHERE t.enabled AND t.archived_at IS NULL))::int AS campaign_count,
             COALESCE((SELECT binding.manager_customer_id FROM tah_fleet_shard_managers binding WHERE binding.shard_id=ids.shard_id),
               min(NULLIF(t.manager_customer_id,'')) FILTER (WHERE t.enabled AND t.archived_at IS NULL)) AS manager_customer_id,
@@ -1078,6 +1156,7 @@ export async function bridgeShardStatus() {
        FROM shard_ids ids
        LEFT JOIN tah_script_shards s ON s.shard_id=ids.shard_id
        LEFT JOIN tah_campaign_targets t ON t.shard_id=ids.shard_id
+      WHERE s.deleted_at IS NULL
       GROUP BY ids.shard_id,s.shard_id,s.enabled,s.last_poll_at,s.last_ack_at,s.last_error,s.updated_at,
                s.last_execution_started_at,s.last_execution_completed_at,s.last_execution_status,
                s.expected_next_start_at,s.phase_one_stop_at,s.hard_stop_at,s.handoff_margin_ms,

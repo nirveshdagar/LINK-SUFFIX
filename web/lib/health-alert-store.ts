@@ -268,6 +268,7 @@ async function readRelationalShardHealth() {
     const result = await databasePool().query(`
       SELECT
         s.shard_id AS "shardId",
+        s.deleted_at AS "deletedAt",
         s.enabled,
         GREATEST(s.last_poll_at, MAX(a.last_poll_at)) AS "lastPollAt",
         s.last_ack_at AS "lastAcknowledgedAt",
@@ -289,7 +290,7 @@ async function readRelationalShardHealth() {
         CASE WHEN s.last_execution_started_at IS NULL THEN 'relational-v8' ELSE 'relational-v9' END AS "heartbeatSource"
       FROM tah_script_shards s
       LEFT JOIN tah_script_account_activity a ON a.shard_id = s.shard_id
-      GROUP BY s.shard_id, s.enabled, s.last_poll_at, s.last_ack_at, s.last_error, s.created_at, s.updated_at,
+      GROUP BY s.shard_id, s.deleted_at, s.enabled, s.last_poll_at, s.last_ack_at, s.last_error, s.created_at, s.updated_at,
                s.last_execution_started_at,s.last_execution_completed_at,s.last_execution_status,
                s.expected_next_start_at,s.phase_one_stop_at,s.hard_stop_at,s.handoff_margin_ms,
                s.schedule_anchor_at,s.schedule_sample_count,s.last_invocation_id
@@ -611,7 +612,7 @@ async function evaluateHealth(source: string) {
     const shardId = textValue(item, "id", "shardId");
     if (shardId) mergedShards.set(shardId, { ...mergedShards.get(shardId), ...item });
   }
-  const shards = [...mergedShards.values()];
+  const shards = [...mergedShards.values()].filter((item) => !item.deletedAt);
   const deliveriesByCampaign = new Map<string, JsonRecord[]>();
   for (const item of [...deliveries, ...jobs]) {
     const campaignId = textValue(item, "campaignRecordId", "campaignId", "recordId");

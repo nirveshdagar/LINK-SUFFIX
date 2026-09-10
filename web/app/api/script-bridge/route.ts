@@ -8,6 +8,7 @@ import {
   bridgeTargetReadiness,
   createBridgeShard,
   deleteBridgeTarget,
+  deleteBridgeShard,
   enqueueBridgeCapture,
   listBridgeTargets,
   queueLatestBridgeCapture,
@@ -125,6 +126,13 @@ export async function POST(request: Request) {
       });
       return NextResponse.json({ ok: true, ...result, state: result.deleted ? "deleted" : "not_found" });
     }
+    if (action === "delete-shard") {
+      if (!hasValidApiAuth(request, { envVarName: "TAH_API_BEARER_TOKEN", scope: "control" })) {
+        return NextResponse.json({ error: "Control authentication required" }, { status: 401 });
+      }
+      const result = await deleteBridgeShard(String(body.shardId || ""), String(body.confirmedShardId || ""));
+      return NextResponse.json({ ok: true, ...result }, { headers: { "cache-control": "no-store" } });
+    }
     if (action === "generate-worker") {
       if (!hasValidApiAuth(request, { envVarName: "TAH_API_BEARER_TOKEN", scope: "control" })) return NextResponse.json({ error: "Control authentication required" }, { status: 401 });
       const shardId = normalizeFleetShardId(String(body.shardId || ""));
@@ -136,6 +144,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Bridge operation failed";
-    return NextResponse.json({ error: message }, { status: /required|invalid|already owns|not found|too large|full|at most 40|MCC|belongs/i.test(message) ? 400 : 500 });
+    return NextResponse.json({ error: message }, { status: (error as { code?: string }).code === "FLEET_SHARD_CONFLICT" ? 409 : /required|invalid|already owns|not found|too large|full|at most 40|MCC|belongs/i.test(message) ? 400 : 500 });
   }
 }
